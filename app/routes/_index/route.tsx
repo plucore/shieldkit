@@ -21,9 +21,9 @@ export default function App() {
   return (
     <div className={styles.index}>
       <div className={styles.content}>
-        <h1 className={styles.heading}>A short heading about [your app]</h1>
+        <h1 className={styles.heading}>ShieldKit</h1>
         <p className={styles.text}>
-          A tagline about [your app] that describes your value proposition.
+          The ultimate Google Merchant Center compliance scanner.
         </p>
         {showForm && (
           <Form className={styles.form} method="post" action="/auth/login">
@@ -39,16 +39,16 @@ export default function App() {
         )}
         <ul className={styles.list}>
           <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
+            <strong>10-Point GMC Audit</strong>: Instantly scan your store for
+            the exact reasons Google suspends accounts.
           </li>
           <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
+            <strong>Actionable Fixes</strong>: Get plain-English resolution
+            guides for every failed check.
           </li>
           <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
+            <strong>Free Policy Guide</strong>: Receive our GMC Survival Guide
+            with copy-paste policy templates.
           </li>
         </ul>
       </div>

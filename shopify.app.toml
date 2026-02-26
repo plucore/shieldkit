@@ -2,7 +2,7 @@
 
 client_id = "071fc51ee1ef7f358cdaed5f95922498"
 name = "ShieldKit"
-application_url = "https://example.com"
+application_url = "https://shieldkit.vercel.app"
 embedded = true
 
 [build]
@@ -29,7 +29,9 @@ shop_deletion_url = "/webhooks/shop/redact"
 scopes = "read_products,read_content,read_legal_policies"
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [ "https://shieldkit.vercel.app/auth/callback",
+  "https://shieldkit.vercel.app/auth/shopify/callback",
+  "https://shieldkit.vercel.app/api/auth/callback" ]
 
 # [product.metafields] and [metaobjects] template boilerplate removed.
 # ShieldKit is a read-only compliance scanner and does not define or mutate

@@ -16,7 +16,7 @@
  *     Security Status card + Expert GMC Support consultation CTA.
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type {
   ActionFunctionArgs,
   HeadersFunction,
@@ -28,6 +28,7 @@ import {
   useLoaderData,
   useRevalidator,
   useRouteError,
+  useSearchParams,
 } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
@@ -386,8 +387,18 @@ export default function Index() {
   const fetcher     = useFetcher<ApiScanResponse>();
   const revalidator = useRevalidator();
   const shopify     = useAppBridge();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [toastId, setToastId]         = useState<string | null>(null);
   const [allExpanded, setAllExpanded] = useState(false);
+
+  // Billing cancellation banner — shown once when redirected from billing flow.
+  const [showBillingBanner, setShowBillingBanner] = useState(
+    () => searchParams.get("billing") === "cancelled",
+  );
+  const dismissBillingBanner = useCallback(() => {
+    setShowBillingBanner(false);
+    setSearchParams((prev) => { prev.delete("billing"); return prev; }, { replace: true });
+  }, [setSearchParams]);
 
   const isScanning =
     fetcher.state === "submitting" || fetcher.state === "loading";
@@ -451,6 +462,21 @@ export default function Index() {
           {...{ dismissible: true }}
         >
           {scanError}
+        </s-banner>
+      )}
+
+      {/* ── Billing cancellation banner ──────────────────────────────────── */}
+      {showBillingBanner && (
+        <s-banner
+          tone="warning"
+          onDismiss={dismissBillingBanner}
+        >
+          You're on the Free plan. Upgrade to Pro to unlock scan history,
+          automated monitoring, and one-click fixes.
+          {/* @ts-ignore — s-button supports `url` at runtime */}
+          <s-button slot="actions" url="/app/upgrade?plan=Pro">
+            View upgrade options
+          </s-button>
         </s-banner>
       )}
 

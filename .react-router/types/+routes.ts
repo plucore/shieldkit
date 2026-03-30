@@ -58,15 +58,12 @@ type Pages = {
   "/app/upgrade": {
     params: {};
   };
-  "/app/test": {
-    params: {};
-  };
 };
 
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/webhooks/app_subscriptions/update" | "/webhooks/customers/data_request" | "/webhooks/app/scopes_update" | "/webhooks/customers/redact" | "/webhooks/app/uninstalled" | "/webhooks/shop/redact" | "/auth/login" | "/api/scan" | "/auth/*" | "/app" | "/app/billing/confirm" | "/app/dmca-takedowns" | "/app/additional" | "/app/upgrade" | "/app/test";
+    page: "/" | "/webhooks/app_subscriptions/update" | "/webhooks/customers/data_request" | "/webhooks/app/scopes_update" | "/webhooks/customers/redact" | "/webhooks/app/uninstalled" | "/webhooks/shop/redact" | "/auth/login" | "/api/scan" | "/auth/*" | "/app" | "/app/billing/confirm" | "/app/dmca-takedowns" | "/app/additional" | "/app/upgrade";
   };
   "routes/webhooks.app_subscriptions.update.tsx": {
     id: "routes/webhooks.app_subscriptions.update";
@@ -110,7 +107,7 @@ type RouteFiles = {
   };
   "routes/app.tsx": {
     id: "routes/app";
-    page: "/app" | "/app/billing/confirm" | "/app/dmca-takedowns" | "/app/additional" | "/app/upgrade" | "/app/test";
+    page: "/app" | "/app/billing/confirm" | "/app/dmca-takedowns" | "/app/additional" | "/app/upgrade";
   };
   "routes/app.billing.confirm.tsx": {
     id: "routes/app.billing.confirm";
@@ -132,10 +129,6 @@ type RouteFiles = {
     id: "routes/app._index";
     page: "/app";
   };
-  "routes/app.test.tsx": {
-    id: "routes/app.test";
-    page: "/app/test";
-  };
 };
 
 type RouteModules = {
@@ -156,5 +149,4 @@ type RouteModules = {
   "routes/app.additional": typeof import("./app/routes/app.additional.tsx");
   "routes/app.upgrade": typeof import("./app/routes/app.upgrade.tsx");
   "routes/app._index": typeof import("./app/routes/app._index.tsx");
-  "routes/app.test": typeof import("./app/routes/app.test.tsx");
 };

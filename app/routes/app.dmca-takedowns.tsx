@@ -12,7 +12,7 @@ import { authenticate } from "../shopify.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   await authenticate.admin(request);
-  return redirect("/app/pricing");
+  return redirect("/app");
 };
 
 // No default export needed — the loader always redirects.

@@ -23,7 +23,7 @@ export default function App() {
       <div className={styles.content}>
         <h1 className={styles.heading}>ShieldKit</h1>
         <p className={styles.text}>
-          The ultimate Google Merchant Center compliance scanner.
+          The ultimate Google Merchant Center compliance scanner for Shopify stores.
         </p>
         {showForm && (
           <Form className={styles.form} method="post" action="/auth/login">
@@ -37,6 +37,34 @@ export default function App() {
             </button>
           </Form>
         )}
+
+        {/* ── Pricing ── */}
+        <div className={styles.pricing}>
+          <div className={styles.pricingCard}>
+            <h2 className={styles.pricingTitle}>Free</h2>
+            <div className={styles.pricingPrice}>$0</div>
+            <ul className={styles.pricingFeatures}>
+              <li>1 full 10-point compliance scan</li>
+              <li>JSON-LD structured data theme extension</li>
+              <li>Plain-English fix instructions</li>
+              <li>Compliance score &amp; threat assessment</li>
+            </ul>
+          </div>
+          <div className={`${styles.pricingCard} ${styles.pricingCardPro}`}>
+            <h2 className={styles.pricingTitle}>Pro</h2>
+            <div className={styles.pricingPrice}>
+              $39<span className={styles.pricingInterval}>/mo</span>
+            </div>
+            <ul className={styles.pricingFeatures}>
+              <li>Unlimited compliance re-scans</li>
+              <li>AI-powered policy generation</li>
+              <li>Full scan history &amp; tracking</li>
+              <li>Ongoing compliance monitoring</li>
+              <li>Everything in Free</li>
+            </ul>
+          </div>
+        </div>
+
         <ul className={styles.list}>
           <li>
             <strong>10-Point GMC Audit</strong>: Instantly scan your store for
@@ -47,8 +75,8 @@ export default function App() {
             guides for every failed check.
           </li>
           <li>
-            <strong>Free Policy Guide</strong>: Receive our GMC Survival Guide
-            with copy-paste policy templates.
+            <strong>Stay Compliant</strong>: Protect your Google Merchant Center
+            account from suspension with ongoing monitoring.
           </li>
         </ul>
       </div>

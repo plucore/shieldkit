@@ -46,9 +46,11 @@ CREATE TABLE IF NOT EXISTS merchants (
   shopify_domain         TEXT        NOT NULL UNIQUE,
   shop_name              TEXT,
   access_token_encrypted TEXT,
-  billing_plan           TEXT        NOT NULL DEFAULT 'free',
+  tier                   TEXT        NOT NULL DEFAULT 'free' CHECK (tier IN ('free', 'pro')),
   billing_status         TEXT,
   scans_remaining        INTEGER     NOT NULL DEFAULT 1,
+  policy_gen_count       INTEGER     NOT NULL DEFAULT 0,
+  policy_gen_reset_at    TIMESTAMPTZ NOT NULL DEFAULT now() + interval '30 days',
   installed_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
   uninstalled_at         TIMESTAMPTZ,
   created_at             TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -64,6 +66,19 @@ ALTER TABLE merchants ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "merchants_shop_isolation" ON merchants
   FOR ALL
   USING (shopify_domain = current_setting('app.current_shop', true));
+
+-- ============================================================
+-- TABLE: leads
+-- Deduplication for welcome emails. One row per shop.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS leads (
+  id            UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  shop_domain   TEXT        NOT NULL UNIQUE,
+  email         TEXT        NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE leads ENABLE ROW LEVEL SECURITY;
 
 -- ============================================================
 -- TABLE: scans
@@ -105,7 +120,7 @@ CREATE TABLE IF NOT EXISTS violations (
   scan_id         UUID        NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
   check_name      TEXT        NOT NULL,
   passed          BOOLEAN     NOT NULL DEFAULT false,
-  severity        TEXT        NOT NULL CHECK (severity IN ('critical', 'warning', 'info')),
+  severity        TEXT        NOT NULL CHECK (severity IN ('critical', 'warning', 'info', 'error')),
   title           TEXT,
   description     TEXT,
   fix_instruction TEXT,

@@ -1,0 +1,39 @@
+{% comment %}
+  ShieldKit Product Schema (JSON-LD)
+
+  Renders Google-compliant Product structured data on product pages.
+  These are the exact fields that ShieldKit check 8 (structured_data_json_ld)
+  validates: name, image, description, offers (price, priceCurrency, availability).
+
+  Add this block to your product page template via the Shopify theme editor.
+{% endcomment %}
+
+{% if template contains 'product' and product %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Product",
+  "name": {{ product.title | json }},
+  "description": {{ product.description | strip_html | truncate: 5000 | json }},
+  "image": {{ product.featured_image | image_url: width: 1024 | json }},
+  {% if product.variants.first.sku != blank %}
+  "sku": {{ product.variants.first.sku | json }},
+  {% endif %}
+  "offers": {
+    "@type": "Offer",
+    "price": {{ product.price | money_without_currency | json }},
+    "priceCurrency": {{ shop.currency | json }},
+    "availability": {% if product.available %}"https://schema.org/InStock"{% else %}"https://schema.org/OutOfStock"{% endif %},
+    "url": {{ product.url | prepend: shop.url | json }}
+  }
+}
+</script>
+{% endif %}
+
+{% schema %}
+{
+  "name": "Product Schema (JSON-LD)",
+  "target": "section",
+  "settings": []
+}
+{% endschema %}

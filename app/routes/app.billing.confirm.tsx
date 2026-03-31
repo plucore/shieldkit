@@ -20,15 +20,13 @@
 
 import { redirect } from "react-router";
 import type { LoaderFunctionArgs } from "react-router";
-import { authenticate, PLANS, type PlanName } from "../shopify.server";
+import { authenticate, PLAN_PRO, type PlanName } from "../shopify.server";
 import { supabase } from "../supabase.server";
 
 // Maps the billing-config plan name → merchants.tier column value.
 // Must stay in sync with PLAN_TO_TIER in webhooks.app_subscriptions.update.tsx.
 const PLAN_TO_TIER: Record<PlanName, string> = {
-  Starter: "starter",
-  Pro:     "pro",
-  Shield:  "shield",
+  Pro: "pro",
 };
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -37,7 +35,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   let billingCheck;
   try {
     billingCheck = await billing.check({
-      plans: [...PLANS] as string[],
+      plans: [PLAN_PRO],
       isTest: process.env.NODE_ENV !== "production",
       // returnObject: true gives us the full subscription object including name
       returnObject: true,

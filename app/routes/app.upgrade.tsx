@@ -1,14 +1,13 @@
 /**
  * app/routes/app.upgrade.tsx
- * Route: /app/upgrade?plan=<Starter|Pro|Shield>
+ * Route: /app/upgrade?plan=Pro
  *
- * Triggers the Shopify hosted billing-approval flow for the requested plan.
- * The loader validates the plan param, then calls billing.request() which
- * throws a redirect (Promise<never>) — the merchant is sent to Shopify's
- * subscription confirmation page.
+ * Triggers the Shopify hosted billing-approval flow for the Pro plan.
+ * The loader calls billing.request() which throws a redirect (Promise<never>)
+ * — the merchant is sent to Shopify's subscription confirmation page.
  *
  * After the merchant approves (or declines), Shopify:
- *   1. Redirects the merchant back to returnUrl (/app)
+ *   1. Redirects the merchant back to returnUrl (/app/billing/confirm)
  *   2. Fires APP_SUBSCRIPTIONS_UPDATE webhook → webhooks.app_subscriptions.update.tsx
  *
  * isTest is enabled outside production so test charges are used during
@@ -21,7 +20,7 @@ import { useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import {
   authenticate,
-  PLANS,
+  PLAN_PRO,
   type PlanName,
 } from "../shopify.server";
 
@@ -30,16 +29,9 @@ import {
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { billing, session } = await authenticate.admin(request);
 
-  const url = new URL(request.url);
-  const planParam = url.searchParams.get("plan");
-
-  // Validate the plan exists in our billing config before calling Shopify
-  if (!planParam || !(PLANS as readonly string[]).includes(planParam)) {
-    console.warn(`[app.upgrade] Invalid plan "${planParam}" — redirecting to dashboard`);
-    return redirect("/app");
-  }
-
-  const plan = planParam as PlanName;
+  // Single plan — no validation needed. Any ?plan param is ignored;
+  // we always request the Pro plan.
+  const plan: PlanName = "Pro";
 
   // billing.request() NEVER RETURNS — it throws a redirect to Shopify's
   // subscription approval page.  After approval OR cancellation, Shopify
@@ -58,8 +50,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     `${process.env.SHOPIFY_API_KEY ?? ""}/billing/confirm`;
 
   await billing.request({
-    // `plan` is PlanName ("Starter" | "Pro" | "Shield") which matches the
-    // billing config keys exactly; cast to any to satisfy the strict generic.
     plan: plan as any,
     isTest: process.env.NODE_ENV !== "production",
     returnUrl: embeddedReturnUrl,

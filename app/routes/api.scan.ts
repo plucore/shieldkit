@@ -21,7 +21,7 @@
  *   ALTER TABLE merchants
  *     ADD COLUMN IF NOT EXISTS scans_remaining INTEGER DEFAULT 1,
  *     ADD COLUMN IF NOT EXISTS tier TEXT NOT NULL DEFAULT 'free'
- *       CHECK (tier IN ('free', 'pro', 'unlimited'));
+ *       CHECK (tier IN ('free', 'pro'));
  *
  *   -- 2. Backfill existing installed merchants with 1 free scan
  *   UPDATE merchants
@@ -55,6 +55,35 @@ function json<T>(body: T, status = 200): Response {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// In-memory rate limiting — 10 requests per hour per shop
+// ─────────────────────────────────────────────────────────────────────────────
+
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const RATE_LIMIT_MAX = 10;
+const scanRateMap = new Map<string, number[]>();
+
+function checkRateLimit(shop: string): { allowed: boolean; remaining: number; retryAfterSeconds: number } {
+  const now = Date.now();
+  const cutoff = now - RATE_LIMIT_WINDOW_MS;
+  const timestamps = (scanRateMap.get(shop) ?? []).filter((t) => t > cutoff);
+  scanRateMap.set(shop, timestamps);
+
+  if (timestamps.length >= RATE_LIMIT_MAX) {
+    const oldestInWindow = timestamps[0];
+    const retryAfterSeconds = Math.ceil((oldestInWindow + RATE_LIMIT_WINDOW_MS - now) / 1000);
+    return { allowed: false, remaining: 0, retryAfterSeconds };
+  }
+
+  return { allowed: true, remaining: RATE_LIMIT_MAX - timestamps.length, retryAfterSeconds: 0 };
+}
+
+function recordScanRequest(shop: string): void {
+  const timestamps = scanRateMap.get(shop) ?? [];
+  timestamps.push(Date.now());
+  scanRateMap.set(shop, timestamps);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Loader — reject non-POST requests gracefully
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -80,6 +109,21 @@ export async function action({ request }: ActionFunctionArgs) {
   // the session is invalid, so we never reach the logic below with a bad token.
   const { session } = await authenticate.admin(request);
   const shopDomain = session.shop; // e.g. "mystore.myshopify.com"
+
+  // ── 1b. In-memory rate limiting ──────────────────────────────────────────────
+  const rateCheck = checkRateLimit(shopDomain);
+  if (!rateCheck.allowed) {
+    return json(
+      {
+        error: "rate_limited",
+        message:
+          `Too many scan requests. You can make ${RATE_LIMIT_MAX} scan requests per hour. ` +
+          `Please try again in ${rateCheck.retryAfterSeconds} seconds.`,
+        retry_after_seconds: rateCheck.retryAfterSeconds,
+      },
+      429
+    );
+  }
 
   // ── 2. Look up merchant ──────────────────────────────────────────────────────
   const { data: merchant, error: merchantError } = await supabase
@@ -214,6 +258,9 @@ export async function action({ request }: ActionFunctionArgs) {
       newScansRemaining = decremented;
     }
   }
+
+  // ── 5b. Record successful scan for rate limiting ──────────────────────────────
+  recordScanRequest(shopDomain);
 
   // ── 6. Return complete scan results ──────────────────────────────────────────
   //

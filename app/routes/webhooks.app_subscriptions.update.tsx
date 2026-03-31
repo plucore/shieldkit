@@ -5,29 +5,21 @@
  * Handles APP_SUBSCRIPTIONS_UPDATE webhooks fired by Shopify when a merchant's
  * app subscription status changes (ACTIVE, CANCELLED, EXPIRED, etc.).
  *
- * ─── DB migration required ────────────────────────────────────────────────────
- * The merchants.tier CHECK constraint from the initial migration only includes
- * ('free', 'pro', 'unlimited'). Run the following in Supabase SQL editor to
- * expand it to cover all three plan tiers before going live:
- *
- *   ALTER TABLE merchants
- *     DROP CONSTRAINT IF EXISTS merchants_tier_check;
- *   ALTER TABLE merchants
- *     ADD CONSTRAINT merchants_tier_check
- *       CHECK (tier IN ('free', 'starter', 'pro', 'shield'));
+ * ─── DB constraint ────────────────────────────────────────────────────────────
+ * merchants.tier CHECK constraint: ('free', 'pro')
  *
  * ─── Webhook registration ─────────────────────────────────────────────────────
  * Register this endpoint in the Shopify Partner Dashboard → App → Webhooks:
  *   Topic:  App subscriptions / Update
  *   URL:    https://<your-app-url>/webhooks/app_subscriptions/update
  *
- * The subscription name in the payload will exactly match the plan keys
- * defined in shopify.server.ts (PLAN_STARTER = "Starter", etc.).
+ * The subscription name in the payload matches the billing config key
+ * defined in shopify.server.ts (PLAN_PRO = "Pro").
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
 import type { ActionFunctionArgs } from "react-router";
-import { authenticate, PLANS, type PlanName } from "../shopify.server";
+import { authenticate, PLAN_PRO, type PlanName } from "../shopify.server";
 import { supabase } from "../supabase.server";
 
 // Shape of the APP_SUBSCRIPTIONS_UPDATE webhook payload
@@ -51,9 +43,7 @@ interface AppSubscriptionPayload {
 
 // Map plan name (from billing config) → merchants.tier column value
 const PLAN_TO_TIER: Record<PlanName, string> = {
-  Starter: "starter",
-  Pro:     "pro",
-  Shield:  "shield",
+  Pro: "pro",
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -100,13 +90,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     status === "FROZEN"
   ) {
     // ── Subscription ended — downgrade to free tier ─────────────────────────
-    // scans_remaining → 0 because the merchant already used their one free
-    // scan at install time.  They must re-subscribe to run more scans.
+    // scans_remaining → 1 so the merchant retains their initial free scan
+    // allowance even after downgrade.
     const { error } = await supabase
       .from("merchants")
       .update({
         tier:             "free",
-        scans_remaining:  0,
+        scans_remaining:  1,
       })
       .eq("shopify_domain", shop);
 

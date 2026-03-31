@@ -9,18 +9,13 @@ import { SupabaseSessionStorage } from "./lib/session-storage.server";
 import { supabase } from "./supabase.server";
 import { encrypt } from "./lib/crypto.server";
 
-// ─── Plan name constants ───────────────────────────────────────────────────────
-// These string literals are used as:
-//   1. Keys in the billing config passed to shopifyApp()
-//   2. Arguments to billing.request({ plan }) in the upgrade route
+// ─── Plan name constant ───────────────────────────────────────────────────────
+// This string literal is used as:
+//   1. The key in the billing config passed to shopifyApp()
+//   2. The argument to billing.request({ plan }) in the upgrade route
 //   3. The `app_subscription.name` field in APP_SUBSCRIPTIONS_UPDATE payloads
-// Keeping them in one place ensures all three stay in sync.
-export const PLAN_STARTER = "Starter" as const;
-export const PLAN_PRO     = "Pro"     as const;
-export const PLAN_SHIELD  = "Shield"  as const;
-
-export const PLANS = [PLAN_STARTER, PLAN_PRO, PLAN_SHIELD] as const;
-export type PlanName = (typeof PLANS)[number]; // "Starter" | "Pro" | "Shield"
+export const PLAN_PRO = "Pro" as const;
+export type PlanName = typeof PLAN_PRO; // "Pro"
 
 const sessionStorage = new SupabaseSessionStorage();
 
@@ -42,28 +37,10 @@ const shopify = shopifyApp({
   // Defining plans here enables billing.require() and billing.request() on
   // the AdminContext returned by authenticate.admin().
   billing: {
-    [PLAN_STARTER]: {
-      lineItems: [
-        {
-          amount: 29.00,
-          currencyCode: "USD",
-          interval: BillingInterval.Every30Days,
-        },
-      ],
-    },
     [PLAN_PRO]: {
       lineItems: [
         {
-          amount: 49.00,
-          currencyCode: "USD",
-          interval: BillingInterval.Every30Days,
-        },
-      ],
-    },
-    [PLAN_SHIELD]: {
-      lineItems: [
-        {
-          amount: 99.00,
+          amount: 39.00,
           currencyCode: "USD",
           interval: BillingInterval.Every30Days,
         },

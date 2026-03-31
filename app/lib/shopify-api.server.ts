@@ -381,8 +381,12 @@ const SHOP_POLICIES_QUERY = /* GraphQL */ `
 `;
 
 const PRODUCTS_QUERY = /* GraphQL */ `
-  query ShieldKitProducts($first: Int!) {
-    products(first: $first) {
+  query ShieldKitProducts($first: Int!, $after: String) {
+    products(first: $first, after: $after) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
       edges {
         node {
           title
@@ -416,8 +420,12 @@ const PRODUCTS_QUERY = /* GraphQL */ `
 `;
 
 const PAGES_QUERY = /* GraphQL */ `
-  query ShieldKitPages($first: Int!) {
-    pages(first: $first) {
+  query ShieldKitPages($first: Int!, $after: String) {
+    pages(first: $first, after: $after) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
       edges {
         node {
           title
@@ -572,20 +580,24 @@ export async function getShopPolicies(
 }
 
 /**
- * Fetches products with their images and variants.
+ * Fetches products with their images and variants using cursor-based pagination.
  *
  * Returns an empty array on any failure so the scanner can still run partial
  * checks against other data sources.
  *
- * @param first Number of products to fetch. Default 50. Shopify max is 250.
+ * @param executor GraphQL executor
+ * @param maxTotal Maximum total products to fetch. Default 250.
  */
 export async function getProducts(
   executor: GraphQLExecutor,
-  first = 50
+  maxTotal = 250
 ): Promise<Product[]> {
+  const PAGE_SIZE = 50;
+
   try {
     interface RawProducts {
       products: {
+        pageInfo: { hasNextPage: boolean; endCursor: string | null };
         edges: Array<{
           node: {
             title: string;
@@ -612,40 +624,58 @@ export async function getProducts(
       };
     }
 
-    const result = await executeWithRetry<RawProducts>(
-      executor,
-      "getProducts",
-      PRODUCTS_QUERY,
-      { first }
-    );
+    const allProducts: Product[] = [];
+    let cursor: string | null = null;
 
-    if (result.errors?.length) {
-      console.error(
-        "[ShopifyAPI] getProducts GraphQL errors:",
-        JSON.stringify(result.errors, null, 2)
+    while (allProducts.length < maxTotal) {
+      const variables: { first: number; after: string | null } = {
+        first: Math.min(PAGE_SIZE, maxTotal - allProducts.length),
+        after: cursor,
+      };
+      const result = await executeWithRetry<RawProducts>(
+        executor,
+        "getProducts",
+        PRODUCTS_QUERY,
+        variables
       );
+
+      if (result.errors?.length) {
+        console.error(
+          "[ShopifyAPI] getProducts GraphQL errors:",
+          JSON.stringify(result.errors, null, 2)
+        );
+      }
+
+      const edges = result.data?.products?.edges ?? [];
+      const pageInfo: RawProducts["products"]["pageInfo"] | undefined =
+        result.data?.products?.pageInfo;
+
+      for (const { node } of edges) {
+        allProducts.push({
+          title: node.title,
+          description: node.description,
+          descriptionHtml: node.descriptionHtml,
+          handle: node.handle,
+          onlineStoreUrl: node.onlineStoreUrl ?? null,
+          images: node.images.edges.map(({ node: img }) => ({
+            url: img.url,
+            altText: img.altText ?? null,
+          })),
+          variants: node.variants.edges.map(({ node: v }) => ({
+            price: v.price,
+            compareAtPrice: v.compareAtPrice ?? null,
+            inventoryQuantity: v.inventoryQuantity ?? null,
+            sku: v.sku ?? null,
+            barcode: v.barcode ?? null,
+          })),
+        });
+      }
+
+      if (!pageInfo?.hasNextPage || allProducts.length >= maxTotal) break;
+      cursor = pageInfo.endCursor;
     }
 
-    const edges = result.data?.products?.edges ?? [];
-
-    return edges.map(({ node }): Product => ({
-      title: node.title,
-      description: node.description,
-      descriptionHtml: node.descriptionHtml,
-      handle: node.handle,
-      onlineStoreUrl: node.onlineStoreUrl ?? null,
-      images: node.images.edges.map(({ node: img }) => ({
-        url: img.url,
-        altText: img.altText ?? null,
-      })),
-      variants: node.variants.edges.map(({ node: v }) => ({
-        price: v.price,
-        compareAtPrice: v.compareAtPrice ?? null,
-        inventoryQuantity: v.inventoryQuantity ?? null,
-        sku: v.sku ?? null,
-        barcode: v.barcode ?? null,
-      })),
-    }));
+    return allProducts;
   } catch (err) {
     console.error("[ShopifyAPI] getProducts unexpected error:", err);
     return [];
@@ -653,21 +683,24 @@ export async function getProducts(
 }
 
 /**
- * Fetches online store pages (About, FAQ, etc.).
+ * Fetches online store pages (About, FAQ, etc.) using cursor-based pagination.
  *
- * Returns an empty array on any failure. The `url` field maps to Shopify's
- * `onlineStoreUrl` and is null if the page is not published to the storefront.
+ * Returns an empty array on any failure. The `url` field is always null because
+ * `onlineStoreUrl` was removed from the Page type in API 2025-10.
  *
- * @param first Number of pages to fetch. Default 20. Shopify max is 250.
+ * @param executor GraphQL executor
+ * @param maxTotal Maximum total pages to fetch. Default 100.
  */
 export async function getPages(
   executor: GraphQLExecutor,
-  first = 20
+  maxTotal = 100
 ): Promise<Page[]> {
+  const PAGE_SIZE = 50;
+
   try {
-    // onlineStoreUrl was removed from the Page type in API 2025-10.
     interface RawPages {
       pages: {
+        pageInfo: { hasNextPage: boolean; endCursor: string | null };
         edges: Array<{
           node: {
             title: string;
@@ -678,28 +711,46 @@ export async function getPages(
       };
     }
 
-    const result = await executeWithRetry<RawPages>(
-      executor,
-      "getPages",
-      PAGES_QUERY,
-      { first }
-    );
+    const allPages: Page[] = [];
+    let cursor: string | null = null;
 
-    if (result.errors?.length) {
-      console.error(
-        "[ShopifyAPI] getPages GraphQL errors:",
-        JSON.stringify(result.errors, null, 2)
+    while (allPages.length < maxTotal) {
+      const variables: { first: number; after: string | null } = {
+        first: Math.min(PAGE_SIZE, maxTotal - allPages.length),
+        after: cursor,
+      };
+      const result = await executeWithRetry<RawPages>(
+        executor,
+        "getPages",
+        PAGES_QUERY,
+        variables
       );
+
+      if (result.errors?.length) {
+        console.error(
+          "[ShopifyAPI] getPages GraphQL errors:",
+          JSON.stringify(result.errors, null, 2)
+        );
+      }
+
+      const edges = result.data?.pages?.edges ?? [];
+      const pageInfo: RawPages["pages"]["pageInfo"] | undefined =
+        result.data?.pages?.pageInfo;
+
+      for (const { node } of edges) {
+        allPages.push({
+          title: node.title,
+          body: node.body,
+          handle: node.handle,
+          url: null, // onlineStoreUrl removed from Page type in API 2025-10
+        });
+      }
+
+      if (!pageInfo?.hasNextPage || allPages.length >= maxTotal) break;
+      cursor = pageInfo.endCursor;
     }
 
-    const edges = result.data?.pages?.edges ?? [];
-
-    return edges.map(({ node }): Page => ({
-      title: node.title,
-      body: node.body,
-      handle: node.handle,
-      url: null, // onlineStoreUrl removed from Page type in API 2025-10
-    }));
+    return allPages;
   } catch (err) {
     console.error("[ShopifyAPI] getPages unexpected error:", err);
     return [];

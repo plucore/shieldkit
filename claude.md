@@ -7,7 +7,7 @@ ShieldKit is a B2B SaaS Shopify Embedded App that scans Shopify stores for Googl
 * **Module A (Current MVP):** A 10-point automated compliance scanner. Identifies suspension risks and provides plain-English fix instructions.
 * **Module B (Future/Hidden):** Automated DMCA Takedown Legal Engine. All DMCA features are deferred. `app/routes/app.dmca-takedowns.tsx` redirects to `/app`.
 
-**Business model:** Free lead-generation — unlimited scans, full audit results. Revenue comes from three paid subscription tiers (Starter $29, Pro $49, Shield $99/month) and a "Done-For-You" Gumroad service upsold via welcome email.
+**Business model:** Free + Pro ($39/mo). Free tier gets 1 full scan + JSON-LD theme extension. Pro tier gets unlimited re-scans, AI-powered policy generation (Anthropic Claude), and full scan history.
 
 ---
 
@@ -32,6 +32,7 @@ ShieldKit is a B2B SaaS Shopify Embedded App that scans Shopify stores for Googl
 | `@supabase/supabase-js` | ^2.47.0 | PostgreSQL client (service role) |
 | `cheerio` | ^1.2.0 | Server-side HTML parsing for compliance checks |
 | `resend` | ^6.9.2 | Transactional email (welcome email) |
+| `@anthropic-ai/sdk` | latest | AI policy generation (Pro feature) |
 | `isbot` | ^5.1.31 | Bot detection for streaming SSR |
 
 ### Folder Structure
@@ -40,7 +41,8 @@ app/
   routes/           # All Remix/RR7 routes (18 files)
   lib/              # Server-only business logic
     compliance-scanner.server.ts   (1614 lines — 10-check scan engine)
-    shopify-api.server.ts          (714 lines — GraphQL queries + retry)
+    shopify-api.server.ts          (paginated GraphQL queries + retry)
+    policy-generator.server.ts     (Anthropic-powered policy generation)
     session-storage.server.ts      (custom Supabase session adapter)
     crypto.server.ts               (AES-256-GCM encrypt/decrypt)
   utils/
@@ -51,11 +53,11 @@ app/
 scripts/
   outbound-scanner.ts  # Standalone CLI scanner (no OAuth)
 supabase/
-  schema.sql           # Database DDL (STALE — see Known Issues)
+  schema.sql           # Database DDL
 public/
   favicon.ico, logo-main.png
 extensions/
-  .gitkeep             # No extensions yet
+  json-ld-schema/      # Theme extension: Product JSON-LD structured data block
 ```
 
 ---
@@ -98,27 +100,28 @@ All webhooks use `authenticate.webhook(request)` which verifies `X-Shopify-Hmac-
 
 ### Billing (`app/shopify.server.ts`, `app.upgrade.tsx`, `app.billing.confirm.tsx`)
 
-**Three paid plans defined as billing config keys:**
+**Single paid plan:**
 | Constant | Plan Name | Price | Interval |
 |----------|-----------|-------|----------|
-| `PLAN_STARTER` | `"Starter"` | $29.00 USD | Every 30 days |
-| `PLAN_PRO` | `"Pro"` | $49.00 USD | Every 30 days |
-| `PLAN_SHIELD` | `"Shield"` | $99.00 USD | Every 30 days |
+| `PLAN_PRO` | `"Pro"` | $39.00 USD | Every 30 days |
 
 **Billing flow:**
-1. Merchant clicks upgrade link → GET `/app/upgrade?plan=Pro` (or Starter/Shield)
-2. `app.upgrade.tsx` loader validates plan param against `PLANS` array, calls `billing.request()` with `isTest: NODE_ENV !== 'production'`
+1. Merchant clicks upgrade link → GET `/app/upgrade?plan=Pro`
+2. `app.upgrade.tsx` loader calls `billing.request()` for the Pro plan with `isTest: NODE_ENV !== 'production'`
 3. Shopify redirects merchant to hosted approval page
 4. Return URL: `https://admin.shopify.com/store/{subdomain}/apps/{apiKey}/billing/confirm`
-5. `app.billing.confirm.tsx` loader calls `billing.check()`, maps plan name to tier:
-   - `"Starter"` → `"starter"`, `"Pro"` → `"pro"`, `"Shield"` → `"shield"`
+5. `app.billing.confirm.tsx` loader calls `billing.check()`, maps `"Pro"` → `"pro"` tier
 6. Updates merchants table: `tier = 'pro', scans_remaining = null` (null = unlimited)
 7. Redirects to `/app` (dashboard)
 8. On decline: redirects to `/app?billing=cancelled` → dashboard shows dismissible warning banner
 
-**Webhook reconciliation:** `APP_SUBSCRIPTIONS_UPDATE` webhook handles subscription lifecycle changes as a backstop. ACTIVE → upgrades tier. CANCELLED/EXPIRED/DECLINED/FROZEN → `tier='free', scans_remaining=0`.
+**Webhook reconciliation:** `APP_SUBSCRIPTIONS_UPDATE` webhook handles subscription lifecycle changes as a backstop. ACTIVE → upgrades tier. CANCELLED/EXPIRED/DECLINED/FROZEN → `tier='free', scans_remaining=1`.
 
-**Pro tier features in code:** Currently, the only gated feature is `scans_remaining`. Paid tiers get `null` (unlimited scans). Free tier gets 1 scan. No scan history page, no automated monitoring, no one-click fixes exist yet — these are mentioned in the billing banner copy as upgrade incentives.
+**Pro tier features:**
+- Unlimited re-scans (`scans_remaining = null`)
+- AI policy generation (Anthropic Claude) — generates store policies from failed checks
+- Scan history page (`/app/scan-history`) — table of past scan results
+- Free tier gets 1 scan, then sees upgrade CTA
 
 ---
 
@@ -159,7 +162,7 @@ One row per installed shop. Soft-deleted on uninstall, hard-deleted by GDPR shop
 | `shopify_domain` | TEXT NOT NULL UNIQUE | e.g. `mystore.myshopify.com` |
 | `shop_name` | TEXT | |
 | `access_token_encrypted` | TEXT | AES-256-GCM encrypted token |
-| `billing_plan` | TEXT DEFAULT 'free' | **STALE** — schema.sql says `billing_plan`, app code uses `tier`. See Known Issues. |
+| `tier` | TEXT DEFAULT 'free' CHECK ('free', 'pro') | Free or Pro tier |
 | `billing_status` | TEXT | |
 | `scans_remaining` | INTEGER DEFAULT 1 | null = unlimited (paid), 0 = exhausted, n > 0 = available |
 | `installed_at` | TIMESTAMPTZ DEFAULT now() | |
@@ -195,7 +198,7 @@ Individual check results per scan.
 | `scan_id` | UUID FK → scans(id) ON DELETE CASCADE | |
 | `check_name` | TEXT NOT NULL | e.g. `contact_information` |
 | `passed` | BOOLEAN DEFAULT false | |
-| `severity` | TEXT CHECK IN ('critical','warning','info') | Schema constraint. App code also uses 'error' (see migration note in api.scan.ts). |
+| `severity` | TEXT CHECK IN ('critical','warning','info','error') | Severity level |
 | `title`, `description`, `fix_instruction` | TEXT | Human-readable results |
 | `raw_data` | JSONB | Machine-readable check details |
 | `created_at` | TIMESTAMPTZ DEFAULT now() | |
@@ -204,7 +207,7 @@ Individual check results per scan.
 * **RLS Policy:** `violations_merchant_isolation` via scan → merchant cascade
 
 ### Table: `leads`
-**Not in schema.sql** — created directly in Supabase. Deduplication for welcome emails.
+Deduplication for welcome emails. Defined in `supabase/schema.sql`.
 
 | Column | Type | Notes |
 |--------|------|-------|
@@ -362,14 +365,14 @@ Triggered on **first scan only**. Fire-and-forget (not awaited). Deduplicated vi
 
 **Email details:**
 - **From:** `ShieldKit <am@plucore.com>`
-- **Subject:** `"Your ShieldKit Scan Results — and the Guide Google Doesn't Want You to See"`
+- **Subject:** `"Your ShieldKit Scan Results Are Ready"`
 - **Template:** HTML email with ShieldKit branding (#0f172a header).
-- **CTA 1:** "Download the GMC Survival Guide" → `https://drive.google.com/file/d/1o5bII-a8W7oNWgGCSj5JLv9bapTnklsa/view?usp=sharing`
-- **CTA 2:** "Need it fixed? Get the Done-For-You Service" → `https://plucoreuser.gumroad.com/l/shieldkit`
+- **CTA:** "View Your Results" → `https://shieldkit.vercel.app/app`
+- **Upgrade copy:** "Upgrade to Pro ($39/mo) for unlimited re-scans, AI policy generation, and full scan history."
 - **Footer:** "2026 ShieldKit by Plucore. Abu Dhabi, United Arab Emirates."
 - **Unsubscribe:** "Reply 'Unsubscribe' and we'll remove you."
 
-Note: `shopName` is interpolated into HTML without escaping (lines 76, 155). Low risk since email is sent to the merchant themselves, but technically allows HTML injection via crafted shop names.
+Note: `shopName` is interpolated into HTML without escaping. Low risk since email is sent to the merchant themselves, but technically allows HTML injection via crafted shop names.
 
 ---
 
@@ -380,11 +383,11 @@ Note: `shopName` is interpolated into HTML without escaping (lines 76, 155). Low
 | Route File | URL Path | Type | Behavior |
 |-----------|----------|------|----------|
 | `app.tsx` | `/app` (layout) | Layout | Wraps all `/app/*` routes. Provides `AppProvider` with API key, renders nav with Dashboard link, `<Outlet />` for children. |
-| `app._index.tsx` | `/app` | Loader + Action + Component (~1340 lines) | **Onboarding:** Logo + 3-step wizard + "Run Free Scan" CTA. **Dashboard:** Score banner, 4 KPI cards, 10-point checklist, aside with threat level. **Action:** Runs scan via `runComplianceScan`, fires welcome email on first scan. **Billing banner:** Shows dismissible warning when `?billing=cancelled` present (read via `useSearchParams`, cleared on dismiss with `replace: true`). Toast deduplicated via `toastId` state — only fires once per unique `scanId`. |
-| `app.upgrade.tsx` | `/app/upgrade?plan=X` | Loader only | Validates plan param against `PLANS` whitelist. Calls `billing.request()` which redirects to Shopify approval page. Never renders UI (always redirects). |
+| `app._index.tsx` | `/app` | Loader + Action + Component | **Onboarding:** Logo + 3-step wizard + "Run Free Scan" CTA. **Dashboard:** Score banner, 4 KPI cards, 10-point checklist, aside with threat level. **Actions:** `runScan` (with quota enforcement + decrement), `generatePolicy` (Pro-only AI policy generation). Fires welcome email on first scan. Billing banner on `?billing=cancelled`. Upgrade CTAs for free tier. |
+| `app.upgrade.tsx` | `/app/upgrade?plan=Pro` | Loader only | Calls `billing.request()` for Pro plan. Always redirects to Shopify approval page. |
 | `app.billing.confirm.tsx` | `/app/billing/confirm` | Loader only | Calls `billing.check()`. If active: maps plan → tier, writes `tier` + `scans_remaining=null` to Supabase, redirects to `/app`. If declined: redirects to `/app?billing=cancelled`. |
 | `app.dmca-takedowns.tsx` | `/app/dmca-takedowns` | Loader only | Redirects to `/app`. DMCA module deferred. |
-| `app.additional.tsx` | `/app/additional` | Component | Boilerplate template page (unused). |
+| `app.scan-history.tsx` | `/app/scan-history` | Loader + Component | Pro-gated scan history. Free tier redirected to `/app?upgrade=scan-history`. |
 
 ### API routes
 
@@ -438,7 +441,7 @@ Custom class implementing Shopify's `SessionStorage` interface:
 | `PRODUCTS_QUERY` | `$first: Int` (default 50) | `title, description, descriptionHtml, handle, onlineStoreUrl, images(first:5) {url,altText}, variants(first:10) {price,compareAtPrice,inventoryQuantity,sku,barcode}` |
 | `PAGES_QUERY` | `$first: Int` (default 20) | `title, body, handle` (no url — `onlineStoreUrl` removed from Page type in API 2025-10) |
 
-**No pagination** — queries use `first: N` without `hasNextPage`/cursor. Stores with > 50 products or > 20 pages get incomplete data.
+**Cursor-based pagination** — `getProducts()` paginates up to 250 products (50 per page), `getPages()` up to 100 pages (50 per page). Both use `pageInfo { hasNextPage endCursor }` for cursor iteration.
 
 **Retry logic** (`executeWithRetry`): Max 3 retries, 500ms base delay (exponential backoff). Detects THROTTLED errors and retries. Logs query cost on every response.
 
@@ -502,7 +505,7 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 * **`maybeSingle()` not `single()`** — Prevents 406 errors on missing rows.
 * **Billing return flow** — `billing.request()` returns to `/app/billing/confirm` (not `/app`) so tier is written to Supabase synchronously before dashboard loads. Webhook is backup.
 * **Welcome email fire-and-forget** — Sent on first scan, deduplicated via `leads` table, not awaited, silent on failure.
-* **Two scan entry points** — Dashboard form submit (`app._index.tsx` action) for the UI, and `api.scan.ts` for programmatic access. The dashboard action does NOT enforce `scans_remaining` quota (unlimited free scans). The API endpoint does.
+* **Two scan entry points** — Dashboard form submit (`app._index.tsx` action) for the UI, and `api.scan.ts` for programmatic access. Both enforce `scans_remaining` quota and decrement after successful scan.
 * **safeCheck() wrapper** — Every individual compliance check is wrapped so exceptions become severity "error" results instead of failing the entire scan.
 * **Polaris web component type gaps** — Props like `url`, `submit`, `loading` (as string) work at runtime but aren't in TS type defs. Codebase uses `@ts-ignore` or `{...(condition ? { prop: "" } : {})}` spread patterns. This is expected; do not try to fix these.
 * **Streaming SSR** — `entry.server.tsx` uses `renderToPipeableStream`. Bots get `onAllReady` (full render), humans get `onShellReady` (early streaming). 5s timeout.
@@ -511,25 +514,15 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 
 ## 12. Known Issues
 
-### Schema Drift (Critical)
-* **`billing_plan` vs `tier`** — `supabase/schema.sql` defines column `merchants.billing_plan` but all app code (`api.scan.ts`, `app._index.tsx`, `app.billing.confirm.tsx`, webhooks) references `merchants.tier`. The live DB was altered manually. Schema file won't work for fresh deployments.
-* **`leads` table missing from schema.sql** — Created directly in Supabase, not tracked.
-* **`merchants.tier` CHECK constraint** — `api.scan.ts` header documents a migration to add `tier TEXT CHECK (tier IN ('free', 'pro', 'unlimited'))`, but billing code uses `('free', 'starter', 'pro', 'shield')`. The webhook file documents the correct 4-value constraint. Unclear if applied to live DB.
-* **`violations.severity` CHECK** — Schema allows `('critical', 'warning', 'info')` but scanner can produce `'error'` severity. `api.scan.ts` documents a migration to add `'error'` to the constraint.
-
 ### Medium
-* **No `app.pricing.tsx` route** — No standalone pricing page. Upgrade links go directly to `/app/upgrade?plan=X`.
-* **No `app.scan-history.tsx` route** — No way to view past scans. Only the latest scan is shown.
-* **GraphQL queries not paginated** — `getProducts` fetches `first: 50`, `getPages` fetches `first: 20`. No `hasNextPage`/cursor logic. Stores with more items get incomplete scans.
 * **No rate limiting on `/api/scan`** — Only gated by `scans_remaining` and Shopify auth.
 * **Race condition on scan quota** — `scans_remaining` is read then decremented in separate queries. Concurrent requests can both pass the check.
 * **Scopes fallback mismatch** — `shopify.server.ts` falls back to `"read_products,read_content"` when `SCOPES` env var is missing, but `shopify.app.toml` declares `read_products,read_content,read_legal_policies`. In practice the CLI injects the full set.
 * **No SSRF protection in in-app scanner** — `fetchPublicPage()` in `compliance-scanner.server.ts` follows arbitrary URLs without DNS/IP validation. The outbound scanner has this protection but it was not ported.
+* **Live DB schema may need migration** — The live Supabase DB may still have the old `billing_plan` column name and old CHECK constraints. Run the updated `supabase/schema.sql` or apply targeted ALTER statements.
 
 ### Low
-* **Duplicate `.gitignore` entries** — `.env`, `node_modules/`, `.shopify/`, etc. listed twice.
 * **`feature/pro-tier` local branch** — Exists locally but not pushed to remote. Unknown state.
-* **`app.additional.tsx`** — Unused boilerplate template page from Shopify scaffold.
 
 ---
 
@@ -550,7 +543,9 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 ### Optional
 | Variable | Used By | Purpose |
 |----------|---------|---------|
+| `ANTHROPIC_API_KEY` | `policy-generator.server.ts` | Required for AI policy generation (Pro feature) |
 | `GOOGLE_PAGESPEED_API_KEY` | `compliance-scanner.server.ts`, `outbound-scanner.ts` | Higher PageSpeed API quota. Without it, check 9 may be rate-limited. |
+| `CRON_SECRET` | `api.cron.weekly-scan.ts` | Bearer token for authenticating Vercel Cron weekly scan endpoint |
 | `SHOP_CUSTOM_DOMAIN` | `shopify.server.ts` | Custom Shopify domain support |
 | `PORT` | `vite.config.ts` | Server port (default 3000) |
 | `NODE_ENV` | Various | Controls billing `isTest` flag, Supabase singleton caching |
@@ -563,8 +558,7 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 | Shopify Billing API | Subscription management | Via `billing.request()` / `billing.check()` |
 | Google PageSpeed Insights | Mobile performance scoring | `https://www.googleapis.com/pagespeedonline/v5/runPagespeed` |
 | Resend | Transactional email | Via `resend` npm package |
-| Google Drive | Hosts GMC Survival Guide PDF | `https://drive.google.com/file/d/1o5bII-a8W7oNWgGCSj5JLv9bapTnklsa/` |
-| Gumroad | Done-For-You service sales page | `https://plucoreuser.gumroad.com/l/shieldkit` |
+| Anthropic API | AI policy generation (Pro feature) | Via `@anthropic-ai/sdk` npm package |
 
 ---
 
@@ -601,9 +595,8 @@ CMD ["npm", "run", "docker-start"]
 
 ## 15. Next Priorities (in order)
 
-1. **Sync `supabase/schema.sql`** — Rename `billing_plan` to `tier`, add `leads` table, fix CHECK constraints for both `tier` and `severity` columns.
-2. **Build `app.pricing.tsx`** — Standalone pricing page showing Free, Starter ($29), Pro ($49), Shield ($99) with feature comparison.
-3. **Build `app.scan-history.tsx`** — Table of past scans. Consider gating behind paid tiers.
-4. **Add pagination to GraphQL queries** — `getProducts` and `getPages` need cursor-based pagination for stores with > 50 products.
-5. **Port SSRF protection** — Copy DNS resolution + private IP blocking from `outbound-scanner.ts` into `compliance-scanner.server.ts`'s `fetchPublicPage()`.
-6. **Clean up `.gitignore`** — Remove duplicate entries.
+1. **Apply live DB migration** — Run ALTER statements on Supabase to rename `billing_plan` → `tier`, update CHECK constraints, add `leads` table if not present.
+2. **Port SSRF protection** — Copy DNS resolution + private IP blocking from `outbound-scanner.ts` into `compliance-scanner.server.ts`'s `fetchPublicPage()`.
+3. **Build `app.pricing.tsx`** — Standalone pricing page showing Free vs Pro ($39/mo) feature comparison.
+4. **Add rate limiting to `/api/scan`** — Prevent abuse beyond `scans_remaining` quota gating.
+5. **Deploy JSON-LD theme extension** — Run `shopify app deploy` to register the `json-ld-schema` theme extension.

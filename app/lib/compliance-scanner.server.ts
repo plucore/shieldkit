@@ -13,6 +13,7 @@
  *   5. Return the full scan + violations to the caller.
  */
 
+import dns from "node:dns/promises";
 import { load as cheerioLoad } from "cheerio";
 import {
   createAdminClient,
@@ -651,15 +652,63 @@ interface PageFetchResult {
   html: string | null;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SSRF Prevention — DNS resolution + private IP blocking
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PRIVATE_IP_PATTERNS: RegExp[] = [
+  /^127\./,                          // 127.0.0.0/8  — IPv4 loopback
+  /^10\./,                           // 10.0.0.0/8   — RFC1918 private
+  /^172\.(1[6-9]|2\d|3[01])\./,     // 172.16.0.0/12 — RFC1918 private
+  /^192\.168\./,                     // 192.168.0.0/16 — RFC1918 private
+  /^169\.254\./,                     // 169.254.0.0/16 — link-local (AWS metadata)
+  /^0\.0\.0\.0$/,                    // unspecified
+  /^::1$/,                           // IPv6 loopback
+  /^fc[0-9a-f]{2}:/i,               // IPv6 unique local fc00::/7
+  /^fd[0-9a-f]{2}:/i,               // IPv6 unique local fd00::/8
+];
+
+function isPrivateAddress(ip: string): boolean {
+  return PRIVATE_IP_PATTERNS.some((re) => re.test(ip));
+}
+
+/**
+ * Resolves all A/AAAA records for a hostname and rejects any that point to
+ * private/loopback/link-local addresses. Returns true if safe to fetch.
+ */
+async function isHostSafe(hostname: string): Promise<boolean> {
+  try {
+    const addresses = await dns.lookup(hostname, { all: true });
+    for (const { address } of addresses) {
+      if (isPrivateAddress(address)) {
+        console.warn(
+          `[SSRF] Blocked fetch: "${hostname}" resolves to private address ${address}`
+        );
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    // DNS resolution failed — treat as unsafe
+    return false;
+  }
+}
+
 /**
  * Fetches a public URL with a configurable timeout.
  * Returns null on network failure or timeout; never throws.
+ * Includes SSRF protection via DNS pre-check.
  */
 async function fetchPublicPage(
   url: string,
   timeoutMs = 10_000
 ): Promise<{ status: number; html: string } | null> {
   try {
+    const hostname = new URL(url).hostname;
+    if (!(await isHostSafe(hostname))) {
+      return null;
+    }
+
     const res = await fetch(url, {
       signal: AbortSignal.timeout(timeoutMs),
       headers: {

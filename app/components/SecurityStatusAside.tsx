@@ -38,7 +38,12 @@ export default function SecurityStatusAside({
   }
 
   return (
-    <s-section slot="aside" heading="Security Status">
+    <s-section slot="aside">
+      <div style={{ marginBottom: "12px" }}>
+        <div style={{ fontSize: "16px", fontWeight: 700, color: "#0f172a" }}>
+          Security Status
+        </div>
+      </div>
       {score !== null ? (
         <div style={{ padding: "4px 0" }}>
           <div style={{ textAlign: "center", marginBottom: "12px" }}>

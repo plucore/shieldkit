@@ -9,4 +9,4 @@ type = "theme"
   [[extensions.blocks]]
   name = "Product Schema (JSON-LD)"
   template = "blocks/product-schema.liquid"
-  target = "section"
+  target = "body"

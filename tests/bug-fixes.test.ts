@@ -117,6 +117,26 @@ describe("Web component click handling (useWebComponentClick)", () => {
     expect(content).not.toMatch(/<s-button.*onClick/);
   });
 
+  it("UpgradeCard supports sidebar prop", () => {
+    const content = fs.readFileSync(
+      path.join(APP_DIR, "components/UpgradeCard.tsx"),
+      "utf-8"
+    );
+    expect(content).toContain("sidebar");
+    expect(content).toContain('slot: "aside"');
+  });
+
+  it("AuditChecklist uses native <button> for policy generation (not <s-button>)", () => {
+    const content = fs.readFileSync(
+      path.join(APP_DIR, "components/AuditChecklist.tsx"),
+      "utf-8"
+    );
+    expect(content).toContain("policyFetcher.submit(");
+    expect(content).toContain("Generate Policy with AI");
+    // Should not use <s-button submit=""> for form submission
+    expect(content).not.toContain('submit=""');
+  });
+
   const dashContent = fs.readFileSync(
     path.join(APP_DIR, "routes/app._index.tsx"),
     "utf-8"
@@ -216,6 +236,20 @@ describe("Scan History navigation", () => {
     expect(scanHistoryContent).toContain("if (err instanceof Response) throw err");
   });
 
+  it("app.scan-history.tsx returns tier data instead of redirecting free users", () => {
+    // Should NOT redirect free users (that breaks embedded apps)
+    expect(scanHistoryContent).not.toContain('redirect("/app?upgrade=scan-history")');
+    // Should return tier info in loader data
+    expect(scanHistoryContent).toContain('"free"');
+    expect(scanHistoryContent).toContain('"pro"');
+    expect(scanHistoryContent).toContain("tier");
+  });
+
+  it("app.scan-history.tsx shows upgrade prompt for free users", () => {
+    expect(scanHistoryContent).toContain("Upgrade to Pro");
+    expect(scanHistoryContent).toContain("useWebComponentClick");
+  });
+
   it("app.tsx uses NavMenu from @shopify/app-bridge-react for navigation", () => {
     expect(appContent).toContain("NavMenu");
     expect(appContent).toMatch(/import\s*\{[^}]*NavMenu[^}]*\}\s*from\s*"@shopify\/app-bridge-react"/);
@@ -252,14 +286,15 @@ describe("JSON-LD extension visibility", () => {
     expect(dashContent).toContain("Free JSON-LD Structured Data");
   });
 
-  it("JSON-LD section explains how to enable the extension", () => {
-    expect(dashContent).toContain("Customize");
-    expect(dashContent).toContain("Add app block");
-    expect(dashContent).toContain("ShieldKit Product Schema");
+  it("JSON-LD section has one-click enable button with deep link", () => {
+    expect(dashContent).toContain("Enable JSON-LD");
+    expect(dashContent).toContain("activateAppId");
+    expect(dashContent).toContain("json-ld-schema");
   });
 
   it("JSON-LD section is in the aside (visible to all tiers)", () => {
-    expect(dashContent).toContain('slot="aside" heading="Free JSON-LD Structured Data"');
+    expect(dashContent).toContain('slot="aside"');
+    expect(dashContent).toContain("Free JSON-LD Structured Data");
   });
 });
 
@@ -382,6 +417,29 @@ describe("Shared types and helpers extraction", () => {
     );
     expect(content).toContain("SCORE_GREEN");
     expect(content).toContain("BRAND_COLOR");
+  });
+});
+
+// ─── JSON-LD extension structure ─────────────────────────────────────────────
+
+describe("JSON-LD extension", () => {
+  it("locales/en.default.json exists (fixes ENOENT during dev)", () => {
+    const localesPath = path.resolve(
+      ROOT_DIR,
+      "extensions/json-ld-schema/locales/en.default.json"
+    );
+    expect(fs.existsSync(localesPath)).toBe(true);
+    const content = JSON.parse(fs.readFileSync(localesPath, "utf-8"));
+    expect(content.name).toBeDefined();
+  });
+
+  it("extension uses body target for app embed", () => {
+    const tomlPath = path.resolve(
+      ROOT_DIR,
+      "extensions/json-ld-schema/shopify.extension.toml"
+    );
+    const content = fs.readFileSync(tomlPath, "utf-8");
+    expect(content).toContain('target = "body"');
   });
 });
 

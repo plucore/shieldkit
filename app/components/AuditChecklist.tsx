@@ -189,27 +189,34 @@ export default function AuditChecklist({
                       {merchant?.tier === "pro" &&
                         ["refund_return_policy", "shipping_policy", "privacy_and_terms"].includes(check.check_name) && (
                         <div style={{ marginTop: "10px" }}>
-                          <policyFetcher.Form method="post">
-                            <input type="hidden" name="action" value="generatePolicy" />
-                            <input
-                              type="hidden"
-                              name="policyType"
-                              value={
+                          <button
+                            type="button"
+                            disabled={isGeneratingPolicy}
+                            onClick={() => {
+                              const policyType =
                                 check.check_name === "refund_return_policy" ? "refund"
                                 : check.check_name === "shipping_policy" ? "shipping"
                                 : check.check_name === "privacy_and_terms" ? "privacy"
-                                : "terms"
-                              }
-                            />
-                            {/* @ts-ignore — s-button supports submit at runtime */}
-                            <s-button
-                              variant="secondary"
-                              submit=""
-                              {...(isGeneratingPolicy ? { loading: "" } : {})}
-                            >
-                              {isGeneratingPolicy ? "Generating…" : "Generate Policy with AI"}
-                            </s-button>
-                          </policyFetcher.Form>
+                                : "terms";
+                              policyFetcher.submit(
+                                { action: "generatePolicy", policyType },
+                                { method: "POST" },
+                              );
+                            }}
+                            style={{
+                              fontSize: "13px",
+                              fontWeight: 600,
+                              color: "#0f172a",
+                              background: "#f1f5f9",
+                              border: "1px solid #cbd5e1",
+                              borderRadius: "8px",
+                              padding: "8px 16px",
+                              cursor: isGeneratingPolicy ? "wait" : "pointer",
+                              opacity: isGeneratingPolicy ? 0.7 : 1,
+                            }}
+                          >
+                            {isGeneratingPolicy ? "Generating…" : "Generate Policy with AI"}
+                          </button>
                         </div>
                       )}
                     </div>

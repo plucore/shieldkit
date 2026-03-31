@@ -77,6 +77,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   if (!merchant) {
     return {
+      shopDomain,
       merchant:          null as Merchant | null,
       latestScan:        null as Scan | null,
       previousScan:      null as Scan | null,
@@ -185,6 +186,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   }
 
   return {
+    shopDomain,
     merchant,
     latestScan,
     previousScan,
@@ -398,6 +400,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
 export default function Index() {
   const {
+    shopDomain,
     merchant,
     latestScan,
     previousScan,
@@ -742,11 +745,8 @@ export default function Index() {
             skippedCount={skippedCount}
           />
 
-          {/* ── Upgrade CTA for free-tier users who have used their scan ── */}
-          {freeUserUsedScan && <UpgradeCard onUpgrade={navigateToUpgrade} />}
-
-          {/* ── Inline upgrade banner for free users with remaining scans ── */}
-          {merchant.tier !== "pro" && !freeUserUsedScan && sortedChecks.length > 0 && (
+          {/* ── Inline upgrade banner for free users ── */}
+          {merchant.tier !== "pro" && sortedChecks.length > 0 && (
             <s-section>
               <s-banner tone="info">
                 Upgrade to Pro ($39/mo) for unlimited re-scans, AI policy
@@ -795,8 +795,18 @@ export default function Index() {
         previousScan={previousScan}
       />
 
+      {/* Upgrade CTA for free-tier users (sidebar) */}
+      {merchant && merchant.tier !== "pro" && !showOnboarding && (
+        <UpgradeCard onUpgrade={navigateToUpgrade} sidebar />
+      )}
+
       {/* Free JSON-LD Extension */}
-      <s-section slot="aside" heading="Free JSON-LD Structured Data">
+      <s-section slot="aside">
+        <div style={{ marginBottom: "12px" }}>
+          <div style={{ fontSize: "16px", fontWeight: 700, color: "#0f172a" }}>
+            Free JSON-LD Structured Data
+          </div>
+        </div>
         <div
           style={{
             display: "flex",
@@ -805,40 +815,38 @@ export default function Index() {
           }}
         >
           <s-paragraph>
-            Your ShieldKit installation includes a free theme extension that
-            adds correct Product JSON-LD structured data to every product page
-            — helping you pass compliance check #8 and improve Google Shopping
-            visibility.
+            Adds correct Product structured data to every product page to help
+            Google Shopping index your products.
           </s-paragraph>
-          <s-paragraph>
-            <strong>Enable it:</strong> Online Store &rarr; Themes &rarr;
-            Customize &rarr; Add app block &rarr; ShieldKit Product Schema
-            (JSON-LD).
-          </s-paragraph>
+          <a
+            href={`https://${shopDomain}/admin/themes/current/editor?context=apps&activateAppId=5f84566a-b42f-516d-7eec-00f7f6b2169e317fee21/json-ld-schema`}
+            target="_top"
+            style={{ textDecoration: "none" }}
+          >
+            <s-button variant="primary">Enable JSON-LD</s-button>
+          </a>
+          <div
+            style={{
+              fontSize: "12px",
+              color: "var(--p-color-text-subdued, #6d7175)",
+            }}
+          >
+            Opens your theme editor. Click Save to activate.
+          </div>
         </div>
       </s-section>
 
       {/* About ShieldKit */}
-      <s-section slot="aside" heading="About ShieldKit">
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "12px",
-          }}
-        >
-          <s-paragraph>
-            ShieldKit helps Shopify merchants stay compliant with Google
-            Merchant Center policies so their stores are never unexpectedly
-            suspended from Google Shopping.
-          </s-paragraph>
-          <s-paragraph>
-            Run a scan at any time to get an up-to-date picture of your
-            store's compliance health. Each check maps directly to a GMC
-            policy requirement, and every failed check includes a plain-English
-            resolution guide so you always know exactly what to fix.
-          </s-paragraph>
+      <s-section slot="aside">
+        <div style={{ marginBottom: "12px" }}>
+          <div style={{ fontSize: "16px", fontWeight: 700, color: "#0f172a" }}>
+            About ShieldKit
+          </div>
         </div>
+        <s-paragraph>
+          ShieldKit scans your store against Google Merchant Center policies
+          and shows you exactly what to fix to avoid suspension.
+        </s-paragraph>
       </s-section>
 
     </s-page>

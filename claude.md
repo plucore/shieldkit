@@ -562,7 +562,12 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 * **Scan History navigation broke out of iframe** — Changed from `<s-app-nav>` + `<a>` tags to `NavMenu` from `@shopify/app-bridge-react` with `<a>` children and `rel="home"` on the Dashboard link. `NavMenu` wraps App Bridge's `<ui-nav-menu>` and handles embedded navigation correctly.
 * **Upgrade button did nothing when clicked** — Went through 3 iterations: (1) `<s-button url="...">` triggered full page reloads, (2) `<s-button onClick={...}>` didn't fire because React synthetic events don't work on web components, (3) Final fix: all buttons use `useWebComponentClick` hook with native DOM `addEventListener` via refs. The upgrade route (`app.upgrade.tsx`) also has `billing.check()` pre-check, try/catch error handling, and `ErrorBoundary`.
 * **Scan History loader had no error handling** — Added try/catch with `console.error` logging and graceful fallback. Response objects (redirects) are re-thrown.
-* **JSON-LD extension not visible** — Merchants had no way to discover the free JSON-LD theme extension. Added an "Free JSON-LD Structured Data" card in the dashboard aside (visible to all tiers) with enable instructions.
+* **JSON-LD extension not visible** — Merchants had no way to discover the free JSON-LD theme extension. Added an "Free JSON-LD Structured Data" card in the dashboard aside (visible to all tiers) with one-click enable deep link.
+* **Generate Policy button did nothing** — Same root cause as upgrade buttons: `<s-button submit="">` inside a `<Form>` doesn't participate in native form submission because web components don't integrate with the DOM form API. Fixed: replaced with native `<button>` that calls `policyFetcher.submit()` directly.
+* **Scan History redirected free users to login page** — `redirect("/app?upgrade=scan-history")` broke out of the embedded iframe. Fixed: loader now returns `tier` data, component conditionally renders an upgrade prompt for free users instead of redirecting.
+* **Upgrade card was in wrong location** — Moved from main content area to sidebar (between Security Status and JSON-LD cards). `UpgradeCard` now accepts a `sidebar` prop for compact aside layout.
+* **Sidebar headings too small** — Replaced `heading="..."` attribute on `<s-section>` with custom heading divs at 16px/700 weight for proper visual hierarchy.
+* **JSON-LD extension missing locales** — Created `extensions/json-ld-schema/locales/en.default.json` to fix ENOENT error during dev. Changed extension target from `section` to `body` for app embed block (JSON-LD is a script tag with no visible UI).
 
 ---
 
@@ -606,7 +611,7 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 
 * **Framework:** Vitest (dev dependency). Config in `vitest.config.ts`.
 * **Run:** `npm test` (alias for `vitest run`).
-* **Test file:** `tests/bug-fixes.test.ts` — 46 regression tests covering unicode rendering, web component click handling, scan decrement logic, navigation setup, billing flow, component extraction, shared types/helpers, and hooks.
+* **Test file:** `tests/bug-fixes.test.ts` — 52 regression tests covering unicode rendering, web component click handling, scan decrement logic, navigation setup, billing flow, component extraction, shared types/helpers, hooks, policy generation, scan history upgrade prompt, and JSON-LD extension.
 * **Note:** Tests that import route modules directly will fail without env vars (`SUPABASE_URL`, etc.) since module initialization triggers `supabase.server.ts`. Tests use file-content assertions (regex/string matching) to avoid this.
 
 ---

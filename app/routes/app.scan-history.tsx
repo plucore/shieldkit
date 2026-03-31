@@ -5,15 +5,16 @@
  * Pro-gated scan history page. Shows a table of past compliance scans
  * with score, critical/warning/info counts, and date.
  *
- * Free-tier merchants are redirected to the dashboard with an upgrade prompt.
+ * Free-tier merchants see an upgrade prompt instead of a redirect.
  */
 
-import { redirect } from "react-router";
 import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
-import { useLoaderData } from "react-router";
+import { useLoaderData, useNavigate } from "react-router";
+import { useCallback } from "react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
+import { useWebComponentClick } from "../hooks/useWebComponentClick";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -24,6 +25,11 @@ interface ScanRow {
   warning_count: number | null;
   info_count: number | null;
   created_at: string;
+}
+
+interface LoaderData {
+  tier: "free" | "pro";
+  scans: ScanRow[];
 }
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -44,7 +50,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     }
 
     if (!merchant || merchant.tier !== "pro") {
-      return redirect("/app?upgrade=scan-history");
+      return { tier: "free" as const, scans: [] as ScanRow[] };
     }
 
     // Fetch scan history
@@ -61,20 +67,78 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       console.error("[scan-history] Failed to fetch scans:", error.message);
     }
 
-    return { scans: (scans ?? []) as ScanRow[] };
+    return { tier: "pro" as const, scans: (scans ?? []) as ScanRow[] };
   } catch (err) {
-    // Re-throw Response objects (redirects from authenticate.admin or redirect())
+    // Re-throw Response objects (redirects from authenticate.admin)
     if (err instanceof Response) throw err;
     console.error("[scan-history] Loader error:", err);
-    return { scans: [] as ScanRow[] };
+    return { tier: "free" as const, scans: [] as ScanRow[] };
   }
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function ScanHistoryPage() {
-  const { scans } = useLoaderData<typeof loader>() as { scans: ScanRow[] };
+  const { tier, scans } = useLoaderData<typeof loader>() as LoaderData;
+  const navigate = useNavigate();
 
+  const navigateToUpgrade = useCallback(
+    () => navigate("/app/upgrade?plan=Pro"),
+    [navigate],
+  );
+  const upgradeRef = useWebComponentClick<HTMLElement>(navigateToUpgrade);
+
+  // ── Free tier: upgrade prompt ──────────────────────────────────────────────
+  if (tier !== "pro") {
+    return (
+      // @ts-ignore — s-page heading prop works at runtime
+      <s-page heading="Scan History">
+        <s-section>
+          <s-card>
+            <div style={{ textAlign: "center", padding: "40px 20px" }}>
+              <div
+                style={{
+                  fontSize: "48px",
+                  marginBottom: "16px",
+                }}
+              >
+                &#128202;
+              </div>
+              <div
+                style={{
+                  fontSize: "20px",
+                  fontWeight: 700,
+                  color: "#0f172a",
+                  marginBottom: "8px",
+                }}
+              >
+                Upgrade to Pro to Access Scan History
+              </div>
+              <div
+                style={{
+                  fontSize: "14px",
+                  color: "var(--p-color-text-subdued, #6d7175)",
+                  marginBottom: "24px",
+                  maxWidth: "400px",
+                  margin: "0 auto 24px",
+                  lineHeight: 1.5,
+                }}
+              >
+                Track your compliance progress over time. Pro merchants get
+                unlimited re-scans, full scan history, AI policy generation,
+                and weekly automated monitoring.
+              </div>
+              <s-button variant="primary" ref={upgradeRef}>
+                Upgrade to Pro — $39/mo
+              </s-button>
+            </div>
+          </s-card>
+        </s-section>
+      </s-page>
+    );
+  }
+
+  // ── Pro tier: scan history table ───────────────────────────────────────────
   return (
     // @ts-ignore — s-page heading prop works at runtime
     <s-page heading="Scan History">

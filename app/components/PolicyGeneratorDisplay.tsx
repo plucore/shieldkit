@@ -28,8 +28,23 @@ export default function PolicyGeneratorDisplay({
     <>
       {policyLimitMessage && (
         <s-section>
-          <s-banner tone="warning" onDismiss={onDismissLimit}>
+          <s-banner tone="warning">
             {policyLimitMessage}
+            <button
+              slot="actions"
+              onClick={onDismissLimit}
+              style={{
+                fontSize: "13px",
+                fontWeight: 600,
+                color: "var(--p-color-text-subdued, #6d7175)",
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                textDecoration: "underline",
+              }}
+            >
+              Dismiss
+            </button>
           </s-banner>
         </s-section>
       )}

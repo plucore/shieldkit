@@ -70,11 +70,6 @@ export async function runComplianceScan(
   shopifyDomain: string,
   scanType: "manual" | "automated" = "manual"
 ): Promise<ComplianceScanResult> {
-  console.log(
-    `[Scanner] Starting ${scanType} scan for ${shopifyDomain} (merchant: ${merchantId})`
-  );
-  const startedAt = Date.now();
-
   // ── 1. Initialise the Shopify data pipeline ─────────────────────────────────
   const executor = await createAdminClient(shopifyDomain);
 
@@ -85,11 +80,6 @@ export async function runComplianceScan(
     getProducts(executor, 50),
     getPages(executor, 20),
   ]);
-
-  console.log(
-    `[Scanner] Shopify data fetched in ${Date.now() - startedAt}ms — ` +
-      `products: ${products.length}, pages: ${pages.length}`
-  );
 
   // ── 3. Pre-fetch public storefront pages (shared by checks 6, 7, 8) ─────────
   // Prefer the custom domain; fall back to the myshopify domain.
@@ -114,12 +104,6 @@ export async function runComplianceScan(
     status: rawProductFetches[i]?.status ?? null,
     html: rawProductFetches[i]?.html ?? null,
   }));
-
-  console.log(
-    `[Scanner] Storefront fetches complete in ${Date.now() - startedAt}ms — ` +
-      `homepage: HTTP ${homepageFetch?.status ?? "failed"}, ` +
-      `product pages sampled: ${productPageUrls.length}`
-  );
 
   // ── 4. Run all 10 checks ────────────────────────────────────────────────────
   // Every call goes through safeCheck() so a single check throwing never
@@ -200,13 +184,6 @@ export async function runComplianceScan(
       ? Math.round((passedChecks / scorableTotalChecks) * 10_000) / 100
       : 0;
 
-  console.log(
-    `[Scanner] Results — score: ${complianceScore}%, ` +
-      `passed: ${passedChecks}/${totalChecks}, ` +
-      `critical: ${criticalCount}, warning: ${warningCount}, ` +
-      `info: ${infoCount}, errors: ${errorCount}`
-  );
-
   // ── 6. Persist: INSERT scan row ──────────────────────────────────────────────
   const { data: scanData, error: scanError } = await supabase
     .from("scans")
@@ -255,9 +232,6 @@ export async function runComplianceScan(
       violationsError.message
     );
   }
-
-  const elapsed = Date.now() - startedAt;
-  console.log(`[Scanner] Scan ${scanId} complete in ${elapsed}ms.`);
 
   return {
     scan: scanData as ScanRecord,

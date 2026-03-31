@@ -117,7 +117,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     previousScan = prevRow as Scan | null;
   }
 
-  // Fetch last automated scan (for Pro weekly monitoring display)
+  // Fetch last automated scan (for Pro automated scan comparison)
   let lastAutomatedScan: Scan | null = null;
   if (merchant.tier === "pro") {
     const { data: autoRow } = await supabase
@@ -520,7 +520,7 @@ export default function Index() {
             ref={rescanRef}
             {...(isScanning ? { loading: "" } : {})}
           >
-            {isScanning ? "Scanning…" : "Re-run Scan"}
+            {isScanning ? "Scanning…" : "Re-Scan My Store"}
           </s-button>
         ) : (
           <s-button
@@ -528,7 +528,7 @@ export default function Index() {
             variant="primary"
             ref={upgradeRef1}
           >
-            Upgrade to Pro
+            Unlock Full Scanner — $29 one-time
           </s-button>
         )
       )}
@@ -556,13 +556,27 @@ export default function Index() {
       {showBillingBanner && (
         <s-banner
           tone="warning"
-          onDismiss={dismissBillingBanner}
         >
           You're on the Free plan. Upgrade to Pro ($29 one-time) for unlimited
           re-scans, AI policy generation, and full scan history.
           <s-button slot="actions" ref={upgradeRef3}>
             View upgrade options
           </s-button>
+          <button
+            slot="actions"
+            onClick={dismissBillingBanner}
+            style={{
+              fontSize: "13px",
+              fontWeight: 600,
+              color: "var(--p-color-text-subdued, #6d7175)",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              textDecoration: "underline",
+            }}
+          >
+            Dismiss
+          </button>
         </s-banner>
       )}
 

@@ -93,11 +93,6 @@ export async function action({ request }: ActionFunctionArgs) {
       );
 
       if (comparison?.shouldAlert) {
-        console.log(
-          `[cron/weekly-scan] Alert condition met for ${merchant.shopify_domain}: ` +
-          `score ${comparison.oldScore} → ${comparison.newScore}, ` +
-          `${comparison.newIssues.length} new issue(s)`
-        );
         alertsSent++;
       }
     } catch (err) {

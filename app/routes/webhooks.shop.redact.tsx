@@ -5,9 +5,7 @@ import { supabase } from "../supabase.server";
 export const action = async ({ request }: ActionFunctionArgs) => {
   // authenticate.webhook() verifies X-Shopify-Hmac-Sha256 against SHOPIFY_API_SECRET.
   // Throws a 401 Response automatically if HMAC verification fails.
-  const { shop, payload, topic } = await authenticate.webhook(request);
-
-  console.log(`Received ${topic} GDPR webhook for ${shop}`);
+  const { shop } = await authenticate.webhook(request);
 
   // GDPR: shop/redact
   // Shopify sends this 48 hours after app uninstallation.
@@ -41,22 +39,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         deleteError.message
       );
       // Return 200 regardless — Shopify does not retry GDPR redact webhooks on 5xx.
-    } else {
-      console.log(`[GDPR] shop/redact: deleted all data for ${shop}`);
     }
-  } else {
-    console.log(
-      `[GDPR] shop/redact: no merchant record found for ${shop} — already deleted or never installed`
-    );
   }
 
   // Ensure any lingering sessions are also removed.
   await supabase.from("sessions").delete().eq("shop", shop);
-
-  console.log(
-    `[GDPR] shop/redact complete for shop ${shop}:`,
-    JSON.stringify(payload)
-  );
 
   return new Response(null, { status: 200 });
 };

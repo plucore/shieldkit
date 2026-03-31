@@ -45,7 +45,6 @@ app/
     AuditChecklist.tsx, SecurityStatusAside.tsx
   hooks/               # Custom React hooks
     useWebComponentClick.ts    (native DOM events for web components)
-    useScanToast.ts            (deduplicated scan-complete toast)
   lib/                 # Server-only business logic
     checks/            # Individual compliance check modules
       types.ts, constants.ts, helpers.server.ts, safe-check.server.ts
@@ -133,7 +132,7 @@ All webhooks use `authenticate.webhook(request)` which verifies `X-Shopify-Hmac-
 2. `app.upgrade.tsx` loader first calls `billing.check()` — if already subscribed, redirects to `/app` (skips billing)
 3. If no active subscription, calls `billing.request()` for the Pro plan with `isTest: NODE_ENV !== 'production'`
 4. Shopify redirects merchant to hosted approval page
-5. Return URL: `https://admin.shopify.com/store/{subdomain}/apps/{apiKey}/billing/confirm`
+5. Return URL: `/app/billing/confirm` (relative path — the Shopify library converts it to the full embedded admin URL)
 6. `app.billing.confirm.tsx` loader calls `billing.check()`, maps `"Pro"` → `"pro"` tier
 7. Updates merchants table: `tier = 'pro', scans_remaining = null` (null = unlimited)
 8. Redirects to `/app` (dashboard)
@@ -512,13 +511,14 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 
 * **No Prisma/SQLite** — All persistence via Supabase JS client with service_role key.
 * **`maybeSingle()` not `single()`** — Prevents 406 errors on missing rows.
-* **Billing return flow** — `billing.request()` returns to `/app/billing/confirm` (not `/app`) so tier is written to Supabase synchronously before dashboard loads. Webhook is backup.
+* **Billing return flow** — `billing.request()` uses relative `returnUrl: "/app/billing/confirm"` (the Shopify library converts to full embedded admin URL). Tier is written to Supabase synchronously before dashboard loads. Webhook is backup.
 * **Email system removed** — Welcome and compliance alert emails were removed. The `resend` dependency and all email templates have been deleted.
 * **Two scan entry points** — Dashboard form submit (`app._index.tsx` action) for the UI, and `api.scan.ts` for programmatic access. Both enforce `scans_remaining` quota and decrement after successful scan.
 * **safeCheck() wrapper** — Every individual compliance check is wrapped so exceptions become severity "error" results instead of failing the entire scan.
 * **Polaris web component type gaps** — Props like `submit`, `loading` (as string) work at runtime but aren't in TS type defs. Codebase uses `@ts-ignore` or `{...(condition ? { prop: "" } : {})}` spread patterns. This is expected; do not try to fix these.
 * **Embedded app navigation** — In Shopify embedded apps, navigation MUST go through App Bridge or React Router. Raw `<a>` tags and `<s-button url="...">` trigger full page reloads that break out of the embedded iframe context. Use `NavMenu` from `@shopify/app-bridge-react` for sidebar nav, and `useNavigate()` from React Router for in-app link buttons.
 * **useWebComponentClick hook** — React's synthetic `onClick` does NOT fire on Shopify Polaris web components (`<s-button>`, etc.) because they are custom elements with shadow DOM. All click handlers on `<s-button>` MUST use the `useWebComponentClick` hook (`app/hooks/useWebComponentClick.ts`) which attaches native DOM `addEventListener("click", handler)` via a ref. Never use `onClick` directly on web components.
+* **s-banner onDismiss** — Same issue as `onClick` on `<s-button>`: React synthetic events don't fire on Polaris web components. `<s-banner onDismiss={handler}>` silently fails. Use a native `<button>` inside the banner content for dismiss actions instead. All banners in the app have been fixed to use this pattern.
 * **billing_plan vs tier** — The live Supabase DB has both `billing_plan` (stale, unused) and `tier` columns. All application code uses `tier`. The `billing_plan` column should be dropped from the live DB via `ALTER TABLE merchants DROP COLUMN IF EXISTS billing_plan;`.
 * **Streaming SSR** — `entry.server.tsx` uses `renderToPipeableStream`. Bots get `onAllReady` (full render), humans get `onShellReady` (early streaming). 5s timeout.
 
@@ -548,6 +548,10 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 * **Upgrade card was in wrong location** — Moved from main content area to sidebar (between Security Status and JSON-LD cards). `UpgradeCard` now accepts a `sidebar` prop for compact aside layout.
 * **Sidebar headings too small** — Replaced `heading="..."` attribute on `<s-section>` with custom heading divs at 16px/700 weight for proper visual hierarchy.
 * **JSON-LD extension missing locales** — Created `extensions/json-ld-schema/locales/en.default.json` to fix ENOENT error during dev. Changed extension target from `section` to `body` for app embed block (JSON-LD is a script tag with no visible UI).
+* **Billing confirmation route 404** — `returnUrl` was manually constructed as `https://admin.shopify.com/store/{shop}/apps/{apiKey}/billing/confirm`, which Shopify strips to `/billing/confirm` — but the route lives at `/app/billing/confirm`. Fixed: use relative path `"/app/billing/confirm"` as the Shopify library converts it to the full embedded URL.
+* **JSON-LD deep link "App embed does not exist"** — Two issues: (1) Deep link used extension handle (`json-ld-schema`) instead of block filename (`product-schema` from `blocks/product-schema.liquid`). (2) Extension needs `shopify app deploy` to register with Shopify servers — running `shopify app dev` only serves locally.
+* **s-banner onDismiss broken** — `<s-banner onDismiss={handler}>` used React synthetic events which don't fire on Polaris web components. Fixed: replaced with native `<button>` dismiss elements inside banner content for billing cancellation banner and policy limit banner.
+* **Dead code cleanup** — Removed unused `useScanToast` hook (logic was inline in `app._index.tsx`). Removed all `console.log` statements from app code (kept `console.error`/`console.warn` for real errors). Removed "continuous monitoring", "automated monitoring", "ongoing monitoring" copy from UI. Fixed scan button text to match tier states ("Re-Scan My Store" for Pro, "Unlock Full Scanner — $29 one-time" for exhausted free tier).
 
 ---
 
@@ -591,7 +595,7 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 
 * **Framework:** Vitest (dev dependency). Config in `vitest.config.ts`.
 * **Run:** `npm test` (alias for `vitest run`).
-* **Test file:** `tests/bug-fixes.test.ts` — 63 regression tests covering unicode rendering, web component click handling, scan decrement logic, navigation setup, billing flow, component extraction, shared types/helpers, hooks, policy generation, scan history upgrade prompt, JSON-LD extension, one-time billing model, and email system removal.
+* **Test file:** `tests/bug-fixes.test.ts` — 64 regression tests covering unicode rendering, web component click handling, scan decrement logic, navigation setup, billing flow, component extraction, shared types/helpers, hooks, policy generation, scan history upgrade prompt, JSON-LD extension, one-time billing model, email system removal, billing returnUrl format, and JSON-LD deep link format.
 * **Note:** Tests that import route modules directly will fail without env vars (`SUPABASE_URL`, etc.) since module initialization triggers `supabase.server.ts`. Tests use file-content assertions (regex/string matching) to avoid this.
 
 ---

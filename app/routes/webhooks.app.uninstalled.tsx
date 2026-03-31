@@ -5,9 +5,7 @@ import { supabase } from "../supabase.server";
 export const action = async ({ request }: ActionFunctionArgs) => {
   // authenticate.webhook() verifies X-Shopify-Hmac-Sha256 against SHOPIFY_API_SECRET.
   // Throws a 401 Response automatically if verification fails.
-  const { shop, topic } = await authenticate.webhook(request);
-
-  console.log(`Received ${topic} webhook for ${shop}`);
+  const { shop } = await authenticate.webhook(request);
 
   // Delete all OAuth sessions for this shop. Safe to run on duplicate delivery.
   const { error: sessionError } = await supabase

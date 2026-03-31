@@ -462,8 +462,8 @@ describe("Hooks directory", () => {
     expect(fs.existsSync(path.join(APP_DIR, "hooks/useWebComponentClick.ts"))).toBe(true);
   });
 
-  it("useScanToast.ts exists", () => {
-    expect(fs.existsSync(path.join(APP_DIR, "hooks/useScanToast.ts"))).toBe(true);
+  it("useScanToast.ts removed (dead code — logic is inline in app._index.tsx)", () => {
+    expect(fs.existsSync(path.join(APP_DIR, "hooks/useScanToast.ts"))).toBe(false);
   });
 });
 

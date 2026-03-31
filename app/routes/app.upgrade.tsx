@@ -41,9 +41,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       returnObject: true,
     });
     if (check.hasActivePayment) {
-      console.log(
-        `[upgrade] ${session.shop} already has active Pro subscription — redirecting to dashboard`
-      );
       return redirect("/app");
     }
   } catch (checkErr) {

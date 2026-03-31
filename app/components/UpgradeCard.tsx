@@ -55,7 +55,7 @@ export default function UpgradeCard({ onUpgrade, sidebar }: UpgradeCardProps) {
           >
             {sidebar
               ? "Unlock unlimited re-scans, AI policy generation, and full scan history for just $29."
-              : "Keep your Google Merchant Center account safe with continuous monitoring."}
+              : "One payment. Unlimited re-scans. Keep your store compliant forever."}
           </div>
           {!sidebar && (
             <div

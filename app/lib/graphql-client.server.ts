@@ -99,15 +99,8 @@ function isThrottled(response: GQLResponse<unknown>): boolean {
  * successful response. Helps identify expensive queries before they cause
  * throttling in production.
  */
-function logCost(queryName: string, cost: CostInfo | undefined): void {
-  if (!cost) return;
-  const { actualQueryCost, requestedQueryCost, throttleStatus } = cost;
-  console.log(
-    `[ShopifyAPI] ${queryName} — ` +
-      `cost: ${actualQueryCost} (requested: ${requestedQueryCost}) | ` +
-      `remaining: ${throttleStatus.currentlyAvailable}/${throttleStatus.maximumAvailable} ` +
-      `(restores ${throttleStatus.restoreRate}/s)`
-  );
+function logCost(_queryName: string, _cost: CostInfo | undefined): void {
+  // Intentionally silent — enable for local debugging if needed.
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

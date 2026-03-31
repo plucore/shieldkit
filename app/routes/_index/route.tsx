@@ -59,7 +59,7 @@ export default function App() {
               <li>Unlimited compliance re-scans</li>
               <li>AI-powered policy generation</li>
               <li>Full scan history &amp; tracking</li>
-              <li>Automated compliance monitoring</li>
+              <li>Everything in Free, plus more</li>
               <li>Everything in Free</li>
             </ul>
           </div>
@@ -76,7 +76,7 @@ export default function App() {
           </li>
           <li>
             <strong>Stay Compliant</strong>: Protect your Google Merchant Center
-            account from suspension with ongoing monitoring.
+            account from suspension.
           </li>
         </ul>
       </div>

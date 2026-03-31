@@ -4,8 +4,7 @@ import { supabase } from "../supabase.server";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   // authenticate.webhook() verifies X-Shopify-Hmac-Sha256 against SHOPIFY_API_SECRET.
-  const { payload, session, topic, shop } = await authenticate.webhook(request);
-  console.log(`Received ${topic} webhook for ${shop}`);
+  const { payload, session, shop } = await authenticate.webhook(request);
 
   const current = payload.current as string[];
 

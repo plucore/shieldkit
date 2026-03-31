@@ -49,8 +49,6 @@ const PLAN_TO_TIER: Record<PlanName, string> = {
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { payload, topic, shop } = await authenticate.webhook(request);
 
-  console.log(`[${topic}] Received for ${shop}`);
-
   const { app_subscription } = payload as unknown as AppSubscriptionPayload;
   const { name, status } = app_subscription;
 
@@ -78,17 +76,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       console.error(
         `[${topic}] Failed to activate plan "${name}" for ${shop}: ${error.message}`
       );
-    } else {
-      console.log(
-        `[${topic}] Plan activated — shop=${shop}, plan=${name}, tier=${tier}`
-      );
     }
-  } else {
-    // One-time charges don't have CANCELLED/EXPIRED lifecycle events.
-    // PENDING/DECLINED — no DB action needed.
-    console.log(
-      `[${topic}] No DB action for status="${status}" — shop=${shop}`
-    );
   }
 
   // Always return HTTP 200 so Shopify does not retry the delivery

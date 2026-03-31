@@ -47,12 +47,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     billingCheck = { hasActivePayment: false, appSubscriptions: [] };
   }
 
-  console.log(
-    "[billing/confirm] shop:", session.shop,
-    "| hasActivePayment:", billingCheck.hasActivePayment,
-    "| subscriptions:", JSON.stringify(billingCheck.appSubscriptions ?? [])
-  );
-
   if (billingCheck.hasActivePayment) {
     // Identify which plan is active and map it to the correct tier string.
     // For recurring plans: appSubscriptions[0].name
@@ -75,10 +69,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       console.error(
         `[billing/confirm] Supabase update FAILED for ${session.shop}:`,
         error.message
-      );
-    } else {
-      console.log(
-        `[billing/confirm] tier="${tier}" written for ${session.shop}`
       );
     }
 

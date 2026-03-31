@@ -133,11 +133,12 @@ export function wrapAdminClient(adminGraphql: AdminGraphqlFn): GraphQLExecutor {
  * Creates a GraphQLExecutor for background jobs and automated scans where no
  * HTTP request context is available.
  *
- * Looks up the merchant's AES-256-GCM encrypted access token from the
- * Supabase `merchants` table, decrypts it, and constructs an executor that
- * makes raw fetch calls to the Shopify Admin GraphQL API.
+ * Reads the access token from the **sessions** table first (always fresh —
+ * updated by SupabaseSessionStorage.storeSession() on every authenticate.admin()
+ * call and token rotation). Falls back to the merchants table's
+ * access_token_encrypted column if no offline session is found.
  *
- * Throws if the merchant is not found or has no stored access token.
+ * Throws if neither source has a usable access token.
  *
  * @example
  *   const executor = await createAdminClient("mystore.myshopify.com");
@@ -146,26 +147,68 @@ export function wrapAdminClient(adminGraphql: AdminGraphqlFn): GraphQLExecutor {
 export async function createAdminClient(
   shopDomain: string
 ): Promise<GraphQLExecutor> {
-  const { data: merchant, error } = await supabase
-    .from("merchants")
-    .select("access_token_encrypted, shopify_domain")
-    .eq("shopify_domain", shopDomain)
+  let accessToken: string | null = null;
+
+  // ── Primary: read from sessions table (always fresh) ────────────────────
+  const { data: sessionRow, error: sessionError } = await supabase
+    .from("sessions")
+    .select("access_token")
+    .eq("shop", shopDomain)
+    .eq("is_online", false)
+    .order("expires", { ascending: false, nullsFirst: false })
+    .limit(1)
     .maybeSingle();
 
-  if (error) {
-    throw new Error(
-      `[ShopifyAPI] createAdminClient: Supabase lookup failed for ${shopDomain}: ${error.message}`
+  if (sessionError) {
+    console.error(
+      `[ShopifyAPI] createAdminClient: session lookup failed for ${shopDomain}: ${sessionError.message}`
     );
   }
 
-  if (!merchant?.access_token_encrypted) {
+  if (sessionRow?.access_token) {
+    try {
+      accessToken = decrypt(sessionRow.access_token);
+    } catch (e) {
+      console.error(
+        `[ShopifyAPI] createAdminClient: failed to decrypt session token for ${shopDomain}:`,
+        e
+      );
+    }
+  }
+
+  // ── Fallback: read from merchants table ─────────────────────────────────
+  if (!accessToken) {
+    const { data: merchant, error: merchantError } = await supabase
+      .from("merchants")
+      .select("access_token_encrypted")
+      .eq("shopify_domain", shopDomain)
+      .maybeSingle();
+
+    if (merchantError) {
+      throw new Error(
+        `[ShopifyAPI] createAdminClient: Supabase lookup failed for ${shopDomain}: ${merchantError.message}`
+      );
+    }
+
+    if (merchant?.access_token_encrypted) {
+      try {
+        accessToken = decrypt(merchant.access_token_encrypted);
+      } catch (e) {
+        console.error(
+          `[ShopifyAPI] createAdminClient: failed to decrypt merchant token for ${shopDomain}:`,
+          e
+        );
+      }
+    }
+  }
+
+  if (!accessToken) {
     throw new Error(
       `[ShopifyAPI] createAdminClient: No access token found for ${shopDomain}. ` +
         `Is the app installed and the merchant record populated?`
     );
   }
 
-  const accessToken = decrypt(merchant.access_token_encrypted);
   const endpoint = `https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`;
 
   return async <T = Record<string, unknown>>(

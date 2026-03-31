@@ -260,7 +260,7 @@ Deduplication for welcome emails. Defined in `supabase/schema.sql`.
 
 `runComplianceScan(merchantId, shopifyDomain, scanType)`:
 
-1. **Build admin GraphQL client** via `createAdminClient(shopifyDomain)` — looks up encrypted token in Supabase, decrypts, creates fetch-based executor.
+1. **Build admin GraphQL client** via `createAdminClient(shopifyDomain)` — reads the offline session token from `sessions` table first (always fresh), falls back to `merchants.access_token_encrypted`. Decrypts and creates fetch-based executor.
 2. **Fetch Shopify data** (concurrent): `getShopInfo()`, `getShopPolicies()`, `getProducts(first=50)`, `getPages(first=20)`.
 3. **Pre-fetch public storefront pages** (concurrent):
    - Homepage: `https://{primaryDomain.host}` (falls back to `https://{myshopifyDomain}`)
@@ -455,7 +455,7 @@ Custom class implementing Shopify's `SessionStorage` interface:
 
 **Executor factories:**
 - `wrapAdminClient(adminGraphql)` — wraps the library's `admin.graphql` for route handlers
-- `createAdminClient(shopDomain)` — standalone: looks up merchant in Supabase, decrypts token, creates raw fetch executor (used by compliance scanner)
+- `createAdminClient(shopDomain)` — standalone: reads the offline session token from `sessions` table first (always fresh after token rotation), falls back to `merchants.access_token_encrypted`. Decrypts and creates raw fetch executor (used by compliance scanner and cron jobs)
 
 ### Supabase Client (`app/supabase.server.ts`)
 * Singleton pattern: dev caches on `global` to survive hot reload. Production creates fresh on import.
@@ -552,6 +552,7 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 * **JSON-LD deep link "App embed does not exist"** — Two issues: (1) Deep link used extension handle (`json-ld-schema`) instead of block filename (`product-schema` from `blocks/product-schema.liquid`). (2) Extension needs `shopify app deploy` to register with Shopify servers — running `shopify app dev` only serves locally.
 * **s-banner onDismiss broken** — `<s-banner onDismiss={handler}>` used React synthetic events which don't fire on Polaris web components. Fixed: replaced with native `<button>` dismiss elements inside banner content for billing cancellation banner and policy limit banner.
 * **Dead code cleanup** — Removed unused `useScanToast` hook (logic was inline in `app._index.tsx`). Removed all `console.log` statements from app code (kept `console.error`/`console.warn` for real errors). Removed "continuous monitoring", "automated monitoring", "ongoing monitoring" copy from UI. Fixed scan button text to match tier states ("Re-Scan My Store" for Pro, "Unlock Full Scanner — $29 one-time" for exhausted free tier).
+* **Stale access token in compliance scanner** — `createAdminClient()` was reading from `merchants.access_token_encrypted` which goes stale when tokens rotate via `expiringOfflineAccessTokens: true`. Fixed: now reads the offline session token from the `sessions` table first (always fresh — updated by `SupabaseSessionStorage.storeSession()` on every `authenticate.admin()` call), falls back to `merchants.access_token_encrypted` if no session found.
 
 ---
 

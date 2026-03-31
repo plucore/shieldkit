@@ -38,15 +38,40 @@ ShieldKit is a B2B SaaS Shopify Embedded App that scans Shopify stores for Googl
 ### Folder Structure
 ```
 app/
-  routes/           # All Remix/RR7 routes (18 files)
-  lib/              # Server-only business logic
-    compliance-scanner.server.ts   (1614 lines — 10-check scan engine)
-    shopify-api.server.ts          (paginated GraphQL queries + retry)
+  routes/              # All Remix/RR7 routes (18 files)
+  components/          # Extracted UI components from app._index.tsx
+    ScoreBanner.tsx, KpiCards.tsx, ScanProgressIndicator.tsx,
+    UpgradeCard.tsx, PolicyGeneratorDisplay.tsx,
+    AuditChecklist.tsx, SecurityStatusAside.tsx
+  hooks/               # Custom React hooks
+    useWebComponentClick.ts    (native DOM events for web components)
+    useScanToast.ts            (deduplicated scan-complete toast)
+  lib/                 # Server-only business logic
+    checks/            # Individual compliance check modules
+      types.ts, constants.ts, helpers.server.ts, safe-check.server.ts
+      contact-information.server.ts, refund-return-policy.server.ts,
+      shipping-policy.server.ts, privacy-and-terms.server.ts,
+      product-data-quality.server.ts, checkout-transparency.server.ts,
+      storefront-accessibility.server.ts, structured-data-json-ld.server.ts,
+      page-speed.server.ts, business-identity-consistency.server.ts,
+      index.server.ts        (orchestrator + re-exports)
+    compliance-scanner.server.ts   (barrel re-export from checks/)
+    graphql-queries.server.ts      (GraphQL query strings + response types)
+    graphql-client.server.ts       (client infra, retry, executors)
+    shopify-api.server.ts          (public API: getShopInfo, etc. + re-exports)
     policy-generator.server.ts     (Anthropic-powered policy generation)
     session-storage.server.ts      (custom Supabase session adapter)
     crypto.server.ts               (AES-256-GCM encrypt/decrypt)
+    rate-limiter.server.ts         (in-memory rate limiting for /api/scan)
+    scan-comparison.server.ts      (score diff logic for weekly alerts)
+    types.ts                       (shared UI types: Merchant, Scan, etc.)
+    constants.ts                   (shared UI color constants)
+    scan-helpers.ts                (pure helper functions for dashboard)
   utils/
-    email.server.ts                (Resend welcome email)
+    email.server.ts                (Resend public API)
+    email-templates/
+      welcome.ts                   (HTML template for welcome email)
+      compliance-alert.ts          (HTML template for alert email)
   shopify.server.ts   # Shopify app config, billing plans, afterAuth hook
   supabase.server.ts  # Supabase client singleton
   root.tsx, entry.server.tsx, routes.ts, globals.d.ts, styles.css
@@ -434,7 +459,7 @@ Custom class implementing Shopify's `SessionStorage` interface:
 | `deleteSessions(ids)` | DELETE by id array. |
 | `findSessionsByShop(shop)` | SELECT by shop, ordered by `expires DESC`, limit 25. |
 
-### Shopify GraphQL API (`app/lib/shopify-api.server.ts`, 714 lines)
+### Shopify GraphQL API (`app/lib/shopify-api.server.ts` + split modules)
 
 **GraphQL queries:**
 
@@ -513,6 +538,7 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 * **safeCheck() wrapper** — Every individual compliance check is wrapped so exceptions become severity "error" results instead of failing the entire scan.
 * **Polaris web component type gaps** — Props like `submit`, `loading` (as string) work at runtime but aren't in TS type defs. Codebase uses `@ts-ignore` or `{...(condition ? { prop: "" } : {})}` spread patterns. This is expected; do not try to fix these.
 * **Embedded app navigation** — In Shopify embedded apps, navigation MUST go through App Bridge or React Router. Raw `<a>` tags and `<s-button url="...">` trigger full page reloads that break out of the embedded iframe context. Use `NavMenu` from `@shopify/app-bridge-react` for sidebar nav, and `useNavigate()` from React Router for in-app link buttons.
+* **useWebComponentClick hook** — React's synthetic `onClick` does NOT fire on Shopify Polaris web components (`<s-button>`, etc.) because they are custom elements with shadow DOM. All click handlers on `<s-button>` MUST use the `useWebComponentClick` hook (`app/hooks/useWebComponentClick.ts`) which attaches native DOM `addEventListener("click", handler)` via a ref. Never use `onClick` directly on web components.
 * **billing_plan vs tier** — The live Supabase DB has both `billing_plan` (stale, unused) and `tier` columns. All application code uses `tier`. The `billing_plan` column should be dropped from the live DB via `ALTER TABLE merchants DROP COLUMN IF EXISTS billing_plan;`.
 * **Streaming SSR** — `entry.server.tsx` uses `renderToPipeableStream`. Bots get `onAllReady` (full render), humans get `onShellReady` (early streaming). 5s timeout.
 
@@ -521,7 +547,7 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 ## 12. Known Issues
 
 ### Medium
-* **No rate limiting on `/api/scan`** — Only gated by `scans_remaining` and Shopify auth.
+* **In-memory rate limiting on `/api/scan`** — 10 requests per hour per shop, but state resets on deploy. Only gated by `scans_remaining`, rate limiter, and Shopify auth.
 * **Race condition on scan quota** — `scans_remaining` is read then decremented in separate queries. Concurrent requests can both pass the check.
 * **Scopes fallback mismatch** — `shopify.server.ts` falls back to `"read_products,read_content"` when `SCOPES` env var is missing, but `shopify.app.toml` declares `read_products,read_content,read_legal_policies`. In practice the CLI injects the full set.
 * **No SSRF protection in in-app scanner** — `fetchPublicPage()` in `compliance-scanner.server.ts` follows arbitrary URLs without DNS/IP validation. The outbound scanner has this protection but it was not ported.
@@ -534,7 +560,8 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 * **Unicode escape characters rendered as literal text** — `\uXXXX` sequences in JSX text content displayed as raw text. Fixed: replaced all escape sequences with actual Unicode characters in `app._index.tsx`.
 * **Pro tier scan decrement bug** — `scans_remaining` was decremented even when `null` (unlimited/Pro). Fixed: decrement guard changed to `typeof scansRemaining === "number" && scansRemaining > 0` in both `app._index.tsx` and `api.scan.ts`.
 * **Scan History navigation broke out of iframe** — Changed from `<s-app-nav>` + `<a>` tags to `NavMenu` from `@shopify/app-bridge-react` with `<a>` children and `rel="home"` on the Dashboard link. `NavMenu` wraps App Bridge's `<ui-nav-menu>` and handles embedded navigation correctly.
-* **Upgrade button did nothing when clicked** — `<s-button url="...">` triggered full page reloads in the iframe, breaking App Bridge context. Fixed: all 5 upgrade buttons now use `onClick={navigateToUpgrade}` which calls React Router's `useNavigate()` for SPA navigation. The upgrade route (`app.upgrade.tsx`) also has `billing.check()` pre-check, try/catch error handling, and `ErrorBoundary`.
+* **Upgrade button did nothing when clicked** — Went through 3 iterations: (1) `<s-button url="...">` triggered full page reloads, (2) `<s-button onClick={...}>` didn't fire because React synthetic events don't work on web components, (3) Final fix: all buttons use `useWebComponentClick` hook with native DOM `addEventListener` via refs. The upgrade route (`app.upgrade.tsx`) also has `billing.check()` pre-check, try/catch error handling, and `ErrorBoundary`.
+* **Scan History loader had no error handling** — Added try/catch with `console.error` logging and graceful fallback. Response objects (redirects) are re-thrown.
 * **JSON-LD extension not visible** — Merchants had no way to discover the free JSON-LD theme extension. Added an "Free JSON-LD Structured Data" card in the dashboard aside (visible to all tiers) with enable instructions.
 
 ---
@@ -579,7 +606,7 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 
 * **Framework:** Vitest (dev dependency). Config in `vitest.config.ts`.
 * **Run:** `npm test` (alias for `vitest run`).
-* **Test file:** `tests/bug-fixes.test.ts` — 18 regression tests covering unicode rendering, scan decrement logic, navigation setup, and billing flow.
+* **Test file:** `tests/bug-fixes.test.ts` — 46 regression tests covering unicode rendering, web component click handling, scan decrement logic, navigation setup, billing flow, component extraction, shared types/helpers, and hooks.
 * **Note:** Tests that import route modules directly will fail without env vars (`SUPABASE_URL`, etc.) since module initialization triggers `supabase.server.ts`. Tests use file-content assertions (regex/string matching) to avoid this.
 
 ---

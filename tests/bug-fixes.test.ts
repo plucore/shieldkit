@@ -5,10 +5,13 @@
  *
  * 1. No billing_plan references in application code (only tier)
  * 2. Unicode escape characters replaced with actual characters
- * 3. Upgrade buttons use React Router navigate(), not url= attributes
+ * 3. Upgrade buttons use useWebComponentClick refs, not onClick
  * 4. Scan History route exports + NavMenu navigation
  * 5. JSON-LD extension card visible in dashboard
  * 6. Pro tier scan decrement guard
+ * 7. Component extraction from app._index.tsx
+ * 8. Web component click hook
+ * 9. Scan history error handling
  */
 
 import { describe, it, expect } from "vitest";
@@ -23,7 +26,6 @@ const ROOT_DIR = path.resolve(__dirname, "..");
 
 describe("billing_plan vs tier consistency", () => {
   it("no application code references billing_plan", () => {
-    // Search all .ts/.tsx files in app/ for "billing_plan"
     let output = "";
     try {
       output = execFileSync(
@@ -70,6 +72,64 @@ describe("Unicode escape characters", () => {
   });
 });
 
+// ─── Web component click handling ───────────────────────────────────────────
+
+describe("Web component click handling (useWebComponentClick)", () => {
+  it("no <s-button onClick anywhere in app/", () => {
+    let output = "";
+    try {
+      output = execFileSync(
+        "grep",
+        ["-rn", "<s-button.*onClick", "--include=*.tsx", APP_DIR],
+        { encoding: "utf-8" }
+      );
+    } catch {
+      output = "";
+    }
+    expect(output).toBe("");
+  });
+
+  it("useWebComponentClick hook exists and exports the function", () => {
+    const hookPath = path.join(APP_DIR, "hooks/useWebComponentClick.ts");
+    expect(fs.existsSync(hookPath)).toBe(true);
+    const content = fs.readFileSync(hookPath, "utf-8");
+    expect(content).toContain("export function useWebComponentClick");
+    expect(content).toContain("addEventListener");
+    expect(content).toContain("removeEventListener");
+  });
+
+  it("dashboard imports useWebComponentClick", () => {
+    const dashContent = fs.readFileSync(
+      path.join(APP_DIR, "routes/app._index.tsx"),
+      "utf-8"
+    );
+    expect(dashContent).toContain("useWebComponentClick");
+    expect(dashContent).toMatch(/import\s*\{[^}]*useWebComponentClick[^}]*\}/);
+  });
+
+  it("UpgradeCard uses useWebComponentClick for its button", () => {
+    const content = fs.readFileSync(
+      path.join(APP_DIR, "components/UpgradeCard.tsx"),
+      "utf-8"
+    );
+    expect(content).toContain("useWebComponentClick");
+    expect(content).toContain("ref={upgradeRef}");
+    expect(content).not.toMatch(/<s-button.*onClick/);
+  });
+
+  const dashContent = fs.readFileSync(
+    path.join(APP_DIR, "routes/app._index.tsx"),
+    "utf-8"
+  );
+
+  it("dashboard uses refs for all s-button elements", () => {
+    // Should have ref= on s-button elements, not onClick
+    const refMatches = dashContent.match(/ref={(?:rescanRef|upgradeRef\d|onboardingScanRef)}/g);
+    expect(refMatches).not.toBeNull();
+    expect(refMatches!.length).toBeGreaterThanOrEqual(6);
+  });
+});
+
 // ─── Upgrade button navigation ───────────────────────────────────────────────
 
 describe("Upgrade button uses React Router navigation", () => {
@@ -88,13 +148,9 @@ describe("Upgrade button uses React Router navigation", () => {
     expect(dashContent).toContain('navigate("/app/upgrade?plan=Pro")');
   });
 
-  it("upgrade buttons use onClick, not url= attribute", () => {
+  it("upgrade buttons use refs, not url= attribute", () => {
     // There should be NO s-button elements with url="/app/upgrade..."
     expect(dashContent).not.toMatch(/url="\/app\/upgrade/);
-    // There should be onClick={navigateToUpgrade} references
-    const onClickMatches = dashContent.match(/onClick={navigateToUpgrade}/g);
-    expect(onClickMatches).not.toBeNull();
-    expect(onClickMatches!.length).toBeGreaterThanOrEqual(4);
   });
 
   const upgradeContent = fs.readFileSync(
@@ -153,6 +209,13 @@ describe("Scan History navigation", () => {
     expect(scanHistoryContent).toMatch(/export\s+const\s+loader\s*=/);
   });
 
+  it("app.scan-history.tsx has try/catch error handling in loader", () => {
+    expect(scanHistoryContent).toContain("try {");
+    expect(scanHistoryContent).toContain("catch (err)");
+    expect(scanHistoryContent).toContain('console.error("[scan-history]');
+    expect(scanHistoryContent).toContain("if (err instanceof Response) throw err");
+  });
+
   it("app.tsx uses NavMenu from @shopify/app-bridge-react for navigation", () => {
     expect(appContent).toContain("NavMenu");
     expect(appContent).toMatch(/import\s*\{[^}]*NavMenu[^}]*\}\s*from\s*"@shopify\/app-bridge-react"/);
@@ -171,7 +234,6 @@ describe("Scan History navigation", () => {
   });
 
   it("nav link path matches scan history route file convention", () => {
-    // app.scan-history.tsx → /app/scan-history via React Router file-based routing
     const routeFile = path.join(APP_DIR, "routes/app.scan-history.tsx");
     expect(fs.existsSync(routeFile)).toBe(true);
     expect(appContent).toContain('href="/app/scan-history"');
@@ -197,7 +259,6 @@ describe("JSON-LD extension visibility", () => {
   });
 
   it("JSON-LD section is in the aside (visible to all tiers)", () => {
-    // The section should use slot="aside" to appear in the sidebar
     expect(dashContent).toContain('slot="aside" heading="Free JSON-LD Structured Data"');
   });
 });
@@ -243,5 +304,95 @@ describe("Scan decrement guard", () => {
     expect(content).toContain(
       'typeof scansRemaining === "number" && scansRemaining > 0'
     );
+  });
+});
+
+// ─── Component extraction ────────────────────────────────────────────────────
+
+describe("Component extraction from app._index.tsx", () => {
+  const components = [
+    "ScoreBanner",
+    "KpiCards",
+    "ScanProgressIndicator",
+    "UpgradeCard",
+    "PolicyGeneratorDisplay",
+    "AuditChecklist",
+    "SecurityStatusAside",
+  ];
+
+  for (const name of components) {
+    it(`${name}.tsx exists and exports a default function`, () => {
+      const filePath = path.join(APP_DIR, `components/${name}.tsx`);
+      expect(fs.existsSync(filePath)).toBe(true);
+      const content = fs.readFileSync(filePath, "utf-8");
+      expect(content).toMatch(/export\s+default\s+function\s+\w+/);
+    });
+  }
+
+  it("app._index.tsx imports all extracted components", () => {
+    const content = fs.readFileSync(
+      path.join(APP_DIR, "routes/app._index.tsx"),
+      "utf-8"
+    );
+    for (const name of components) {
+      expect(content).toContain(`from "../components/${name}"`);
+    }
+  });
+
+  it("app._index.tsx is under 900 lines after extraction", () => {
+    const content = fs.readFileSync(
+      path.join(APP_DIR, "routes/app._index.tsx"),
+      "utf-8"
+    );
+    const lineCount = content.split("\n").length;
+    expect(lineCount).toBeLessThan(900);
+  });
+});
+
+// ─── Shared types and helpers ────────────────────────────────────────────────
+
+describe("Shared types and helpers extraction", () => {
+  it("app/lib/types.ts exists with core UI types", () => {
+    const content = fs.readFileSync(
+      path.join(APP_DIR, "lib/types.ts"),
+      "utf-8"
+    );
+    expect(content).toContain("Severity");
+    expect(content).toContain("Merchant");
+    expect(content).toContain("Scan");
+    expect(content).toContain("CheckResult");
+    expect(content).toContain("ApiScanResponse");
+  });
+
+  it("app/lib/scan-helpers.ts exists with helper functions", () => {
+    const content = fs.readFileSync(
+      path.join(APP_DIR, "lib/scan-helpers.ts"),
+      "utf-8"
+    );
+    expect(content).toContain("export function scoreColor");
+    expect(content).toContain("export function sortChecks");
+    expect(content).toContain("export function threatLabel");
+    expect(content).toContain("export function fmtDate");
+  });
+
+  it("app/lib/constants.ts exists with color constants", () => {
+    const content = fs.readFileSync(
+      path.join(APP_DIR, "lib/constants.ts"),
+      "utf-8"
+    );
+    expect(content).toContain("SCORE_GREEN");
+    expect(content).toContain("BRAND_COLOR");
+  });
+});
+
+// ─── Hooks directory ─────────────────────────────────────────────────────────
+
+describe("Hooks directory", () => {
+  it("useWebComponentClick.ts exists", () => {
+    expect(fs.existsSync(path.join(APP_DIR, "hooks/useWebComponentClick.ts"))).toBe(true);
+  });
+
+  it("useScanToast.ts exists", () => {
+    expect(fs.existsSync(path.join(APP_DIR, "hooks/useScanToast.ts"))).toBe(true);
   });
 });

@@ -1,7 +1,13 @@
 /**
  * app/lib/shopify-api.server.ts
  *
- * Server-side Shopify GraphQL Admin API service layer for ShieldKit.
+ * Public API barrel file for the Shopify GraphQL Admin API service layer.
+ *
+ * Re-exports all types, queries, and client infrastructure from the split
+ * modules so that existing consumers continue to work without import changes.
+ *
+ * Data functions (getShopInfo, getShopPolicies, getProducts, getPages) live
+ * here since they depend on both the query documents and the client infra.
  *
  * Supports two execution modes:
  *
@@ -13,429 +19,65 @@
  *   2. Background / automated scanner (no HTTP request context):
  *        const executor = await createAdminClient("mystore.myshopify.com");
  *        const products = await getProducts(executor);
- *
- * Both modes normalise to the same GraphQLExecutor type so all data functions
- * work identically regardless of how the client was obtained.
  */
 
-import { supabase } from "../supabase.server";
-import { decrypt } from "./crypto.server";
+// Re-export everything from the split modules so existing consumers are unaffected.
+export {
+  // Types — Business domain
+  type BillingAddress,
+  type PrimaryDomain,
+  type ShopInfo,
+  type ShopPolicyType,
+  type ShopPolicy,
+  type ShopPoliciesResult,
+  type ProductImage,
+  type ProductVariant,
+  type Product,
+  type Page,
+  // Query documents
+  SHOP_INFO_QUERY,
+  SHOP_POLICIES_QUERY,
+  PRODUCTS_QUERY,
+  PAGES_QUERY,
+} from "./graphql-queries.server";
+
+export {
+  // Constants
+  SHOPIFY_API_VERSION,
+  MAX_RETRIES,
+  BASE_RETRY_DELAY_MS,
+  // Types — GraphQL infrastructure
+  type ShopifyGQLError,
+  type ThrottleStatus,
+  type CostInfo,
+  type GQLResponse,
+  type GraphQLExecutor,
+  type AdminGraphqlFn,
+  // Executor factories
+  wrapAdminClient,
+  createAdminClient,
+  // Retry logic
+  executeWithRetry,
+} from "./graphql-client.server";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Constants
+// Imports used by the data functions below
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Shopify Admin API version used for all raw background requests. */
-const SHOPIFY_API_VERSION = "2025-10";
-
-/** Maximum number of retry attempts when a THROTTLED error is returned. */
-const MAX_RETRIES = 3;
-
-/** Base delay (ms) for exponential backoff: 500 → 1000 → 2000. */
-const BASE_RETRY_DELAY_MS = 500;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Types — GraphQL infrastructure
-// ─────────────────────────────────────────────────────────────────────────────
-
-export interface ShopifyGQLError {
-  message: string;
-  locations?: { line: number; column: number }[];
-  path?: string[];
-  extensions?: {
-    code?: string;
-    requestedQueryCost?: number;
-    availableQueryCost?: number;
-    documentation?: string;
-  };
-}
-
-export interface ThrottleStatus {
-  maximumAvailable: number;
-  currentlyAvailable: number;
-  restoreRate: number;
-}
-
-export interface CostInfo {
-  requestedQueryCost: number;
-  actualQueryCost: number;
-  throttleStatus: ThrottleStatus;
-}
-
-export interface GQLResponse<T = Record<string, unknown>> {
-  data: T | null;
-  errors?: ShopifyGQLError[];
-  extensions?: {
-    cost?: CostInfo;
-  };
-}
-
-/**
- * Normalised async function that executes a GraphQL query against the Shopify
- * Admin API. Both wrapAdminClient() and createAdminClient() produce this type
- * so all data functions are agnostic to how the client was obtained.
- */
-export type GraphQLExecutor = <T = Record<string, unknown>>(
-  query: string,
-  variables?: Record<string, unknown>
-) => Promise<GQLResponse<T>>;
-
-/**
- * The signature of admin.graphql from @shopify/shopify-app-react-router.
- * It returns a ResponseWithType — a Fetch Response with a typed .json() method.
- * Callers must await .json() to get the parsed GraphQL body.
- */
-export type AdminGraphqlFn = (
-  query: string,
-  options?: { variables?: Record<string, unknown> }
-) => Promise<{ json(): Promise<unknown>; ok: boolean; status: number }>;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Types — Business domain
-// ─────────────────────────────────────────────────────────────────────────────
-
-export interface BillingAddress {
-  address1: string | null;
-  city: string | null;
-  province: string | null;
-  country: string | null;
-  zip: string | null;
-}
-
-export interface PrimaryDomain {
-  url: string;
-  host: string;
-}
-
-export interface ShopInfo {
-  name: string;
-  contactEmail: string;
-  billingAddress: BillingAddress;
-  myshopifyDomain: string;
-  currencyCode: string;
-  primaryDomain: PrimaryDomain;
-}
-
-export type ShopPolicyType =
-  | "REFUND_POLICY"
-  | "PRIVACY_POLICY"
-  | "TERMS_OF_SERVICE"
-  | "SHIPPING_POLICY";
-
-export interface ShopPolicy {
-  type: ShopPolicyType;
-  title: string;
-  url: string;
-  body: string;
-}
-
-/**
- * Return type for getShopPolicies(). Each known policy type is either present
- * or explicitly null — never omitted — so callers can check membership easily.
- */
-export interface ShopPoliciesResult {
-  REFUND_POLICY: ShopPolicy | null;
-  PRIVACY_POLICY: ShopPolicy | null;
-  TERMS_OF_SERVICE: ShopPolicy | null;
-  SHIPPING_POLICY: ShopPolicy | null;
-  /** All policy objects that Shopify actually returned (useful for iteration). */
-  all: ShopPolicy[];
-}
-
-export interface ProductImage {
-  url: string;
-  altText: string | null;
-}
-
-export interface ProductVariant {
-  price: string;
-  compareAtPrice: string | null;
-  inventoryQuantity: number | null;
-  sku: string | null;
-  barcode: string | null;
-}
-
-export interface Product {
-  title: string;
-  description: string;
-  descriptionHtml: string;
-  handle: string;
-  onlineStoreUrl: string | null;
-  images: ProductImage[];
-  variants: ProductVariant[];
-}
-
-export interface Page {
-  title: string;
-  body: string;
-  handle: string;
-  /** Maps to onlineStoreUrl from the API (null if the page is not published). */
-  url: string | null;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Utilities
-// ─────────────────────────────────────────────────────────────────────────────
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function isThrottled(response: GQLResponse<unknown>): boolean {
-  return (
-    response.errors?.some((e) => e.extensions?.code === "THROTTLED") ?? false
-  );
-}
-
-/**
- * Logs query cost and remaining query budget to the console after every
- * successful response. Helps identify expensive queries before they cause
- * throttling in production.
- */
-function logCost(queryName: string, cost: CostInfo | undefined): void {
-  if (!cost) return;
-  const { actualQueryCost, requestedQueryCost, throttleStatus } = cost;
-  console.log(
-    `[ShopifyAPI] ${queryName} — ` +
-      `cost: ${actualQueryCost} (requested: ${requestedQueryCost}) | ` +
-      `remaining: ${throttleStatus.currentlyAvailable}/${throttleStatus.maximumAvailable} ` +
-      `(restores ${throttleStatus.restoreRate}/s)`
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Executor Factories
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Wraps the library's admin.graphql function into a normalised GraphQLExecutor.
- *
- * Use this inside route loaders and actions after authenticate.admin(request).
- *
- * @example
- *   const { admin } = await authenticate.admin(request);
- *   const executor = wrapAdminClient(admin.graphql);
- *   const shopInfo = await getShopInfo(executor);
- */
-export function wrapAdminClient(adminGraphql: AdminGraphqlFn): GraphQLExecutor {
-  return async <T = Record<string, unknown>>(
-    query: string,
-    variables?: Record<string, unknown>
-  ): Promise<GQLResponse<T>> => {
-    const response = await adminGraphql(query, { variables: variables ?? {} });
-    // response is ResponseWithType — always call .json() to get the body.
-    const body = await response.json();
-    return body as GQLResponse<T>;
-  };
-}
-
-/**
- * Creates a GraphQLExecutor for background jobs and automated scans where no
- * HTTP request context is available.
- *
- * Looks up the merchant's AES-256-GCM encrypted access token from the
- * Supabase `merchants` table, decrypts it, and constructs an executor that
- * makes raw fetch calls to the Shopify Admin GraphQL API.
- *
- * Throws if the merchant is not found or has no stored access token.
- *
- * @example
- *   const executor = await createAdminClient("mystore.myshopify.com");
- *   const products = await getProducts(executor);
- */
-export async function createAdminClient(
-  shopDomain: string
-): Promise<GraphQLExecutor> {
-  const { data: merchant, error } = await supabase
-    .from("merchants")
-    .select("access_token_encrypted, shopify_domain")
-    .eq("shopify_domain", shopDomain)
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(
-      `[ShopifyAPI] createAdminClient: Supabase lookup failed for ${shopDomain}: ${error.message}`
-    );
-  }
-
-  if (!merchant?.access_token_encrypted) {
-    throw new Error(
-      `[ShopifyAPI] createAdminClient: No access token found for ${shopDomain}. ` +
-        `Is the app installed and the merchant record populated?`
-    );
-  }
-
-  const accessToken = decrypt(merchant.access_token_encrypted);
-  const endpoint = `https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`;
-
-  return async <T = Record<string, unknown>>(
-    query: string,
-    variables?: Record<string, unknown>
-  ): Promise<GQLResponse<T>> => {
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Shopify-Access-Token": accessToken,
-      },
-      body: JSON.stringify({ query, variables: variables ?? {} }),
-    });
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      throw new Error(
-        `[ShopifyAPI] HTTP ${response.status} from ${shopDomain}: ${text.slice(0, 300)}`
-      );
-    }
-
-    return response.json() as Promise<GQLResponse<T>>;
-  };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Core: executeWithRetry
-//
-// Wraps any GraphQL call with exponential backoff on THROTTLED errors.
-// All public data functions route through this to ensure consistent rate-limit
-// handling and cost logging across both executor modes.
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function executeWithRetry<T>(
-  executor: GraphQLExecutor,
-  queryName: string,
-  query: string,
-  variables?: Record<string, unknown>
-): Promise<GQLResponse<T>> {
-  let attempt = 0;
-
-  for (;;) {
-    const result = await executor<T>(query, variables);
-
-    // Log query cost on every response (non-throttled and throttled alike).
-    logCost(queryName, result.extensions?.cost);
-
-    if (!isThrottled(result)) {
-      return result;
-    }
-
-    if (attempt >= MAX_RETRIES) {
-      console.error(
-        `[ShopifyAPI] ${queryName} still throttled after ${MAX_RETRIES} retries. ` +
-          `Returning throttled response to caller.`
-      );
-      return result;
-    }
-
-    // Exponential backoff: 500ms → 1000ms → 2000ms
-    const delayMs = BASE_RETRY_DELAY_MS * Math.pow(2, attempt);
-    const available =
-      result.errors?.find((e) => e.extensions?.code === "THROTTLED")
-        ?.extensions?.availableQueryCost ?? "unknown";
-    console.warn(
-      `[ShopifyAPI] ${queryName} throttled (available cost: ${available}). ` +
-        `Retry ${attempt + 1}/${MAX_RETRIES} in ${delayMs}ms...`
-    );
-
-    await sleep(delayMs);
-    attempt++;
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// GraphQL Query Documents
-// ─────────────────────────────────────────────────────────────────────────────
-
-const SHOP_INFO_QUERY = /* GraphQL */ `
-  query ShieldKitShopInfo {
-    shop {
-      name
-      contactEmail
-      billingAddress {
-        address1
-        city
-        province
-        country
-        zip
-      }
-      myshopifyDomain
-      currencyCode
-      primaryDomain {
-        url
-        host
-      }
-    }
-  }
-`;
-
-const SHOP_POLICIES_QUERY = /* GraphQL */ `
-  query ShieldKitShopPolicies {
-    shop {
-      shopPolicies {
-        type
-        title
-        url
-        body
-      }
-    }
-  }
-`;
-
-const PRODUCTS_QUERY = /* GraphQL */ `
-  query ShieldKitProducts($first: Int!, $after: String) {
-    products(first: $first, after: $after) {
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
-      edges {
-        node {
-          title
-          description
-          descriptionHtml
-          handle
-          onlineStoreUrl
-          images(first: 5) {
-            edges {
-              node {
-                url
-                altText
-              }
-            }
-          }
-          variants(first: 10) {
-            edges {
-              node {
-                price
-                compareAtPrice
-                inventoryQuantity
-                sku
-                barcode
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-`;
-
-const PAGES_QUERY = /* GraphQL */ `
-  query ShieldKitPages($first: Int!, $after: String) {
-    pages(first: $first, after: $after) {
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
-      edges {
-        node {
-          title
-          body
-          handle
-        }
-      }
-    }
-  }
-`;
+import type { GraphQLExecutor } from "./graphql-client.server";
+import { executeWithRetry } from "./graphql-client.server";
+import {
+  SHOP_INFO_QUERY,
+  SHOP_POLICIES_QUERY,
+  PRODUCTS_QUERY,
+  PAGES_QUERY,
+  type ShopInfo,
+  type ShopPolicyType,
+  type ShopPolicy,
+  type ShopPoliciesResult,
+  type Product,
+  type Page,
+} from "./graphql-queries.server";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public Data Functions

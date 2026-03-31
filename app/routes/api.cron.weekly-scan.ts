@@ -19,6 +19,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { supabase } from "../supabase.server";
 import { runComplianceScan } from "../lib/compliance-scanner.server";
 import { sendComplianceAlertEmail } from "../utils/email.server";
+import { compareScanWithPrevious } from "../lib/scan-comparison.server";
 
 function json<T>(body: T, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -86,73 +87,35 @@ export async function action({ request }: ActionFunctionArgs) {
       merchantsScanned++;
 
       // ── 4. Compare against previous scan ───────────────────────────────────
-      // Fetch the most recent scan BEFORE this one (the second-newest)
-      const { data: previousScans } = await supabase
-        .from("scans")
-        .select("id, compliance_score, critical_count, warning_count")
-        .eq("merchant_id", merchant.id)
-        .neq("id", scanResult.scan.id)
-        .order("created_at", { ascending: false })
-        .limit(1);
+      const comparison = await compareScanWithPrevious(
+        merchant.id,
+        scanResult.scan,
+        scanResult.violations,
+      );
 
-      const previousScan = previousScans?.[0] ?? null;
+      if (comparison?.shouldAlert) {
+        // Look up merchant email via shop info in leads table
+        const { data: lead } = await supabase
+          .from("leads")
+          .select("email")
+          .eq("shop_domain", merchant.shopify_domain)
+          .maybeSingle();
 
-      if (previousScan) {
-        const oldScore = previousScan.compliance_score ?? 100;
-        const newScore = scanResult.scan.compliance_score;
-        const scoreDropped = newScore < oldScore;
-
-        // Find new failed checks that weren't failing before
-        let newIssues: Array<{ check_name: string; severity: string; title: string }> = [];
-
-        if (previousScan.id) {
-          const { data: oldViolations } = await supabase
-            .from("violations")
-            .select("check_name, passed")
-            .eq("scan_id", previousScan.id);
-
-          const oldFailedChecks = new Set(
-            (oldViolations ?? [])
-              .filter((v: { passed: boolean }) => !v.passed)
-              .map((v: { check_name: string }) => v.check_name)
-          );
-
-          newIssues = scanResult.violations
-            .filter((v) => !v.passed && !oldFailedChecks.has(v.check_name))
-            .filter((v) => v.severity === "critical" || v.severity === "warning")
-            .map((v) => ({
-              check_name: v.check_name,
-              severity: v.severity,
-              title: v.title ?? v.check_name.replace(/_/g, " "),
-            }));
-        }
-
-        const shouldAlert = scoreDropped || newIssues.length > 0;
-
-        if (shouldAlert) {
-          // Look up merchant email via shop info in leads table
-          const { data: lead } = await supabase
-            .from("leads")
-            .select("email")
-            .eq("shop_domain", merchant.shopify_domain)
-            .maybeSingle();
-
-          if (lead?.email) {
-            try {
-              await sendComplianceAlertEmail(
-                lead.email,
-                merchant.shopify_domain,
-                oldScore,
-                newScore,
-                newIssues,
-              );
-              alertsSent++;
-            } catch (emailErr) {
-              console.error(
-                `[cron/weekly-scan] Failed to send alert for ${merchant.shopify_domain}:`,
-                emailErr instanceof Error ? emailErr.message : emailErr,
-              );
-            }
+        if (lead?.email) {
+          try {
+            await sendComplianceAlertEmail(
+              lead.email,
+              merchant.shopify_domain,
+              comparison.oldScore,
+              comparison.newScore,
+              comparison.newIssues,
+            );
+            alertsSent++;
+          } catch (emailErr) {
+            console.error(
+              `[cron/weekly-scan] Failed to send alert for ${merchant.shopify_domain}:`,
+              emailErr instanceof Error ? emailErr.message : emailErr,
+            );
           }
         }
       }

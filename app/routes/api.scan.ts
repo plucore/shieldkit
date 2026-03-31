@@ -41,6 +41,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
 import { runComplianceScan } from "../lib/compliance-scanner.server";
+import { checkRateLimit, recordScanRequest, RATE_LIMIT_MAX_REQUESTS as RATE_LIMIT_MAX } from "../lib/rate-limiter.server";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -52,35 +53,6 @@ function json<T>(body: T, status = 200): Response {
     status,
     headers: { "Content-Type": "application/json" },
   });
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// In-memory rate limiting — 10 requests per hour per shop
-// ─────────────────────────────────────────────────────────────────────────────
-
-const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
-const RATE_LIMIT_MAX = 10;
-const scanRateMap = new Map<string, number[]>();
-
-function checkRateLimit(shop: string): { allowed: boolean; remaining: number; retryAfterSeconds: number } {
-  const now = Date.now();
-  const cutoff = now - RATE_LIMIT_WINDOW_MS;
-  const timestamps = (scanRateMap.get(shop) ?? []).filter((t) => t > cutoff);
-  scanRateMap.set(shop, timestamps);
-
-  if (timestamps.length >= RATE_LIMIT_MAX) {
-    const oldestInWindow = timestamps[0];
-    const retryAfterSeconds = Math.ceil((oldestInWindow + RATE_LIMIT_WINDOW_MS - now) / 1000);
-    return { allowed: false, remaining: 0, retryAfterSeconds };
-  }
-
-  return { allowed: true, remaining: RATE_LIMIT_MAX - timestamps.length, retryAfterSeconds: 0 };
-}
-
-function recordScanRequest(shop: string): void {
-  const timestamps = scanRateMap.get(shop) ?? [];
-  timestamps.push(Date.now());
-  scanRateMap.set(shop, timestamps);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -29,34 +29,45 @@ interface ScanRow {
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  try {
+    const { session } = await authenticate.admin(request);
 
-  // Look up merchant tier
-  const { data: merchant } = await supabase
-    .from("merchants")
-    .select("id, tier")
-    .eq("shopify_domain", session.shop)
-    .maybeSingle();
+    // Look up merchant tier
+    const { data: merchant, error: merchantError } = await supabase
+      .from("merchants")
+      .select("id, tier")
+      .eq("shopify_domain", session.shop)
+      .maybeSingle();
 
-  if (!merchant || merchant.tier !== "pro") {
-    return redirect("/app?upgrade=scan-history");
+    if (merchantError) {
+      console.error("[scan-history] Failed to fetch merchant:", merchantError.message);
+    }
+
+    if (!merchant || merchant.tier !== "pro") {
+      return redirect("/app?upgrade=scan-history");
+    }
+
+    // Fetch scan history
+    const { data: scans, error } = await supabase
+      .from("scans")
+      .select(
+        "id, compliance_score, critical_count, warning_count, info_count, created_at"
+      )
+      .eq("merchant_id", merchant.id)
+      .order("created_at", { ascending: false })
+      .limit(50);
+
+    if (error) {
+      console.error("[scan-history] Failed to fetch scans:", error.message);
+    }
+
+    return { scans: (scans ?? []) as ScanRow[] };
+  } catch (err) {
+    // Re-throw Response objects (redirects from authenticate.admin or redirect())
+    if (err instanceof Response) throw err;
+    console.error("[scan-history] Loader error:", err);
+    return { scans: [] as ScanRow[] };
   }
-
-  // Fetch scan history
-  const { data: scans, error } = await supabase
-    .from("scans")
-    .select(
-      "id, compliance_score, critical_count, warning_count, info_count, created_at"
-    )
-    .eq("merchant_id", merchant.id)
-    .order("created_at", { ascending: false })
-    .limit(50);
-
-  if (error) {
-    console.error("[scan-history] Failed to fetch scans:", error.message);
-  }
-
-  return { scans: (scans ?? []) as ScanRow[] };
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────

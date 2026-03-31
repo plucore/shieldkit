@@ -501,7 +501,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   // ── Decrement quota after successful scan ─────────────────────────────────
-  if (scansRemaining !== null) {
+  // null = unlimited (Pro tier) — skip decrement entirely
+  if (typeof scansRemaining === "number" && scansRemaining > 0) {
     await supabase
       .from("merchants")
       .update({ scans_remaining: Math.max(0, scansRemaining - 1) })
@@ -606,7 +607,7 @@ function ScoreBanner({
                 color: score === null ? "var(--p-color-text, #303030)" : scoreColor(score),
               }}
             >
-              {score !== null ? `${score}%` : "\u2014"}
+              {score !== null ? `${score}%` : "—"}
             </div>
             <div
               style={{
@@ -646,7 +647,7 @@ function ScoreBanner({
 
           <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "center" }}>
             {isScanning ? (
-              <s-badge tone="info">Running all 10 compliance checks\u2026</s-badge>
+              <s-badge tone="info">Running all 10 compliance checks…</s-badge>
             ) : (
               <s-badge tone="neutral">
                 Last scanned {fmtDate(latestScan.created_at)}
@@ -795,7 +796,7 @@ function ScanProgressIndicator() {
               marginBottom: "16px",
             }}
           >
-            Scanning your store\u2026
+            Scanning your store…
           </div>
           <div
             style={{
@@ -830,7 +831,7 @@ function ScanProgressIndicator() {
               color: "var(--p-color-text-subdued, #6d7175)",
             }}
           >
-            Running 10 compliance checks against your store. This takes 15\u201330 seconds.
+            Running 10 compliance checks against your store. This takes 15–30 seconds.
           </div>
         </div>
       </s-card>
@@ -853,7 +854,7 @@ function UpgradeCard() {
               marginBottom: "8px",
             }}
           >
-            Upgrade to Pro \u2014 $39/mo
+            Upgrade to Pro — $39/mo
           </div>
           <div
             style={{
@@ -1062,7 +1063,7 @@ function AuditChecklist({
             color: "#0f172a",
           }}
         >
-          10-Point GMC Compliance Audit \u2014 {truePassedCount} / {totalChecks} passed
+          10-Point GMC Compliance Audit — {truePassedCount} / {totalChecks} passed
         </div>
         <button
           onClick={onToggleExpand}
@@ -1146,7 +1147,7 @@ function AuditChecklist({
                       userSelect: "none",
                     }}
                   >
-                    \u25BE
+                    ▾
                   </span>
                 )}
               </summary>
@@ -1190,7 +1191,7 @@ function AuditChecklist({
                       </strong>
                       {check.fix_instruction
                         ? check.fix_instruction
-                        : "Detailed remediation copy coming soon \u2014 check back after your next scan."}
+                        : "Detailed remediation copy coming soon — check back after your next scan."}
 
                       {/* AI Policy Generation — Pro only, for policy-related checks */}
                       {merchant?.tier === "pro" &&
@@ -1214,7 +1215,7 @@ function AuditChecklist({
                               submit=""
                               {...(isGeneratingPolicy ? { loading: "" } : {})}
                             >
-                              {isGeneratingPolicy ? "Generating\u2026" : "Generate Policy with AI"}
+                              {isGeneratingPolicy ? "Generating…" : "Generate Policy with AI"}
                             </s-button>
                           </policyFetcher.Form>
                         </div>
@@ -1250,13 +1251,13 @@ function SecurityStatusAside({
   if (score !== null && previousScan?.compliance_score != null) {
     const prevScore = previousScan.compliance_score;
     if (score > prevScore) {
-      trendArrow = "\u2191";
+      trendArrow = "↑";
       trendText = `Improved from ${prevScore}%`;
     } else if (score < prevScore) {
-      trendArrow = "\u2193";
+      trendArrow = "↓";
       trendText = `Declined from ${prevScore}%`;
     } else {
-      trendArrow = "\u2192";
+      trendArrow = "→";
       trendText = "Unchanged";
     }
   }
@@ -1293,7 +1294,7 @@ function SecurityStatusAside({
                 style={{
                   marginTop: "6px",
                   fontSize: "13px",
-                  color: trendArrow === "\u2191" ? "#1a9e5c" : trendArrow === "\u2193" ? "#e51c00" : "#6d7175",
+                  color: trendArrow === "↑" ? "#1a9e5c" : trendArrow === "↓" ? "#e51c00" : "#6d7175",
                   fontWeight: 600,
                 }}
               >
@@ -1446,7 +1447,7 @@ export default function Index() {
 
   const scanError =
     fetcher.state === "idle" && fetcher.data && !fetcher.data.success
-      ? (fetcher.data.message ?? "Scan failed \u2014 please try again.")
+      ? (fetcher.data.message ?? "Scan failed — please try again.")
       : null;
 
   const scanLimitReached =
@@ -1507,7 +1508,7 @@ export default function Index() {
     merchant.scans_remaining <= 0;
 
   return (
-    <s-page heading="ShieldKit \u2014 Compliance Command Center">
+    <s-page heading="ShieldKit — Compliance Command Center">
 
       {/* ── Primary action (dashboard state only) ────────────────────────── */}
       {!showOnboarding && merchant && (
@@ -1518,7 +1519,7 @@ export default function Index() {
             onClick={runScan}
             {...(isScanning ? { loading: "" } : {})}
           >
-            {isScanning ? "Scanning\u2026" : "Re-run Scan"}
+            {isScanning ? "Scanning…" : "Re-run Scan"}
           </s-button>
         ) : (
           // @ts-ignore — s-button supports `url` at runtime
@@ -1624,7 +1625,7 @@ export default function Index() {
                 num: 1,
                 bg: "var(--p-color-bg-surface-info, #e8f6fe)",
                 title: "Welcome to ShieldKit",
-                text: "ShieldKit runs a full 10-point audit of your Shopify store against every requirement that causes Google Merchant Center account suspensions \u2014 and shows you exactly how to fix each one.",
+                text: "ShieldKit runs a full 10-point audit of your Shopify store against every requirement that causes Google Merchant Center account suspensions — and shows you exactly how to fix each one.",
               },
               {
                 num: 2,
@@ -1706,8 +1707,8 @@ export default function Index() {
                 {...(isScanning ? { loading: "" } : {})}
               >
                 {isScanning
-                  ? "Scanning your store\u2026"
-                  : "Run My Free Compliance Scan \u2192"}
+                  ? "Scanning your store…"
+                  : "Run My Free Compliance Scan →"}
               </s-button>
             </fetcher.Form>
           </div>

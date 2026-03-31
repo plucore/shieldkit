@@ -16,7 +16,7 @@
 
 import { redirect } from "react-router";
 import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
-import { useLoaderData } from "react-router";
+import { useLoaderData, useRouteError } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import {
   authenticate,
@@ -29,31 +29,49 @@ import {
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { billing, session } = await authenticate.admin(request);
 
-  // Single plan — no validation needed. Any ?plan param is ignored;
-  // we always request the Pro plan.
   const plan: PlanName = "Pro";
 
-  // billing.request() NEVER RETURNS — it throws a redirect to Shopify's
-  // subscription approval page.  After approval OR cancellation, Shopify
-  // sends the merchant back to returnUrl.
-  //
-  // We point returnUrl at /app/billing/confirm (our own route) so the loader
-  // there can call billing.check(), write the correct tier to Supabase, and
-  // *then* redirect to the dashboard — ensuring the dashboard loader always
-  // reads the fresh tier value.
-  //
-  // Pattern: admin.shopify.com/store/{shop}/apps/{apiKey}/billing/confirm
-  // maps to the /app/billing/confirm route inside the embedded context.
+  // ── Check for existing active subscription ───────────────────────────────
+  // If the merchant already has an active Pro plan, skip billing.request()
+  // and redirect straight to the dashboard.
+  try {
+    const check = await billing.check({
+      plans: [PLAN_PRO],
+      isTest: process.env.NODE_ENV !== "production",
+      returnObject: true,
+    });
+    if (check.hasActivePayment) {
+      console.log(
+        `[upgrade] ${session.shop} already has active Pro subscription — redirecting to dashboard`
+      );
+      return redirect("/app");
+    }
+  } catch (checkErr) {
+    // No active plan found — proceed to request a new one.
+    console.log("[upgrade] No existing subscription, proceeding to billing.request()");
+  }
+
+  // ── Request billing ──────────────────────────────────────────────────────
+  // billing.request() throws a redirect to Shopify's subscription approval
+  // page. After approval or cancellation, Shopify sends the merchant back
+  // to returnUrl (/app/billing/confirm).
   const shopSubdomain = session.shop.replace(".myshopify.com", "");
   const embeddedReturnUrl =
     `https://admin.shopify.com/store/${shopSubdomain}/apps/` +
     `${process.env.SHOPIFY_API_KEY ?? ""}/billing/confirm`;
 
-  await billing.request({
-    plan: plan as any,
-    isTest: process.env.NODE_ENV !== "production",
-    returnUrl: embeddedReturnUrl,
-  });
+  try {
+    await billing.request({
+      plan: plan as any,
+      isTest: process.env.NODE_ENV !== "production",
+      returnUrl: embeddedReturnUrl,
+    });
+  } catch (err) {
+    // billing.request() throws a Response (redirect) on success — re-throw it
+    if (err instanceof Response) throw err;
+    console.error("[upgrade] billing.request() failed:", err);
+    return redirect("/app?billing=error");
+  }
 
   // Unreachable — billing.request() always redirects
   return null;
@@ -78,6 +96,10 @@ export default function UpgradePage() {
       </s-section>
     </s-page>
   );
+}
+
+export function ErrorBoundary() {
+  return boundary.error(useRouteError());
 }
 
 export const headers: HeadersFunction = (headersArgs) => {

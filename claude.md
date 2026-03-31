@@ -58,6 +58,8 @@ public/
   favicon.ico, logo-main.png
 extensions/
   json-ld-schema/      # Theme extension: Product JSON-LD structured data block
+tests/
+  bug-fixes.test.ts    # Regression tests (unicode, scan decrement, nav, billing)
 ```
 
 ---
@@ -107,13 +109,15 @@ All webhooks use `authenticate.webhook(request)` which verifies `X-Shopify-Hmac-
 
 **Billing flow:**
 1. Merchant clicks upgrade link → GET `/app/upgrade?plan=Pro`
-2. `app.upgrade.tsx` loader calls `billing.request()` for the Pro plan with `isTest: NODE_ENV !== 'production'`
-3. Shopify redirects merchant to hosted approval page
-4. Return URL: `https://admin.shopify.com/store/{subdomain}/apps/{apiKey}/billing/confirm`
-5. `app.billing.confirm.tsx` loader calls `billing.check()`, maps `"Pro"` → `"pro"` tier
-6. Updates merchants table: `tier = 'pro', scans_remaining = null` (null = unlimited)
-7. Redirects to `/app` (dashboard)
-8. On decline: redirects to `/app?billing=cancelled` → dashboard shows dismissible warning banner
+2. `app.upgrade.tsx` loader first calls `billing.check()` — if already subscribed, redirects to `/app` (skips billing)
+3. If no active subscription, calls `billing.request()` for the Pro plan with `isTest: NODE_ENV !== 'production'`
+4. Shopify redirects merchant to hosted approval page
+5. Return URL: `https://admin.shopify.com/store/{subdomain}/apps/{apiKey}/billing/confirm`
+6. `app.billing.confirm.tsx` loader calls `billing.check()`, maps `"Pro"` → `"pro"` tier
+7. Updates merchants table: `tier = 'pro', scans_remaining = null` (null = unlimited)
+8. Redirects to `/app` (dashboard)
+9. On decline: redirects to `/app?billing=cancelled` → dashboard shows dismissible warning banner
+10. On billing error: redirects to `/app?billing=error`
 
 **Webhook reconciliation:** `APP_SUBSCRIPTIONS_UPDATE` webhook handles subscription lifecycle changes as a backstop. ACTIVE → upgrades tier. CANCELLED/EXPIRED/DECLINED/FROZEN → `tier='free', scans_remaining=1`.
 
@@ -384,7 +388,7 @@ Note: `shopName` is interpolated into HTML without escaping. Low risk since emai
 |-----------|----------|------|----------|
 | `app.tsx` | `/app` (layout) | Layout | Wraps all `/app/*` routes. Provides `AppProvider` with API key, renders nav with Dashboard link, `<Outlet />` for children. |
 | `app._index.tsx` | `/app` | Loader + Action + Component | **Onboarding:** Logo + 3-step wizard + "Run Free Scan" CTA. **Dashboard:** Score banner, 4 KPI cards, 10-point checklist, aside with threat level. **Actions:** `runScan` (with quota enforcement + decrement), `generatePolicy` (Pro-only AI policy generation). Fires welcome email on first scan. Billing banner on `?billing=cancelled`. Upgrade CTAs for free tier. |
-| `app.upgrade.tsx` | `/app/upgrade?plan=Pro` | Loader only | Calls `billing.request()` for Pro plan. Always redirects to Shopify approval page. |
+| `app.upgrade.tsx` | `/app/upgrade?plan=Pro` | Loader only | Pre-checks for existing active subscription via `billing.check()`. If already subscribed, redirects to `/app`. Otherwise calls `billing.request()` for Pro plan (redirects to Shopify approval page). Errors redirect to `/app?billing=error`. Has ErrorBoundary. |
 | `app.billing.confirm.tsx` | `/app/billing/confirm` | Loader only | Calls `billing.check()`. If active: maps plan → tier, writes `tier` + `scans_remaining=null` to Supabase, redirects to `/app`. If declined: redirects to `/app?billing=cancelled`. |
 | `app.dmca-takedowns.tsx` | `/app/dmca-takedowns` | Loader only | Redirects to `/app`. DMCA module deferred. |
 | `app.scan-history.tsx` | `/app/scan-history` | Loader + Component | Pro-gated scan history. Free tier redirected to `/app?upgrade=scan-history`. |
@@ -524,6 +528,12 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 ### Low
 * **`feature/pro-tier` local branch** — Exists locally but not pushed to remote. Unknown state.
 
+### Fixed (feature/new-pricing)
+* **Unicode escape characters rendered as literal text** — `\uXXXX` sequences in JSX text content displayed as raw text. Fixed: replaced all escape sequences with actual Unicode characters in `app._index.tsx`.
+* **Pro tier scan decrement bug** — `scans_remaining` was decremented even when `null` (unlimited/Pro). Fixed: decrement guard changed to `typeof scansRemaining === "number" && scansRemaining > 0` in both `app._index.tsx` and `api.scan.ts`.
+* **Scan History navigation not working** — `<s-app-nav>` requires `<a>` children, not `<s-link>`. Fixed in `app.tsx`.
+* **Upgrade button not redirecting to billing** — `app.upgrade.tsx` had no error handling and no check for existing subscriptions. Fixed: added `billing.check()` pre-check, try/catch around `billing.request()`, and ErrorBoundary.
+
 ---
 
 ## 13. Environment Variables & External Dependencies
@@ -562,7 +572,16 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 
 ---
 
-## 14. Deployment & Build
+## 14. Testing
+
+* **Framework:** Vitest (dev dependency). Config in `vitest.config.ts`.
+* **Run:** `npm test` (alias for `vitest run`).
+* **Test file:** `tests/bug-fixes.test.ts` — 18 regression tests covering unicode rendering, scan decrement logic, navigation setup, and billing flow.
+* **Note:** Tests that import route modules directly will fail without env vars (`SUPABASE_URL`, etc.) since module initialization triggers `supabase.server.ts`. Tests use file-content assertions (regex/string matching) to avoid this.
+
+---
+
+## 15. Deployment & Build
 
 ### Vercel (current)
 * App URL: `https://shieldkit.vercel.app`
@@ -593,7 +612,7 @@ CMD ["npm", "run", "docker-start"]
 
 ---
 
-## 15. Next Priorities (in order)
+## 16. Next Priorities (in order)
 
 1. **Apply live DB migration** — Run ALTER statements on Supabase to rename `billing_plan` → `tier`, update CHECK constraints, add `leads` table if not present.
 2. **Port SSRF protection** — Copy DNS resolution + private IP blocking from `outbound-scanner.ts` into `compliance-scanner.server.ts`'s `fetchPublicPage()`.

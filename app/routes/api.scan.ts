@@ -239,7 +239,8 @@ export async function action({ request }: ActionFunctionArgs) {
   // credit for a scan that failed to save.
   let newScansRemaining: number | null = scansRemaining;
 
-  if (scansRemaining !== null) {
+  // null = unlimited (Pro tier) — skip decrement entirely
+  if (typeof scansRemaining === "number" && scansRemaining > 0) {
     const decremented = Math.max(0, scansRemaining - 1);
 
     const { error: decrementError } = await supabase

@@ -18,8 +18,8 @@ export default function App() {
   return (
     <AppProvider embedded apiKey={apiKey}>
       <s-app-nav>
-        <s-link href="/app">Dashboard</s-link>
-        <s-link href="/app/scan-history">Scan History</s-link>
+        <a href="/app">Dashboard</a>
+        <a href="/app/scan-history">Scan History</a>
       </s-app-nav>
 
       <Outlet />

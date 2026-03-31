@@ -47,8 +47,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       return redirect("/app");
     }
   } catch (checkErr) {
-    // No active plan found — proceed to request a new one.
-    console.log("[upgrade] No existing subscription, proceeding to billing.request()");
+    // billing.check() throws when no subscription exists — proceed to request a new one.
+    console.error("[upgrade] billing.check() threw (expected if no subscription):", checkErr);
   }
 
   // ── Request billing ──────────────────────────────────────────────────────

@@ -386,8 +386,8 @@ Note: `shopName` is interpolated into HTML without escaping. Low risk since emai
 
 | Route File | URL Path | Type | Behavior |
 |-----------|----------|------|----------|
-| `app.tsx` | `/app` (layout) | Layout | Wraps all `/app/*` routes. Provides `AppProvider` with API key, renders nav with Dashboard link, `<Outlet />` for children. |
-| `app._index.tsx` | `/app` | Loader + Action + Component | **Onboarding:** Logo + 3-step wizard + "Run Free Scan" CTA. **Dashboard:** Score banner, 4 KPI cards, 10-point checklist, aside with threat level. **Actions:** `runScan` (with quota enforcement + decrement), `generatePolicy` (Pro-only AI policy generation). Fires welcome email on first scan. Billing banner on `?billing=cancelled`. Upgrade CTAs for free tier. |
+| `app.tsx` | `/app` (layout) | Layout | Wraps all `/app/*` routes. Provides `AppProvider` with API key, renders sidebar nav via `NavMenu` from `@shopify/app-bridge-react` (Dashboard + Scan History), `<Outlet />` for children. |
+| `app._index.tsx` | `/app` | Loader + Action + Component | **Onboarding:** Logo + 3-step wizard + "Run Free Scan" CTA. **Dashboard:** Score banner, 4 KPI cards, 10-point checklist, aside with threat level + JSON-LD extension info. **Actions:** `runScan` (with quota enforcement + decrement), `generatePolicy` (Pro-only AI policy generation). Fires welcome email on first scan. Billing banner on `?billing=cancelled`. Upgrade CTAs use `useNavigate()` for embedded-app-safe navigation. |
 | `app.upgrade.tsx` | `/app/upgrade?plan=Pro` | Loader only | Pre-checks for existing active subscription via `billing.check()`. If already subscribed, redirects to `/app`. Otherwise calls `billing.request()` for Pro plan (redirects to Shopify approval page). Errors redirect to `/app?billing=error`. Has ErrorBoundary. |
 | `app.billing.confirm.tsx` | `/app/billing/confirm` | Loader only | Calls `billing.check()`. If active: maps plan → tier, writes `tier` + `scans_remaining=null` to Supabase, redirects to `/app`. If declined: redirects to `/app?billing=cancelled`. |
 | `app.dmca-takedowns.tsx` | `/app/dmca-takedowns` | Loader only | Redirects to `/app`. DMCA module deferred. |
@@ -511,7 +511,9 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 * **Welcome email fire-and-forget** — Sent on first scan, deduplicated via `leads` table, not awaited, silent on failure.
 * **Two scan entry points** — Dashboard form submit (`app._index.tsx` action) for the UI, and `api.scan.ts` for programmatic access. Both enforce `scans_remaining` quota and decrement after successful scan.
 * **safeCheck() wrapper** — Every individual compliance check is wrapped so exceptions become severity "error" results instead of failing the entire scan.
-* **Polaris web component type gaps** — Props like `url`, `submit`, `loading` (as string) work at runtime but aren't in TS type defs. Codebase uses `@ts-ignore` or `{...(condition ? { prop: "" } : {})}` spread patterns. This is expected; do not try to fix these.
+* **Polaris web component type gaps** — Props like `submit`, `loading` (as string) work at runtime but aren't in TS type defs. Codebase uses `@ts-ignore` or `{...(condition ? { prop: "" } : {})}` spread patterns. This is expected; do not try to fix these.
+* **Embedded app navigation** — In Shopify embedded apps, navigation MUST go through App Bridge or React Router. Raw `<a>` tags and `<s-button url="...">` trigger full page reloads that break out of the embedded iframe context. Use `NavMenu` from `@shopify/app-bridge-react` for sidebar nav, and `useNavigate()` from React Router for in-app link buttons.
+* **billing_plan vs tier** — The live Supabase DB has both `billing_plan` (stale, unused) and `tier` columns. All application code uses `tier`. The `billing_plan` column should be dropped from the live DB via `ALTER TABLE merchants DROP COLUMN IF EXISTS billing_plan;`.
 * **Streaming SSR** — `entry.server.tsx` uses `renderToPipeableStream`. Bots get `onAllReady` (full render), humans get `onShellReady` (early streaming). 5s timeout.
 
 ---
@@ -523,7 +525,7 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 * **Race condition on scan quota** — `scans_remaining` is read then decremented in separate queries. Concurrent requests can both pass the check.
 * **Scopes fallback mismatch** — `shopify.server.ts` falls back to `"read_products,read_content"` when `SCOPES` env var is missing, but `shopify.app.toml` declares `read_products,read_content,read_legal_policies`. In practice the CLI injects the full set.
 * **No SSRF protection in in-app scanner** — `fetchPublicPage()` in `compliance-scanner.server.ts` follows arbitrary URLs without DNS/IP validation. The outbound scanner has this protection but it was not ported.
-* **Live DB schema may need migration** — The live Supabase DB may still have the old `billing_plan` column name and old CHECK constraints. Run the updated `supabase/schema.sql` or apply targeted ALTER statements.
+* **Stale `billing_plan` column in live DB** — The live Supabase `merchants` table has both `billing_plan` (stale) and `tier` columns. All code uses `tier`. Run `ALTER TABLE merchants DROP COLUMN IF EXISTS billing_plan;` to clean up. Zero application code references `billing_plan`.
 
 ### Low
 * **`feature/pro-tier` local branch** — Exists locally but not pushed to remote. Unknown state.
@@ -531,8 +533,9 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 ### Fixed (feature/new-pricing)
 * **Unicode escape characters rendered as literal text** — `\uXXXX` sequences in JSX text content displayed as raw text. Fixed: replaced all escape sequences with actual Unicode characters in `app._index.tsx`.
 * **Pro tier scan decrement bug** — `scans_remaining` was decremented even when `null` (unlimited/Pro). Fixed: decrement guard changed to `typeof scansRemaining === "number" && scansRemaining > 0` in both `app._index.tsx` and `api.scan.ts`.
-* **Scan History navigation not working** — `<s-app-nav>` requires `<a>` children, not `<s-link>`. Fixed in `app.tsx`.
-* **Upgrade button not redirecting to billing** — `app.upgrade.tsx` had no error handling and no check for existing subscriptions. Fixed: added `billing.check()` pre-check, try/catch around `billing.request()`, and ErrorBoundary.
+* **Scan History navigation broke out of iframe** — Changed from `<s-app-nav>` + `<a>` tags to `NavMenu` from `@shopify/app-bridge-react` with `<a>` children and `rel="home"` on the Dashboard link. `NavMenu` wraps App Bridge's `<ui-nav-menu>` and handles embedded navigation correctly.
+* **Upgrade button did nothing when clicked** — `<s-button url="...">` triggered full page reloads in the iframe, breaking App Bridge context. Fixed: all 5 upgrade buttons now use `onClick={navigateToUpgrade}` which calls React Router's `useNavigate()` for SPA navigation. The upgrade route (`app.upgrade.tsx`) also has `billing.check()` pre-check, try/catch error handling, and `ErrorBoundary`.
+* **JSON-LD extension not visible** — Merchants had no way to discover the free JSON-LD theme extension. Added an "Free JSON-LD Structured Data" card in the dashboard aside (visible to all tiers) with enable instructions.
 
 ---
 

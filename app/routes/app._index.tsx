@@ -24,6 +24,7 @@ import type {
 import {
   useFetcher,
   useLoaderData,
+  useNavigate,
   useRevalidator,
   useRouteError,
   useSearchParams,
@@ -841,7 +842,7 @@ function ScanProgressIndicator() {
 
 // ─── Upgrade CTA Card (for free users who've used their scan) ─────────────────
 
-function UpgradeCard() {
+function UpgradeCard({ onUpgrade }: { onUpgrade: () => void }) {
   return (
     <s-section>
       <s-card>
@@ -887,8 +888,7 @@ function UpgradeCard() {
               </div>
             ))}
           </div>
-          {/* @ts-ignore — s-button supports url at runtime */}
-          <s-button variant="primary" url="/app/upgrade?plan=Pro">
+          <s-button variant="primary" onClick={onUpgrade}>
             Upgrade to Pro
           </s-button>
         </div>
@@ -1422,7 +1422,13 @@ export default function Index() {
   const fetcher       = useFetcher<ApiScanResponse>();
   const policyFetcher = useFetcher<ApiScanResponse>();
   const revalidator   = useRevalidator();
+  const navigate      = useNavigate();
   const shopify       = useAppBridge();
+
+  const navigateToUpgrade = useCallback(
+    () => navigate("/app/upgrade?plan=Pro"),
+    [navigate],
+  );
   const [searchParams, setSearchParams] = useSearchParams();
   const [toastId, setToastId]           = useState<string | null>(null);
   const [allExpanded, setAllExpanded]   = useState(false);
@@ -1522,11 +1528,10 @@ export default function Index() {
             {isScanning ? "Scanning…" : "Re-run Scan"}
           </s-button>
         ) : (
-          // @ts-ignore — s-button supports `url` at runtime
           <s-button
             slot="primary-action"
             variant="primary"
-            url="/app/upgrade?plan=Pro"
+            onClick={navigateToUpgrade}
           >
             Upgrade to Pro
           </s-button>
@@ -1544,8 +1549,7 @@ export default function Index() {
           {scanLimitReached && (
             <>
               {" "}
-              {/* @ts-ignore — s-button supports url at runtime */}
-              <s-button slot="actions" url="/app/upgrade?plan=Pro">
+              <s-button slot="actions" onClick={navigateToUpgrade}>
                 Upgrade to Pro
               </s-button>
             </>
@@ -1561,8 +1565,7 @@ export default function Index() {
         >
           You're on the Free plan. Upgrade to Pro ($39/mo) for unlimited
           re-scans, AI policy generation, and full scan history.
-          {/* @ts-ignore — s-button supports `url` at runtime */}
-          <s-button slot="actions" url="/app/upgrade?plan=Pro">
+          <s-button slot="actions" onClick={navigateToUpgrade}>
             View upgrade options
           </s-button>
         </s-banner>
@@ -1743,7 +1746,7 @@ export default function Index() {
           />
 
           {/* ── Upgrade CTA for free-tier users who have used their scan ── */}
-          {freeUserUsedScan && <UpgradeCard />}
+          {freeUserUsedScan && <UpgradeCard onUpgrade={navigateToUpgrade} />}
 
           {/* ── Inline upgrade banner for free users with remaining scans ── */}
           {merchant.tier !== "pro" && !freeUserUsedScan && sortedChecks.length > 0 && (
@@ -1751,8 +1754,7 @@ export default function Index() {
               <s-banner tone="info">
                 Upgrade to Pro ($39/mo) for unlimited re-scans, AI policy
                 generation, and full scan history.
-                {/* @ts-ignore — s-button supports url at runtime */}
-                <s-button slot="actions" url="/app/upgrade?plan=Pro">
+                <s-button slot="actions" onClick={navigateToUpgrade}>
                   Upgrade to Pro
                 </s-button>
               </s-banner>
@@ -1795,6 +1797,29 @@ export default function Index() {
         warningCount={warningCount}
         previousScan={previousScan}
       />
+
+      {/* Free JSON-LD Extension */}
+      <s-section slot="aside" heading="Free JSON-LD Structured Data">
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "12px",
+          }}
+        >
+          <s-paragraph>
+            Your ShieldKit installation includes a free theme extension that
+            adds correct Product JSON-LD structured data to every product page
+            — helping you pass compliance check #8 and improve Google Shopping
+            visibility.
+          </s-paragraph>
+          <s-paragraph>
+            <strong>Enable it:</strong> Online Store &rarr; Themes &rarr;
+            Customize &rarr; Add app block &rarr; ShieldKit Product Schema
+            (JSON-LD).
+          </s-paragraph>
+        </div>
+      </s-section>
 
       {/* About ShieldKit */}
       <s-section slot="aside" heading="About ShieldKit">

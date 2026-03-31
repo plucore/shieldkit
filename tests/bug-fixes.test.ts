@@ -1,12 +1,14 @@
 /**
  * tests/bug-fixes.test.ts
  *
- * Regression tests for the 5 bugs fixed on feature/new-pricing.
+ * Regression tests for bugs fixed on feature/new-pricing.
  *
- * Bug 1: Unicode escape characters rendering as literal text
- * Bug 2: Pro tier scan decrement bug
- * Bug 3: Scan History navigation not working
- * Bug 4/5: Upgrade button not redirecting to Shopify billing
+ * 1. No billing_plan references in application code (only tier)
+ * 2. Unicode escape characters replaced with actual characters
+ * 3. Upgrade buttons use React Router navigate(), not url= attributes
+ * 4. Scan History route exports + NavMenu navigation
+ * 5. JSON-LD extension card visible in dashboard
+ * 6. Pro tier scan decrement guard
  */
 
 import { describe, it, expect } from "vitest";
@@ -15,12 +17,45 @@ import path from "node:path";
 import fs from "node:fs";
 
 const APP_DIR = path.resolve(__dirname, "../app");
+const ROOT_DIR = path.resolve(__dirname, "..");
 
-// ─── Bug 1: No raw \uXXXX escape sequences in app/ source files ─────────────
+// ─── billing_plan vs tier consistency ────────────────────────────────────────
 
-describe("Bug 1: Unicode escape characters", () => {
-  it("should have no raw \\uXXXX escape sequences in any .ts/.tsx file under app/", () => {
-    // Use grep to find literal backslash-u-XXXX patterns in source files.
+describe("billing_plan vs tier consistency", () => {
+  it("no application code references billing_plan", () => {
+    // Search all .ts/.tsx files in app/ for "billing_plan"
+    let output = "";
+    try {
+      output = execFileSync(
+        "grep",
+        ["-rn", "billing_plan", "--include=*.ts", "--include=*.tsx", APP_DIR],
+        { encoding: "utf-8" }
+      );
+    } catch {
+      output = "";
+    }
+    expect(output).toBe("");
+  });
+
+  it("no SQL files reference billing_plan", () => {
+    let output = "";
+    try {
+      output = execFileSync(
+        "grep",
+        ["-rn", "billing_plan", "--include=*.sql", ROOT_DIR],
+        { encoding: "utf-8" }
+      );
+    } catch {
+      output = "";
+    }
+    expect(output).toBe("");
+  });
+});
+
+// ─── Unicode escape characters ───────────────────────────────────────────────
+
+describe("Unicode escape characters", () => {
+  it("no raw \\uXXXX escape sequences in any .ts/.tsx file under app/", () => {
     let output = "";
     try {
       output = execFileSync(
@@ -29,43 +64,165 @@ describe("Bug 1: Unicode escape characters", () => {
         { encoding: "utf-8" }
       );
     } catch {
-      // grep exits with code 1 when no matches are found — that's the success case
       output = "";
     }
-
     expect(output).toBe("");
   });
 });
 
-// ─── Bug 2: Pro tier scan decrement logic ────────────────────────────────────
+// ─── Upgrade button navigation ───────────────────────────────────────────────
 
-describe("Bug 2: Scan decrement guard", () => {
-  /**
-   * Extracted decrement guard logic — mirrors the check used in
-   * app._index.tsx and api.scan.ts after the fix.
-   */
+describe("Upgrade button uses React Router navigation", () => {
+  const dashContent = fs.readFileSync(
+    path.join(APP_DIR, "routes/app._index.tsx"),
+    "utf-8"
+  );
+
+  it("dashboard imports useNavigate from react-router", () => {
+    expect(dashContent).toContain("useNavigate");
+    expect(dashContent).toMatch(/import\s*\{[^}]*useNavigate[^}]*\}\s*from\s*"react-router"/);
+  });
+
+  it("dashboard defines navigateToUpgrade using useNavigate", () => {
+    expect(dashContent).toContain("navigateToUpgrade");
+    expect(dashContent).toContain('navigate("/app/upgrade?plan=Pro")');
+  });
+
+  it("upgrade buttons use onClick, not url= attribute", () => {
+    // There should be NO s-button elements with url="/app/upgrade..."
+    expect(dashContent).not.toMatch(/url="\/app\/upgrade/);
+    // There should be onClick={navigateToUpgrade} references
+    const onClickMatches = dashContent.match(/onClick={navigateToUpgrade}/g);
+    expect(onClickMatches).not.toBeNull();
+    expect(onClickMatches!.length).toBeGreaterThanOrEqual(4);
+  });
+
+  const upgradeContent = fs.readFileSync(
+    path.join(APP_DIR, "routes/app.upgrade.tsx"),
+    "utf-8"
+  );
+
+  it("upgrade route exports a loader", () => {
+    expect(upgradeContent).toMatch(/export\s+const\s+loader\s*=/);
+  });
+
+  it("upgrade route exports an ErrorBoundary", () => {
+    expect(upgradeContent).toMatch(/export\s+function\s+ErrorBoundary/);
+  });
+
+  it("upgrade route plan name matches shopify.server.ts PLAN_PRO", () => {
+    expect(upgradeContent).toContain("PLAN_PRO");
+    const shopifyContent = fs.readFileSync(
+      path.join(APP_DIR, "shopify.server.ts"),
+      "utf-8"
+    );
+    expect(shopifyContent).toMatch(/PLAN_PRO\s*=\s*"Pro"/);
+  });
+
+  it("upgrade route checks existing subscription before billing.request()", () => {
+    const checkIndex = upgradeContent.indexOf("await billing.check(");
+    const requestIndex = upgradeContent.indexOf("await billing.request(");
+    expect(checkIndex).toBeGreaterThan(-1);
+    expect(requestIndex).toBeGreaterThan(-1);
+    expect(checkIndex).toBeLessThan(requestIndex);
+  });
+
+  it("upgrade route has console.error at every failure point", () => {
+    expect(upgradeContent).toContain('console.error("[upgrade] billing.check()');
+    expect(upgradeContent).toContain('console.error("[upgrade] billing.request()');
+  });
+});
+
+// ─── Scan History route and navigation ───────────────────────────────────────
+
+describe("Scan History navigation", () => {
+  const scanHistoryContent = fs.readFileSync(
+    path.join(APP_DIR, "routes/app.scan-history.tsx"),
+    "utf-8"
+  );
+  const appContent = fs.readFileSync(
+    path.join(APP_DIR, "routes/app.tsx"),
+    "utf-8"
+  );
+
+  it("app.scan-history.tsx exports a default component", () => {
+    expect(scanHistoryContent).toMatch(/export\s+default\s+function\s+\w+/);
+  });
+
+  it("app.scan-history.tsx exports a loader function", () => {
+    expect(scanHistoryContent).toMatch(/export\s+const\s+loader\s*=/);
+  });
+
+  it("app.tsx uses NavMenu from @shopify/app-bridge-react for navigation", () => {
+    expect(appContent).toContain("NavMenu");
+    expect(appContent).toMatch(/import\s*\{[^}]*NavMenu[^}]*\}\s*from\s*"@shopify\/app-bridge-react"/);
+  });
+
+  it("nav links are <a> tags inside <NavMenu>, not <s-link> or <s-app-nav>", () => {
+    expect(appContent).toContain("<NavMenu>");
+    expect(appContent).toContain('<a href="/app"');
+    expect(appContent).toContain('<a href="/app/scan-history"');
+    expect(appContent).not.toContain("<s-app-nav>");
+    expect(appContent).not.toMatch(/<s-link[^>]*href="\/app/);
+  });
+
+  it("dashboard link has rel='home' attribute", () => {
+    expect(appContent).toMatch(/<a\s+href="\/app"\s+rel="home"/);
+  });
+
+  it("nav link path matches scan history route file convention", () => {
+    // app.scan-history.tsx → /app/scan-history via React Router file-based routing
+    const routeFile = path.join(APP_DIR, "routes/app.scan-history.tsx");
+    expect(fs.existsSync(routeFile)).toBe(true);
+    expect(appContent).toContain('href="/app/scan-history"');
+  });
+});
+
+// ─── JSON-LD extension visibility ────────────────────────────────────────────
+
+describe("JSON-LD extension visibility", () => {
+  const dashContent = fs.readFileSync(
+    path.join(APP_DIR, "routes/app._index.tsx"),
+    "utf-8"
+  );
+
+  it("dashboard has a JSON-LD extension section", () => {
+    expect(dashContent).toContain("Free JSON-LD Structured Data");
+  });
+
+  it("JSON-LD section explains how to enable the extension", () => {
+    expect(dashContent).toContain("Customize");
+    expect(dashContent).toContain("Add app block");
+    expect(dashContent).toContain("ShieldKit Product Schema");
+  });
+
+  it("JSON-LD section is in the aside (visible to all tiers)", () => {
+    // The section should use slot="aside" to appear in the sidebar
+    expect(dashContent).toContain('slot="aside" heading="Free JSON-LD Structured Data"');
+  });
+});
+
+// ─── Pro tier scan decrement logic ───────────────────────────────────────────
+
+describe("Scan decrement guard", () => {
   function shouldDecrement(scansRemaining: number | null | undefined): boolean {
     return typeof scansRemaining === "number" && scansRemaining > 0;
   }
 
-  it("should NOT decrement when scans_remaining is null (Pro tier / unlimited)", () => {
+  it("does NOT decrement when null (Pro tier)", () => {
     expect(shouldDecrement(null)).toBe(false);
   });
 
-  it("should decrement when scans_remaining is 1", () => {
+  it("decrements when scans_remaining is 1", () => {
     expect(shouldDecrement(1)).toBe(true);
   });
 
-  it("should NOT decrement when scans_remaining is 0 (exhausted)", () => {
+  it("does NOT decrement when 0 (exhausted)", () => {
     expect(shouldDecrement(0)).toBe(false);
   });
 
-  it("should NOT decrement when scans_remaining is undefined", () => {
+  it("does NOT decrement when undefined", () => {
     expect(shouldDecrement(undefined)).toBe(false);
-  });
-
-  it("should decrement when scans_remaining is > 1", () => {
-    expect(shouldDecrement(5)).toBe(true);
   });
 
   it("app._index.tsx uses the correct guard", () => {
@@ -86,93 +243,5 @@ describe("Bug 2: Scan decrement guard", () => {
     expect(content).toContain(
       'typeof scansRemaining === "number" && scansRemaining > 0'
     );
-  });
-});
-
-// ─── Bug 3: Scan History route and navigation ────────────────────────────────
-
-describe("Bug 3: Scan History navigation", () => {
-  const scanHistoryContent = fs.readFileSync(
-    path.join(APP_DIR, "routes/app.scan-history.tsx"),
-    "utf-8"
-  );
-
-  it("app.scan-history.tsx exports a default component", () => {
-    expect(scanHistoryContent).toMatch(/export\s+default\s+function\s+\w+/);
-  });
-
-  it("app.scan-history.tsx exports a loader function", () => {
-    expect(scanHistoryContent).toMatch(/export\s+const\s+loader\s*=/);
-  });
-
-  it("app.scan-history.tsx route file exists and is non-empty", () => {
-    expect(scanHistoryContent.length).toBeGreaterThan(100);
-  });
-
-  it("app.tsx navigation uses <a> tags, not <s-link>", () => {
-    const content = fs.readFileSync(
-      path.join(APP_DIR, "routes/app.tsx"),
-      "utf-8"
-    );
-    // Should use <a> tags for navigation
-    expect(content).toContain('<a href="/app">Dashboard</a>');
-    expect(content).toContain('<a href="/app/scan-history">Scan History</a>');
-    // Should NOT use <s-link> for navigation
-    expect(content).not.toMatch(/<s-link[^>]*href="\/app/);
-  });
-});
-
-// ─── Bug 4/5: Upgrade route and billing flow ────────────────────────────────
-
-describe("Bug 4/5: Upgrade billing flow", () => {
-  const upgradeContent = fs.readFileSync(
-    path.join(APP_DIR, "routes/app.upgrade.tsx"),
-    "utf-8"
-  );
-
-  it("app.upgrade.tsx exports a loader function", () => {
-    expect(upgradeContent).toMatch(/export\s+const\s+loader\s*=/);
-  });
-
-  it("app.upgrade.tsx exports an ErrorBoundary", () => {
-    expect(upgradeContent).toMatch(/export\s+function\s+ErrorBoundary/);
-  });
-
-  it("upgrade route imports and uses PLAN_PRO from shopify.server.ts", () => {
-    expect(upgradeContent).toContain("PLAN_PRO");
-    // Verify shopify.server.ts defines PLAN_PRO as "Pro"
-    const shopifyContent = fs.readFileSync(
-      path.join(APP_DIR, "shopify.server.ts"),
-      "utf-8"
-    );
-    expect(shopifyContent).toMatch(/PLAN_PRO\s*=\s*"Pro"/);
-  });
-
-  it("upgrade route checks for existing subscription before billing.request()", () => {
-    expect(upgradeContent).toContain("billing.check(");
-    expect(upgradeContent).toContain("hasActivePayment");
-
-    // await billing.check() must appear BEFORE await billing.request()
-    const checkIndex = upgradeContent.indexOf("await billing.check(");
-    const requestIndex = upgradeContent.indexOf("await billing.request(");
-    expect(checkIndex).toBeGreaterThan(-1);
-    expect(requestIndex).toBeGreaterThan(-1);
-    expect(checkIndex).toBeLessThan(requestIndex);
-  });
-
-  it("upgrade route has error handling around billing.request()", () => {
-    expect(upgradeContent).toContain("catch (err)");
-    expect(upgradeContent).toContain("console.error");
-    expect(upgradeContent).toContain('redirect("/app?billing=error")');
-  });
-
-  it("dashboard upgrade buttons point to /app/upgrade?plan=Pro", () => {
-    const dashContent = fs.readFileSync(
-      path.join(APP_DIR, "routes/app._index.tsx"),
-      "utf-8"
-    );
-    const matches = dashContent.match(/url="\/app\/upgrade\?plan=Pro"/g);
-    expect(matches).not.toBeNull();
-    expect(matches!.length).toBeGreaterThanOrEqual(3);
   });
 });

@@ -198,6 +198,14 @@ describe("Upgrade button uses React Router navigation", () => {
     expect(shopifyContent).toMatch(/PLAN_PRO\s*=\s*"Pro"/);
   });
 
+  it("upgrade route uses relative returnUrl (not manually constructed admin URL)", () => {
+    // The returnUrl must be a relative app path — the Shopify library converts it
+    // to the full embedded admin URL. Manual construction causes route mismatches.
+    expect(upgradeContent).toContain('returnUrl: "/app/billing/confirm"');
+    // Must NOT manually build https://admin.shopify.com/store/... URL
+    expect(upgradeContent).not.toContain("admin.shopify.com/store/");
+  });
+
   it("upgrade route checks existing subscription before billing.request()", () => {
     const checkIndex = upgradeContent.indexOf("await billing.check(");
     const requestIndex = upgradeContent.indexOf("await billing.request(");
@@ -292,7 +300,8 @@ describe("JSON-LD extension visibility", () => {
   it("JSON-LD section has one-click enable button with deep link", () => {
     expect(dashContent).toContain("Enable JSON-LD");
     expect(dashContent).toContain("activateAppId");
-    expect(dashContent).toContain("json-ld-schema");
+    // Deep link uses block filename (product-schema), not extension handle
+    expect(dashContent).toContain("product-schema");
   });
 
   it("JSON-LD section is in the aside (visible to all tiers)", () => {
@@ -573,14 +582,16 @@ describe("Email system removed", () => {
 // ─── JSON-LD deep link uses client_id ───────────────────────────────────────
 
 describe("JSON-LD deep link", () => {
-  it("uses app client_id (not extension UID) in activateAppId", () => {
+  it("uses app client_id and block filename (not extension UID or extension handle) in activateAppId", () => {
     const content = fs.readFileSync(
       path.join(APP_DIR, "routes/app._index.tsx"),
       "utf-8"
     );
-    // Should use client_id format
-    expect(content).toContain("activateAppId=071fc51ee1ef7f358cdaed5f95922498/json-ld-schema");
+    // Should use client_id + block liquid filename (product-schema from blocks/product-schema.liquid)
+    expect(content).toContain("activateAppId=071fc51ee1ef7f358cdaed5f95922498/product-schema");
     // Should NOT use the old extension UID
     expect(content).not.toContain("5f84566a-b42f-516d-7eec-00f7f6b2169e317fee21");
+    // Should NOT use the extension handle (json-ld-schema) — must use block filename
+    expect(content).not.toMatch(/activateAppId=.*\/json-ld-schema/);
   });
 });

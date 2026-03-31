@@ -814,7 +814,7 @@ export default function Index() {
             Google Shopping index your products.
           </s-paragraph>
           <a
-            href={`https://${shopDomain}/admin/themes/current/editor?context=apps&activateAppId=071fc51ee1ef7f358cdaed5f95922498/json-ld-schema`}
+            href={`https://${shopDomain}/admin/themes/current/editor?context=apps&activateAppId=071fc51ee1ef7f358cdaed5f95922498/product-schema`}
             target="_top"
             style={{ textDecoration: "none" }}
           >

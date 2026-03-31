@@ -54,17 +54,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   // ── Request billing ──────────────────────────────────────────────────────
   // billing.request() throws a redirect to Shopify's subscription approval
   // page. After approval or cancellation, Shopify sends the merchant back
-  // to returnUrl (/app/billing/confirm).
-  const shopSubdomain = session.shop.replace(".myshopify.com", "");
-  const embeddedReturnUrl =
-    `https://admin.shopify.com/store/${shopSubdomain}/apps/` +
-    `${process.env.SHOPIFY_API_KEY ?? ""}/billing/confirm`;
-
+  // to returnUrl. The Shopify library converts a relative app path into the
+  // full embedded admin URL automatically.
   try {
     await billing.request({
       plan: plan as any,
       isTest: process.env.NODE_ENV !== "production",
-      returnUrl: embeddedReturnUrl,
+      returnUrl: "/app/billing/confirm",
     });
   } catch (err) {
     // billing.request() throws a Response (redirect) on success — re-throw it

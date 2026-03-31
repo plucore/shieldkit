@@ -18,7 +18,6 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { supabase } from "../supabase.server";
 import { runComplianceScan } from "../lib/compliance-scanner.server";
-import { sendComplianceAlertEmail } from "../utils/email.server";
 import { compareScanWithPrevious } from "../lib/scan-comparison.server";
 
 function json<T>(body: T, status = 200): Response {
@@ -94,30 +93,12 @@ export async function action({ request }: ActionFunctionArgs) {
       );
 
       if (comparison?.shouldAlert) {
-        // Look up merchant email via shop info in leads table
-        const { data: lead } = await supabase
-          .from("leads")
-          .select("email")
-          .eq("shop_domain", merchant.shopify_domain)
-          .maybeSingle();
-
-        if (lead?.email) {
-          try {
-            await sendComplianceAlertEmail(
-              lead.email,
-              merchant.shopify_domain,
-              comparison.oldScore,
-              comparison.newScore,
-              comparison.newIssues,
-            );
-            alertsSent++;
-          } catch (emailErr) {
-            console.error(
-              `[cron/weekly-scan] Failed to send alert for ${merchant.shopify_domain}:`,
-              emailErr instanceof Error ? emailErr.message : emailErr,
-            );
-          }
-        }
+        console.log(
+          `[cron/weekly-scan] Alert condition met for ${merchant.shopify_domain}: ` +
+          `score ${comparison.oldScore} → ${comparison.newScore}, ` +
+          `${comparison.newIssues.length} new issue(s)`
+        );
+        alertsSent++;
       }
     } catch (err) {
       errors++;

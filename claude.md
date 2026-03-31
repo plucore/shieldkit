@@ -7,7 +7,7 @@ ShieldKit is a B2B SaaS Shopify Embedded App that scans Shopify stores for Googl
 * **Module A (Current MVP):** A 10-point automated compliance scanner. Identifies suspension risks and provides plain-English fix instructions.
 * **Module B (Future/Hidden):** Automated DMCA Takedown Legal Engine. All DMCA features are deferred. `app/routes/app.dmca-takedowns.tsx` redirects to `/app`.
 
-**Business model:** Free + Pro ($39/mo). Free tier gets 1 full scan + JSON-LD theme extension. Pro tier gets unlimited re-scans, AI-powered policy generation (Anthropic Claude), and full scan history.
+**Business model:** Free + Pro ($29 one-time). Free tier gets 1 full scan + JSON-LD theme extension. Pro tier gets unlimited re-scans, AI-powered policy generation (Anthropic Claude), and full scan history.
 
 ---
 
@@ -31,7 +31,7 @@ ShieldKit is a B2B SaaS Shopify Embedded App that scans Shopify stores for Googl
 | `@shopify/shopify-app-react-router` | ^1.1.0 | Auth, billing, webhooks, session management |
 | `@supabase/supabase-js` | ^2.47.0 | PostgreSQL client (service role) |
 | `cheerio` | ^1.2.0 | Server-side HTML parsing for compliance checks |
-| `resend` | ^6.9.2 | Transactional email (welcome email) |
+| ~~`resend`~~ | ~~^6.9.2~~ | ~~Removed — email system deleted~~ |
 | `@anthropic-ai/sdk` | latest | AI policy generation (Pro feature) |
 | `isbot` | ^5.1.31 | Bot detection for streaming SSR |
 
@@ -67,11 +67,7 @@ app/
     types.ts                       (shared UI types: Merchant, Scan, etc.)
     constants.ts                   (shared UI color constants)
     scan-helpers.ts                (pure helper functions for dashboard)
-  utils/
-    email.server.ts                (Resend public API)
-    email-templates/
-      welcome.ts                   (HTML template for welcome email)
-      compliance-alert.ts          (HTML template for alert email)
+  utils/                           (email system removed)
   shopify.server.ts   # Shopify app config, billing plans, afterAuth hook
   supabase.server.ts  # Supabase client singleton
   root.tsx, entry.server.tsx, routes.ts, globals.d.ts, styles.css
@@ -118,7 +114,7 @@ Declared in `shopify.app.toml` and handled by route files:
 |-------|-----------|----------|
 | `app/uninstalled` | `webhooks.app.uninstalled.tsx` | Deletes all sessions for shop, soft-deletes merchant (`uninstalled_at = NOW()`). |
 | `app/scopes_update` | `webhooks.app.scopes_update.tsx` | Updates session scope string in Supabase. |
-| `app_subscriptions/update` | `webhooks.app_subscriptions.update.tsx` | Maps plan name to tier, writes to merchants. On CANCELLED/EXPIRED/DECLINED/FROZEN: downgrades to `tier='free', scans_remaining=0`. |
+| `app_subscriptions/update` | `webhooks.app_subscriptions.update.tsx` | Maps plan name to tier, writes to merchants. One-time charge — no cancellation/downgrade flow. |
 | `customers/data_request` | `webhooks.customers.data_request.tsx` | GDPR. Logs and returns 200 (app stores no customer PII). |
 | `customers/redact` | `webhooks.customers.redact.tsx` | GDPR. Logs and returns 200 (no customer PII to delete). |
 | `shop/redact` | `webhooks.shop.redact.tsx` | GDPR. Hard-deletes merchant row (CASCADE to scans, violations). Fires 48h after uninstall. |
@@ -130,7 +126,7 @@ All webhooks use `authenticate.webhook(request)` which verifies `X-Shopify-Hmac-
 **Single paid plan:**
 | Constant | Plan Name | Price | Interval |
 |----------|-----------|-------|----------|
-| `PLAN_PRO` | `"Pro"` | $39.00 USD | Every 30 days |
+| `PLAN_PRO` | `"Pro"` | $29.00 USD | One-time |
 
 **Billing flow:**
 1. Merchant clicks upgrade link → GET `/app/upgrade?plan=Pro`
@@ -144,7 +140,7 @@ All webhooks use `authenticate.webhook(request)` which verifies `X-Shopify-Hmac-
 9. On decline: redirects to `/app?billing=cancelled` → dashboard shows dismissible warning banner
 10. On billing error: redirects to `/app?billing=error`
 
-**Webhook reconciliation:** `APP_SUBSCRIPTIONS_UPDATE` webhook handles subscription lifecycle changes as a backstop. ACTIVE → upgrades tier. CANCELLED/EXPIRED/DECLINED/FROZEN → `tier='free', scans_remaining=1`.
+**Webhook reconciliation:** `APP_SUBSCRIPTIONS_UPDATE` webhook fires as a backstop. ACTIVE → upgrades tier. One-time charges don't have cancellation lifecycle events, so no downgrade logic is needed.
 
 **Pro tier features:**
 - Unlimited re-scans (`scans_remaining = null`)
@@ -382,26 +378,10 @@ After a scan completes, the `app._index.tsx` loader revalidates and renders:
 - **10-point checklist:** Sorted (failed first, by severity). Each check expandable with description + "Resolution Guide" box showing `fix_instruction`.
 - **Aside:** Security Status card with threat level (Minimal/Low/Elevated/High/Critical), About ShieldKit card.
 
-### Welcome email (`app/utils/email.server.ts`)
-Triggered on **first scan only**. Fire-and-forget (not awaited). Deduplicated via `leads` table.
+### Email system (REMOVED) / Lead collection
+The welcome email and compliance alert email systems have been removed. The `resend` dependency, `email.server.ts`, and `email-templates/` directory no longer exist.
 
-**Flow** (in `app._index.tsx` action):
-1. Check `leads` table for existing `shop_domain` row. If exists → skip.
-2. Fetch `shop { email name }` via GraphQL.
-3. Upsert `leads` row (prevents double-send on retry).
-4. Call `sendWelcomeEmail(shopEmail, shopName)`.
-5. Entire flow wrapped in try/catch with silent failure.
-
-**Email details:**
-- **From:** `ShieldKit <am@plucore.com>`
-- **Subject:** `"Your ShieldKit Scan Results Are Ready"`
-- **Template:** HTML email with ShieldKit branding (#0f172a header).
-- **CTA:** "View Your Results" → `https://shieldkit.vercel.app/app`
-- **Upgrade copy:** "Upgrade to Pro ($39/mo) for unlimited re-scans, AI policy generation, and full scan history."
-- **Footer:** "2026 ShieldKit by Plucore. Abu Dhabi, United Arab Emirates."
-- **Unsubscribe:** "Reply 'Unsubscribe' and we'll remove you."
-
-Note: `shopName` is interpolated into HTML without escaping. Low risk since email is sent to the merchant themselves, but technically allows HTML injection via crafted shop names.
+**Lead collection** still works: on first scan, the merchant's email is collected via GraphQL and upserted into the `leads` table (deduplicated by `shop_domain`). No email is sent — the leads are collected for future retargeting only. Fire-and-forget, silent on failure.
 
 ---
 
@@ -533,7 +513,7 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 * **No Prisma/SQLite** — All persistence via Supabase JS client with service_role key.
 * **`maybeSingle()` not `single()`** — Prevents 406 errors on missing rows.
 * **Billing return flow** — `billing.request()` returns to `/app/billing/confirm` (not `/app`) so tier is written to Supabase synchronously before dashboard loads. Webhook is backup.
-* **Welcome email fire-and-forget** — Sent on first scan, deduplicated via `leads` table, not awaited, silent on failure.
+* **Email system removed** — Welcome and compliance alert emails were removed. The `resend` dependency and all email templates have been deleted.
 * **Two scan entry points** — Dashboard form submit (`app._index.tsx` action) for the UI, and `api.scan.ts` for programmatic access. Both enforce `scans_remaining` quota and decrement after successful scan.
 * **safeCheck() wrapper** — Every individual compliance check is wrapped so exceptions become severity "error" results instead of failing the entire scan.
 * **Polaris web component type gaps** — Props like `submit`, `loading` (as string) work at runtime but aren't in TS type defs. Codebase uses `@ts-ignore` or `{...(condition ? { prop: "" } : {})}` spread patterns. This is expected; do not try to fix these.
@@ -583,7 +563,7 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 | `SUPABASE_URL` | `supabase.server.ts` | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | `supabase.server.ts` | Admin-level DB access (bypasses RLS) |
 | `TOKEN_ENCRYPTION_KEY` | `crypto.server.ts` | AES-256-GCM key material (>= 32 chars) |
-| `RESEND_API_KEY` | `email.server.ts` | Resend email service |
+| ~~`RESEND_API_KEY`~~ | ~~`email.server.ts`~~ | ~~Removed — email system deleted~~ |
 
 ### Optional
 | Variable | Used By | Purpose |
@@ -602,7 +582,7 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 | Shopify Admin API | GraphQL data (shop info, policies, products, pages) | Per-store `https://{shop}/admin/api/2025-10/graphql.json` |
 | Shopify Billing API | Subscription management | Via `billing.request()` / `billing.check()` |
 | Google PageSpeed Insights | Mobile performance scoring | `https://www.googleapis.com/pagespeedonline/v5/runPagespeed` |
-| Resend | Transactional email | Via `resend` npm package |
+| ~~Resend~~ | ~~Transactional email~~ | ~~Removed~~ |
 | Anthropic API | AI policy generation (Pro feature) | Via `@anthropic-ai/sdk` npm package |
 
 ---
@@ -611,7 +591,7 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 
 * **Framework:** Vitest (dev dependency). Config in `vitest.config.ts`.
 * **Run:** `npm test` (alias for `vitest run`).
-* **Test file:** `tests/bug-fixes.test.ts` — 52 regression tests covering unicode rendering, web component click handling, scan decrement logic, navigation setup, billing flow, component extraction, shared types/helpers, hooks, policy generation, scan history upgrade prompt, and JSON-LD extension.
+* **Test file:** `tests/bug-fixes.test.ts` — 63 regression tests covering unicode rendering, web component click handling, scan decrement logic, navigation setup, billing flow, component extraction, shared types/helpers, hooks, policy generation, scan history upgrade prompt, JSON-LD extension, one-time billing model, and email system removal.
 * **Note:** Tests that import route modules directly will fail without env vars (`SUPABASE_URL`, etc.) since module initialization triggers `supabase.server.ts`. Tests use file-content assertions (regex/string matching) to avoid this.
 
 ---

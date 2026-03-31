@@ -83,35 +83,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         `[${topic}] Plan activated — shop=${shop}, plan=${name}, tier=${tier}`
       );
     }
-  } else if (
-    status === "CANCELLED" ||
-    status === "EXPIRED"   ||
-    status === "DECLINED"  ||
-    status === "FROZEN"
-  ) {
-    // ── Subscription ended — downgrade to free tier ─────────────────────────
-    // scans_remaining → 1 so the merchant retains their initial free scan
-    // allowance even after downgrade.
-    const { error } = await supabase
-      .from("merchants")
-      .update({
-        tier:             "free",
-        scans_remaining:  1,
-      })
-      .eq("shopify_domain", shop);
-
-    if (error) {
-      console.error(
-        `[${topic}] Failed to downgrade ${shop} to free tier after ` +
-        `status=${status}: ${error.message}`
-      );
-    } else {
-      console.log(
-        `[${topic}] Downgraded to free tier — shop=${shop}, status=${status}`
-      );
-    }
   } else {
-    // PENDING — subscription is awaiting merchant approval; no DB action needed
+    // One-time charges don't have CANCELLED/EXPIRED lifecycle events.
+    // PENDING/DECLINED — no DB action needed.
     console.log(
       `[${topic}] No DB action for status="${status}" — shop=${shop}`
     );

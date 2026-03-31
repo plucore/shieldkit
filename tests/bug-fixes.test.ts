@@ -12,6 +12,9 @@
  * 7. Component extraction from app._index.tsx
  * 8. Web component click hook
  * 9. Scan history error handling
+ * 10. One-time $29 billing model (no $39, no /mo references)
+ * 11. Email system removed (no resend, no email.server imports)
+ * 12. JSON-LD deep link uses client_id, not extension UID
  */
 
 import { describe, it, expect } from "vitest";
@@ -452,5 +455,132 @@ describe("Hooks directory", () => {
 
   it("useScanToast.ts exists", () => {
     expect(fs.existsSync(path.join(APP_DIR, "hooks/useScanToast.ts"))).toBe(true);
+  });
+});
+
+// ─── One-time $29 billing model ─────────────────────────────────────────────
+
+describe("One-time $29 billing model", () => {
+  it("no $39 references in app code", () => {
+    let output = "";
+    try {
+      output = execFileSync(
+        "grep",
+        ["-rn", "\\$39\\|39\\.00", "--include=*.ts", "--include=*.tsx", APP_DIR],
+        { encoding: "utf-8" }
+      );
+    } catch {
+      output = "";
+    }
+    expect(output).toBe("");
+  });
+
+  it("no /mo pricing references in app code", () => {
+    let output = "";
+    try {
+      output = execFileSync(
+        "grep",
+        ["-rn", "/mo", "--include=*.ts", "--include=*.tsx", APP_DIR],
+        { encoding: "utf-8" }
+      );
+    } catch {
+      output = "";
+    }
+    expect(output).toBe("");
+  });
+
+  it("billing config uses OneTime interval", () => {
+    const content = fs.readFileSync(
+      path.join(APP_DIR, "shopify.server.ts"),
+      "utf-8"
+    );
+    expect(content).toContain("BillingInterval.OneTime");
+    expect(content).not.toContain("BillingInterval.Every30Days");
+  });
+
+  it("billing config uses $29 amount", () => {
+    const content = fs.readFileSync(
+      path.join(APP_DIR, "shopify.server.ts"),
+      "utf-8"
+    );
+    expect(content).toContain("amount: 29.00");
+    expect(content).not.toContain("amount: 39.00");
+  });
+
+  it("no weekly automated monitoring in features", () => {
+    const upgradeCard = fs.readFileSync(
+      path.join(APP_DIR, "components/UpgradeCard.tsx"),
+      "utf-8"
+    );
+    expect(upgradeCard).not.toContain("Weekly automated monitoring");
+  });
+});
+
+// ─── Email system removed ───────────────────────────────────────────────────
+
+describe("Email system removed", () => {
+  it("no email.server.ts file exists", () => {
+    expect(fs.existsSync(path.join(APP_DIR, "utils/email.server.ts"))).toBe(false);
+  });
+
+  it("no email-templates directory exists", () => {
+    expect(fs.existsSync(path.join(APP_DIR, "utils/email-templates"))).toBe(false);
+  });
+
+  it("no resend imports in app code", () => {
+    let output = "";
+    try {
+      output = execFileSync(
+        "grep",
+        ["-rn", "resend", "--include=*.ts", "--include=*.tsx", APP_DIR],
+        { encoding: "utf-8" }
+      );
+    } catch {
+      output = "";
+    }
+    expect(output).toBe("");
+  });
+
+  it("no email.server imports in route files", () => {
+    let output = "";
+    try {
+      output = execFileSync(
+        "grep",
+        ["-rn", "email.server", "--include=*.ts", "--include=*.tsx", APP_DIR],
+        { encoding: "utf-8" }
+      );
+    } catch {
+      output = "";
+    }
+    expect(output).toBe("");
+  });
+
+  it("no plucore.com references in app code", () => {
+    let output = "";
+    try {
+      output = execFileSync(
+        "grep",
+        ["-rn", "plucore\\.com", "--include=*.ts", "--include=*.tsx", APP_DIR],
+        { encoding: "utf-8" }
+      );
+    } catch {
+      output = "";
+    }
+    expect(output).toBe("");
+  });
+});
+
+// ─── JSON-LD deep link uses client_id ───────────────────────────────────────
+
+describe("JSON-LD deep link", () => {
+  it("uses app client_id (not extension UID) in activateAppId", () => {
+    const content = fs.readFileSync(
+      path.join(APP_DIR, "routes/app._index.tsx"),
+      "utf-8"
+    );
+    // Should use client_id format
+    expect(content).toContain("activateAppId=071fc51ee1ef7f358cdaed5f95922498/json-ld-schema");
+    // Should NOT use the old extension UID
+    expect(content).not.toContain("5f84566a-b42f-516d-7eec-00f7f6b2169e317fee21");
   });
 });

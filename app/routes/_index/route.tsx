@@ -53,13 +53,13 @@ export default function App() {
           <div className={`${styles.pricingCard} ${styles.pricingCardPro}`}>
             <h2 className={styles.pricingTitle}>Pro</h2>
             <div className={styles.pricingPrice}>
-              $39<span className={styles.pricingInterval}>/mo</span>
+              $29<span className={styles.pricingInterval}> one-time</span>
             </div>
             <ul className={styles.pricingFeatures}>
               <li>Unlimited compliance re-scans</li>
               <li>AI-powered policy generation</li>
               <li>Full scan history &amp; tracking</li>
-              <li>Ongoing compliance monitoring</li>
+              <li>Automated compliance monitoring</li>
               <li>Everything in Free</li>
             </ul>
           </div>

@@ -55,8 +55,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   if (billingCheck.hasActivePayment) {
     // Identify which plan is active and map it to the correct tier string.
-    // appSubscriptions[0].name matches the billing config key ("Starter" / "Pro" / "Shield").
-    const activeName = (billingCheck.appSubscriptions?.[0]?.name ?? "") as PlanName;
+    // For recurring plans: appSubscriptions[0].name
+    // For one-time charges: oneTimePurchases[0].name
+    const activeName = (
+      billingCheck.appSubscriptions?.[0]?.name ??
+      (billingCheck as any).oneTimePurchases?.[0]?.name ?? ""
+    ) as PlanName;
     const tier = PLAN_TO_TIER[activeName] ?? "pro"; // safe fallback
 
     const { error } = await supabase

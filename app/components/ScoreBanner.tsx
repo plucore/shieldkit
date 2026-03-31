@@ -120,11 +120,11 @@ export default function ScoreBanner({
         </div>
       </s-card>
 
-      {/* Weekly monitoring detected new issues banner */}
+      {/* Automated monitoring detected new issues banner */}
       {merchant.tier === "pro" && newAutoIssueCount > 0 && (
         <div style={{ marginTop: "12px" }}>
           <s-banner tone="warning">
-            Your weekly monitoring detected {newAutoIssueCount} new issue
+            Your automated monitoring detected {newAutoIssueCount} new issue
             {newAutoIssueCount > 1 ? "s" : ""} since your last scan.
           </s-banner>
         </div>

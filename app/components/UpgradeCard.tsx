@@ -21,7 +21,6 @@ export default function UpgradeCard({ onUpgrade, sidebar }: UpgradeCardProps) {
     "Unlimited compliance re-scans",
     "AI-powered policy generation",
     "Full scan history & tracking",
-    "Weekly automated monitoring",
   ];
 
   return (
@@ -44,7 +43,7 @@ export default function UpgradeCard({ onUpgrade, sidebar }: UpgradeCardProps) {
                 marginBottom: "8px",
               }}
             >
-              Upgrade to Pro — $39/mo
+              Upgrade to Pro — $29
             </div>
           )}
           <div
@@ -55,7 +54,7 @@ export default function UpgradeCard({ onUpgrade, sidebar }: UpgradeCardProps) {
             }}
           >
             {sidebar
-              ? "Unlock unlimited re-scans, AI policy generation, and weekly monitoring for $39/mo."
+              ? "Unlock unlimited re-scans, AI policy generation, and full scan history for just $29."
               : "Keep your Google Merchant Center account safe with continuous monitoring."}
           </div>
           {!sidebar && (
@@ -97,7 +96,7 @@ export default function UpgradeCard({ onUpgrade, sidebar }: UpgradeCardProps) {
             </div>
           )}
           <s-button variant="primary" ref={upgradeRef}>
-            Upgrade to Pro{sidebar ? " — $39/mo" : ""}
+            Upgrade to Pro{sidebar ? " — $29" : ""}
           </s-button>
         </div>
       </s-card>

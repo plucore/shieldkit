@@ -33,7 +33,6 @@ import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
 import { runComplianceScan } from "../lib/compliance-scanner.server";
-import { sendWelcomeEmail } from "../utils/email.server";
 import {
   generatePolicy,
   type PolicyType,
@@ -322,7 +321,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       JSON.stringify({
         success: false,
         error_code: "scan_limit_reached",
-        message: "You've used your free scan. Upgrade to Pro ($39/mo) for unlimited re-scans.",
+        message: "You've used your free scan. Upgrade to Pro ($29 one-time) for unlimited re-scans.",
       }),
       { status: 402, headers: { "Content-Type": "application/json" } }
     );
@@ -348,8 +347,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       .eq("id", merchant.id);
   }
 
-  // ── Fire-and-forget: welcome email on first scan only ─────────────────────
-  const sendFirstScanEmail = async () => {
+  // ── Collect merchant email for retargeting (fire-and-forget) ──────────────
+  const collectEmail = async () => {
     try {
       const { data: existingLead } = await supabase
         .from("leads")
@@ -365,8 +364,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       const emailData = await emailResp.json();
       const shopEmail: string | null =
         (emailData?.data?.shop?.email as string | null) ?? null;
-      const shopName: string =
-        (emailData?.data?.shop?.name as string | null) ?? shopDomain;
 
       if (!shopEmail) return;
 
@@ -376,14 +373,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           { shop_domain: shopDomain, email: shopEmail },
           { onConflict: "shop_domain" }
         );
-
-      await sendWelcomeEmail(shopEmail, shopName);
     } catch (_) {
-      // silent — email failure must never surface to the merchant
+      // silent — lead collection failure must never surface to the merchant
     }
   };
 
-  sendFirstScanEmail(); // intentionally not awaited
+  collectEmail(); // intentionally not awaited
 
   return new Response(
     JSON.stringify({
@@ -563,7 +558,7 @@ export default function Index() {
           tone="warning"
           onDismiss={dismissBillingBanner}
         >
-          You're on the Free plan. Upgrade to Pro ($39/mo) for unlimited
+          You're on the Free plan. Upgrade to Pro ($29 one-time) for unlimited
           re-scans, AI policy generation, and full scan history.
           <s-button slot="actions" ref={upgradeRef3}>
             View upgrade options
@@ -749,7 +744,7 @@ export default function Index() {
           {merchant.tier !== "pro" && sortedChecks.length > 0 && (
             <s-section>
               <s-banner tone="info">
-                Upgrade to Pro ($39/mo) for unlimited re-scans, AI policy
+                Upgrade to Pro ($29 one-time) for unlimited re-scans, AI policy
                 generation, and full scan history.
                 <s-button slot="actions" ref={upgradeRef4}>
                   Upgrade to Pro
@@ -819,7 +814,7 @@ export default function Index() {
             Google Shopping index your products.
           </s-paragraph>
           <a
-            href={`https://${shopDomain}/admin/themes/current/editor?context=apps&activateAppId=5f84566a-b42f-516d-7eec-00f7f6b2169e317fee21/json-ld-schema`}
+            href={`https://${shopDomain}/admin/themes/current/editor?context=apps&activateAppId=071fc51ee1ef7f358cdaed5f95922498/json-ld-schema`}
             target="_top"
             style={{ textDecoration: "none" }}
           >

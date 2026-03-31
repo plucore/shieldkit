@@ -125,11 +125,10 @@ export default function ScanHistoryPage() {
                 }}
               >
                 Track your compliance progress over time. Pro merchants get
-                unlimited re-scans, full scan history, AI policy generation,
-                and weekly automated monitoring.
+                unlimited re-scans, full scan history, and AI policy generation.
               </div>
               <s-button variant="primary" ref={upgradeRef}>
-                Upgrade to Pro — $39/mo
+                Upgrade to Pro — $29
               </s-button>
             </div>
           </s-card>

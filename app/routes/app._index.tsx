@@ -867,7 +867,7 @@ export default function Index() {
                     color: "var(--p-color-text-subdued, #6d7175)",
                     background: "none",
                     border: "none",
-                    padding: 0,
+                    padding: "0 0 0 8px",
                     cursor: "pointer",
                     textDecoration: "underline",
                   }}

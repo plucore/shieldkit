@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS merchants (
   json_ld_enabled        BOOLEAN     NOT NULL DEFAULT false,
   generated_policies     JSONB       NOT NULL DEFAULT '{}'::jsonb,
   policy_regen_used      JSONB       NOT NULL DEFAULT '{}'::jsonb,
+  review_prompted        BOOLEAN     NOT NULL DEFAULT false,
   installed_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
   uninstalled_at         TIMESTAMPTZ,
   created_at             TIMESTAMPTZ NOT NULL DEFAULT now()

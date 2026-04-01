@@ -68,7 +68,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   const { data: merchantRow } = await supabase
     .from("merchants")
-    .select("id, shopify_domain, scans_remaining, tier, json_ld_enabled, generated_policies, policy_regen_used")
+    .select("id, shopify_domain, scans_remaining, tier, json_ld_enabled, generated_policies, policy_regen_used, review_prompted")
     .eq("shopify_domain", shopDomain)
     .maybeSingle();
 
@@ -312,6 +312,27 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     }
   }
 
+  // ── Dismiss review banner action ──────────────────────────────────────────
+  if (actionType === "dismissReview") {
+    const { data: merchant } = await supabase
+      .from("merchants")
+      .select("id")
+      .eq("shopify_domain", shopDomain)
+      .maybeSingle();
+
+    if (merchant) {
+      await supabase
+        .from("merchants")
+        .update({ review_prompted: true })
+        .eq("id", merchant.id);
+    }
+
+    return new Response(
+      JSON.stringify({ success: true }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
   // ── Enable JSON-LD action ──────────────────────────────────────────────────
   if (actionType === "enableJsonLd") {
     const { data: merchant } = await supabase
@@ -449,10 +470,11 @@ export default function Index() {
     newAutoIssueCount,
   } = useLoaderData<typeof loader>();
 
-  const fetcher       = useFetcher<ApiScanResponse>();
-  const policyFetcher = useFetcher<ApiScanResponse>();
-  const jsonLdFetcher = useFetcher();
-  const revalidator   = useRevalidator();
+  const fetcher        = useFetcher<ApiScanResponse>();
+  const policyFetcher  = useFetcher<ApiScanResponse>();
+  const jsonLdFetcher  = useFetcher();
+  const reviewFetcher  = useFetcher();
+  const revalidator    = useRevalidator();
   const navigate      = useNavigate();
   const shopify       = useAppBridge();
 
@@ -473,6 +495,15 @@ export default function Index() {
     setShowBillingBanner(false);
     setSearchParams((prev) => { prev.delete("billing"); return prev; }, { replace: true });
   }, [setSearchParams]);
+
+  // Review request banner — shown after a scan exists, until dismissed server-side.
+  const [showReviewBanner, setShowReviewBanner] = useState(
+    () => latestScan !== null && !(merchant?.review_prompted ?? true),
+  );
+  const dismissReviewBanner = useCallback(() => {
+    setShowReviewBanner(false);
+    reviewFetcher.submit({ action: "dismissReview" }, { method: "POST" });
+  }, [reviewFetcher]);
 
   const isScanning =
     fetcher.state === "submitting" || fetcher.state === "loading";
@@ -797,6 +828,54 @@ export default function Index() {
             warningCount={warningCount}
             skippedCount={skippedCount}
           />
+
+          {/* ── Review request banner ── */}
+          {showReviewBanner && !isScanning && (
+            <s-section>
+              <s-banner tone="info">
+                If ShieldKit helped, a quick review helps other merchants discover us.
+                <button
+                  slot="actions"
+                  type="button"
+                  onClick={() =>
+                    window.open(
+                      "https://apps.shopify.com/shieldkit/reviews",
+                      "_blank",
+                      "noopener,noreferrer",
+                    )
+                  }
+                  style={{
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    color: "#fff",
+                    background: "#0f172a",
+                    border: "none",
+                    borderRadius: "6px",
+                    padding: "6px 14px",
+                    cursor: "pointer",
+                  }}
+                >
+                  Leave a Review ↗
+                </button>
+                <button
+                  slot="actions"
+                  type="button"
+                  onClick={dismissReviewBanner}
+                  style={{
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    color: "var(--p-color-text-subdued, #6d7175)",
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    textDecoration: "underline",
+                  }}
+                >
+                  Dismiss
+                </button>
+              </s-banner>
+            </s-section>
+          )}
 
           {/* ── Inline upgrade banner for free users ── */}
           {merchant.tier !== "pro" && sortedChecks.length > 0 && (

@@ -23,6 +23,7 @@ import {
   PLAN_PRO,
   type PlanName,
 } from "../shopify.server";
+import { supabase } from "../supabase.server";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
@@ -41,6 +42,20 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       returnObject: true,
     });
     if (check.hasActivePayment) {
+      // Self-heal: if Shopify says paid but Supabase tier is stale, sync it
+      const { data: merchant } = await supabase
+        .from("merchants")
+        .select("tier")
+        .eq("shopify_domain", session.shop)
+        .maybeSingle();
+
+      if (merchant && merchant.tier !== "pro") {
+        await supabase
+          .from("merchants")
+          .update({ tier: "pro", scans_remaining: null })
+          .eq("shopify_domain", session.shop);
+      }
+
       return redirect("/app");
     }
   } catch (checkErr) {

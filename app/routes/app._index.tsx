@@ -30,7 +30,7 @@ import {
   useSearchParams,
 } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
-import { authenticate } from "../shopify.server";
+import { authenticate, PLAN_PRO } from "../shopify.server";
 import { supabase } from "../supabase.server";
 import { runComplianceScan } from "../lib/compliance-scanner.server";
 import {
@@ -49,7 +49,7 @@ import ScoreBanner from "../components/ScoreBanner";
 import KpiCards from "../components/KpiCards";
 import ScanProgressIndicator from "../components/ScanProgressIndicator";
 import UpgradeCard from "../components/UpgradeCard";
-import PolicyGeneratorDisplay from "../components/PolicyGeneratorDisplay";
+import PolicyGenerationCard from "../components/PolicyGenerationCard";
 import AuditChecklist from "../components/AuditChecklist";
 import SecurityStatusAside from "../components/SecurityStatusAside";
 
@@ -63,16 +63,36 @@ export const links: LinksFunction = () => [
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { session, billing } = await authenticate.admin(request);
   const shopDomain = session.shop;
 
   const { data: merchantRow } = await supabase
     .from("merchants")
-    .select("id, shopify_domain, scans_remaining, tier")
+    .select("id, shopify_domain, scans_remaining, tier, json_ld_enabled, generated_policies, policy_regen_used")
     .eq("shopify_domain", shopDomain)
     .maybeSingle();
 
-  const merchant = merchantRow as Merchant | null;
+  let merchant = merchantRow as Merchant | null;
+
+  // ── Billing self-heal: if Shopify says paid but Supabase tier is stale ──
+  if (merchant && merchant.tier !== "pro") {
+    try {
+      const billingCheck = await billing.check({
+        plans: [PLAN_PRO],
+        isTest: process.env.NODE_ENV !== "production",
+        returnObject: true,
+      });
+      if (billingCheck.hasActivePayment) {
+        await supabase
+          .from("merchants")
+          .update({ tier: "pro", scans_remaining: null })
+          .eq("id", merchant.id);
+        merchant = { ...merchant, tier: "pro", scans_remaining: null };
+      }
+    } catch (_) {
+      // billing.check() throws when no subscription exists — expected for free tier
+    }
+  }
 
   if (!merchant) {
     return {
@@ -208,7 +228,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (actionType === "generatePolicy") {
     const { data: merchant } = await supabase
       .from("merchants")
-      .select("id, tier, policy_gen_count, policy_gen_reset_at")
+      .select("id, tier, generated_policies, policy_regen_used")
       .eq("shopify_domain", shopDomain)
       .maybeSingle();
 
@@ -219,37 +239,29 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       );
     }
 
-    // ── Policy generation rate limiting (20 per 30-day window) ──
-    let genCount: number = merchant.policy_gen_count ?? 0;
-    const resetAt = merchant.policy_gen_reset_at ? new Date(merchant.policy_gen_reset_at) : null;
-
-    if (!resetAt || new Date() > resetAt) {
-      genCount = 0;
-      const newResetAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-      await supabase
-        .from("merchants")
-        .update({ policy_gen_count: 0, policy_gen_reset_at: newResetAt })
-        .eq("id", merchant.id);
-    }
-
-    if (genCount >= 20) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: "policy_limit_reached",
-          message: `You've used all 20 policy generations this month. Your limit resets on ${resetAt ? resetAt.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "next month"}.`,
-          policy_remaining: 0,
-          policy_reset_date: resetAt?.toISOString() ?? null,
-        }),
-        { status: 429, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
     const policyType = formData.get("policyType") as PolicyType | null;
     if (!policyType || !["refund", "shipping", "privacy", "terms"].includes(policyType)) {
       return new Response(
         JSON.stringify({ success: false, message: "Invalid policy type." }),
         { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    const generatedPolicies: Record<string, string> = merchant.generated_policies ?? {};
+    const regenUsed: Record<string, boolean> = merchant.policy_regen_used ?? {};
+
+    const alreadyGenerated = !!generatedPolicies[policyType];
+    const alreadyRegenerated = !!regenUsed[policyType];
+
+    // If already generated AND already regenerated, block further generation
+    if (alreadyGenerated && alreadyRegenerated) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "regen_exhausted",
+          message: "You've already used your one regeneration for this policy type.",
+        }),
+        { status: 429, headers: { "Content-Type": "application/json" } }
       );
     }
 
@@ -264,18 +276,30 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       }
       const policy = await generatePolicy(policyType, shopInfo);
 
-      const newCount = genCount + 1;
+      // Save the generated policy text
+      const updatedPolicies = { ...generatedPolicies, [policyType]: policy.body };
+      const updatePayload: Record<string, unknown> = {
+        generated_policies: updatedPolicies,
+      };
+
+      // If this is a regeneration (already had a generated policy), mark regen as used
+      if (alreadyGenerated) {
+        updatePayload.policy_regen_used = { ...regenUsed, [policyType]: true };
+      }
+
       await supabase
         .from("merchants")
-        .update({ policy_gen_count: newCount })
+        .update(updatePayload)
         .eq("id", merchant.id);
 
       return new Response(
         JSON.stringify({
           success: true,
           policy,
-          policy_remaining: 20 - newCount,
-          policy_reset_date: resetAt?.toISOString() ?? null,
+          generated_policies: updatedPolicies,
+          policy_regen_used: alreadyGenerated
+            ? { ...regenUsed, [policyType]: true }
+            : regenUsed,
         }),
         { status: 200, headers: { "Content-Type": "application/json" } }
       );
@@ -286,6 +310,27 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         { status: 500, headers: { "Content-Type": "application/json" } }
       );
     }
+  }
+
+  // ── Enable JSON-LD action ──────────────────────────────────────────────────
+  if (actionType === "enableJsonLd") {
+    const { data: merchant } = await supabase
+      .from("merchants")
+      .select("id")
+      .eq("shopify_domain", shopDomain)
+      .maybeSingle();
+
+    if (merchant) {
+      await supabase
+        .from("merchants")
+        .update({ json_ld_enabled: true })
+        .eq("id", merchant.id);
+    }
+
+    return new Response(
+      JSON.stringify({ success: true }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
   }
 
   // ── Run Scan action ───────────────────────────────────────────────────────
@@ -406,6 +451,7 @@ export default function Index() {
 
   const fetcher       = useFetcher<ApiScanResponse>();
   const policyFetcher = useFetcher<ApiScanResponse>();
+  const jsonLdFetcher = useFetcher();
   const revalidator   = useRevalidator();
   const navigate      = useNavigate();
   const shopify       = useAppBridge();
@@ -416,9 +462,8 @@ export default function Index() {
   );
   const [searchParams, setSearchParams] = useSearchParams();
   const [allExpanded, setAllExpanded]   = useState(false);
-  const [generatedPolicy, setGeneratedPolicy] = useState<ApiScanResponse["policy"] | null>(null);
-  const [policyRemaining, setPolicyRemaining] = useState<number | null>(null);
-  const [policyLimitMessage, setPolicyLimitMessage] = useState<string | null>(null);
+  const [localPolicies, setLocalPolicies] = useState(merchant?.generated_policies ?? {});
+  const [localRegenUsed, setLocalRegenUsed] = useState(merchant?.policy_regen_used ?? {});
 
   // Billing cancellation banner — shown once when redirected from billing flow.
   const [showBillingBanner, setShowBillingBanner] = useState(
@@ -444,19 +489,16 @@ export default function Index() {
     fetcher.state === "idle" &&
     fetcher.data?.error_code === "scan_limit_reached";
 
-  // Handle policy generation response
+  // Handle policy generation response — update local state optimistically
   useEffect(() => {
     if (policyFetcher.state !== "idle" || !policyFetcher.data) return;
 
-    if (policyFetcher.data.success && policyFetcher.data.policy) {
-      setGeneratedPolicy(policyFetcher.data.policy);
-      setPolicyLimitMessage(null);
-      if (policyFetcher.data.policy_remaining != null) {
-        setPolicyRemaining(policyFetcher.data.policy_remaining);
+    if (policyFetcher.data.success && policyFetcher.data.generated_policies) {
+      setLocalPolicies(policyFetcher.data.generated_policies);
+      if (policyFetcher.data.policy_regen_used) {
+        setLocalRegenUsed(policyFetcher.data.policy_regen_used);
       }
       shopify.toast.show("Policy generated");
-    } else if (policyFetcher.data.error === "policy_limit_reached") {
-      setPolicyLimitMessage(policyFetcher.data.message ?? "Policy generation limit reached.");
     }
   }, [policyFetcher.state, policyFetcher.data, shopify]);
 
@@ -774,22 +816,6 @@ export default function Index() {
             truePassedCount={truePassedCount}
             allExpanded={allExpanded}
             onToggleExpand={() => setAllExpanded((v) => !v)}
-            merchant={merchant}
-            policyFetcher={policyFetcher}
-            isGeneratingPolicy={isGeneratingPolicy}
-          />
-
-          {/* ── Policy generator display ── */}
-          <PolicyGeneratorDisplay
-            generatedPolicy={generatedPolicy}
-            policyRemaining={policyRemaining}
-            policyLimitMessage={policyLimitMessage}
-            onDismiss={() => setGeneratedPolicy(null)}
-            onDismissLimit={() => setPolicyLimitMessage(null)}
-            onCopy={(text) => {
-              navigator.clipboard.writeText(text);
-              shopify.toast.show("Policy copied to clipboard");
-            }}
           />
 
         </div>
@@ -809,6 +835,21 @@ export default function Index() {
         <UpgradeCard onUpgrade={navigateToUpgrade} sidebar />
       )}
 
+      {/* Policy Generation card (Pro only, sidebar) */}
+      {merchant?.tier === "pro" && !showOnboarding && (
+        <PolicyGenerationCard
+          generatedPolicies={localPolicies}
+          policyRegenUsed={localRegenUsed}
+          checkResults={checkResults}
+          policyFetcher={policyFetcher}
+          isGeneratingPolicy={isGeneratingPolicy}
+          onCopy={(text) => {
+            navigator.clipboard.writeText(text);
+            shopify.toast.show("Policy copied to clipboard");
+          }}
+        />
+      )}
+
       {/* Free JSON-LD Extension */}
       <s-section slot="aside">
         <div style={{ marginBottom: "12px" }}>
@@ -823,25 +864,66 @@ export default function Index() {
             gap: "12px",
           }}
         >
-          <s-paragraph>
-            Adds correct Product structured data to every product page to help
-            Google Shopping index your products.
-          </s-paragraph>
-          <a
-            href={`https://${shopDomain}/admin/themes/current/editor?context=apps&activateAppId=071fc51ee1ef7f358cdaed5f95922498/product-schema`}
-            target="_top"
-            style={{ textDecoration: "none" }}
-          >
-            <s-button variant="primary">Enable JSON-LD</s-button>
-          </a>
-          <div
-            style={{
-              fontSize: "12px",
-              color: "var(--p-color-text-subdued, #6d7175)",
-            }}
-          >
-            Opens your theme editor. Click Save to activate.
-          </div>
+          {merchant?.json_ld_enabled ? (
+            <>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <s-icon type="check-circle-filled" tone="success" size="base" />
+                <span style={{ fontSize: "14px", fontWeight: 600, color: "#1a9e5c" }}>
+                  JSON-LD Active
+                </span>
+              </div>
+              <s-paragraph>
+                Product structured data is being added to your product pages.
+              </s-paragraph>
+              <a
+                href={`https://${shopDomain}/admin/themes/current/editor?context=apps&activateAppId=071fc51ee1ef7f358cdaed5f95922498/product-schema`}
+                target="_top"
+                style={{ textDecoration: "none" }}
+              >
+                <s-button>Manage</s-button>
+              </a>
+            </>
+          ) : (
+            <>
+              <s-paragraph>
+                Adds correct Product structured data to every product page to help
+                Google Shopping index your products.
+              </s-paragraph>
+              <button
+                type="button"
+                onClick={() => {
+                  jsonLdFetcher.submit(
+                    { action: "enableJsonLd" },
+                    { method: "POST" },
+                  );
+                  window.open(
+                    `https://${shopDomain}/admin/themes/current/editor?context=apps&activateAppId=071fc51ee1ef7f358cdaed5f95922498/product-schema`,
+                    "_top"
+                  );
+                }}
+                style={{
+                  fontSize: "14px",
+                  fontWeight: 600,
+                  color: "#fff",
+                  background: "#0f172a",
+                  border: "none",
+                  borderRadius: "8px",
+                  padding: "8px 16px",
+                  cursor: "pointer",
+                }}
+              >
+                Enable JSON-LD
+              </button>
+              <div
+                style={{
+                  fontSize: "12px",
+                  color: "var(--p-color-text-subdued, #6d7175)",
+                }}
+              >
+                Opens your theme editor. Click Save to activate.
+              </div>
+            </>
+          )}
         </div>
       </s-section>
 

@@ -23,10 +23,52 @@ export interface GeneratedPolicy {
 }
 
 const POLICY_TITLES: Record<PolicyType, string> = {
-  refund: "Refund Policy",
+  refund: "Refund and Return Policy",
   shipping: "Shipping Policy",
   privacy: "Privacy Policy",
   terms: "Terms of Service",
+};
+
+const POLICY_INSTRUCTIONS: Record<PolicyType, string> = {
+  refund: [
+    "Generate a Refund and Return Policy. This document must cover:",
+    "- Return window (e.g. 30 days from delivery)",
+    "- Condition requirements for returns (unused, original packaging, tags attached)",
+    "- Refund method (original payment method, store credit, or exchange)",
+    "- Non-returnable items and exceptions",
+    "- Process for initiating a return",
+    "- Refund processing timeline",
+  ].join("\n"),
+  shipping: [
+    "Generate a Shipping Policy. This document must cover:",
+    "- Delivery timeframes for domestic and international orders",
+    "- Shipping costs and free shipping thresholds (if any)",
+    "- Available shipping methods",
+    "- Order processing time",
+    "- Tracking information",
+    "- International shipping restrictions (if any)",
+  ].join("\n"),
+  privacy: [
+    "Generate a Privacy Policy. This document must cover:",
+    "- What personal data is collected and how",
+    "- How personal data is used",
+    "- Third-party services that receive data",
+    "- Cookie policy",
+    "- Data retention practices",
+    "- Customer rights regarding their data",
+    "- Contact information for privacy inquiries",
+  ].join("\n"),
+  terms: [
+    "Generate Terms of Service. This document must cover:",
+    "- Overview of the agreement between the store and customer",
+    "- Account terms and responsibilities",
+    "- Product descriptions and pricing accuracy",
+    "- Payment terms",
+    "- Intellectual property rights",
+    "- Limitation of liability",
+    "- Governing law and dispute resolution",
+    "- Changes to terms",
+  ].join("\n"),
 };
 
 /**
@@ -41,14 +83,17 @@ export async function generatePolicy(
   shopInfo: ShopInfo
 ): Promise<GeneratedPolicy> {
   const systemPrompt = [
-    `You are a policy writer for e-commerce stores. Generate a ${POLICY_TITLES[type]} for a Shopify store.`,
+    `You are a policy writer for e-commerce stores. You are writing a ${POLICY_TITLES[type]} for a Shopify store.`,
+    "",
     `Store name: ${shopInfo.name}`,
     `Currency: ${shopInfo.currencyCode}`,
     shopInfo.billingAddress?.country
       ? `Country: ${shopInfo.billingAddress.country}`
       : "",
     "",
-    "Requirements:",
+    POLICY_INSTRUCTIONS[type],
+    "",
+    "Format requirements:",
     "- Output valid HTML suitable for Shopify's legal policy editor",
     "- Use <h2>, <p>, <ul>, <li> tags for structure",
     "- Be specific and substantive — no placeholder text",
@@ -56,6 +101,7 @@ export async function generatePolicy(
     "- Use the store name and currency throughout",
     "- Write in clear, professional English",
     "- Do NOT include <html>, <head>, or <body> tags — just the policy content",
+    `- The document title must be "${POLICY_TITLES[type]}"`,
   ]
     .filter(Boolean)
     .join("\n");
@@ -66,7 +112,7 @@ export async function generatePolicy(
     messages: [
       {
         role: "user",
-        content: `Generate a complete ${POLICY_TITLES[type]} for my Shopify store.`,
+        content: `Generate a complete ${POLICY_TITLES[type]} for my Shopify store "${shopInfo.name}".`,
       },
     ],
     system: systemPrompt,

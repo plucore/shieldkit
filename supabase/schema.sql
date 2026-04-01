@@ -49,8 +49,9 @@ CREATE TABLE IF NOT EXISTS merchants (
   tier                   TEXT        NOT NULL DEFAULT 'free' CHECK (tier IN ('free', 'pro')),
   billing_status         TEXT,
   scans_remaining        INTEGER     NOT NULL DEFAULT 1,
-  policy_gen_count       INTEGER     NOT NULL DEFAULT 0,
-  policy_gen_reset_at    TIMESTAMPTZ NOT NULL DEFAULT now() + interval '30 days',
+  json_ld_enabled        BOOLEAN     NOT NULL DEFAULT false,
+  generated_policies     JSONB       NOT NULL DEFAULT '{}'::jsonb,
+  policy_regen_used      JSONB       NOT NULL DEFAULT '{}'::jsonb,
   installed_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
   uninstalled_at         TIMESTAMPTZ,
   created_at             TIMESTAMPTZ NOT NULL DEFAULT now()

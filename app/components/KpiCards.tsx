@@ -25,7 +25,7 @@ export default function KpiCards({
     bg: string;
   }> = [
     {
-      value: `${truePassedCount}/${totalChecks}`,
+      value: truePassedCount,
       label: "Checks Passed",
       bg: truePassedCount >= 8 ? "#f1f8f5" : truePassedCount >= 5 ? "#fff5ea" : "#fff4f4",
     },

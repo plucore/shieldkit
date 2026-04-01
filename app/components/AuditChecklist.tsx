@@ -1,11 +1,11 @@
 /**
  * app/components/AuditChecklist.tsx
  *
- * 10-point GMC compliance audit checklist with expandable details,
- * resolution guides, and AI policy generation for Pro users.
+ * 10-point GMC compliance audit checklist with expandable details
+ * and resolution guides.
  */
 
-import type { Merchant, CheckResult } from "../lib/types";
+import type { CheckResult } from "../lib/types";
 import {
   checkStatusIcon,
   checkBadgeTone,
@@ -20,10 +20,6 @@ interface AuditChecklistProps {
   truePassedCount: number;
   allExpanded: boolean;
   onToggleExpand: () => void;
-  merchant: Merchant | null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  policyFetcher: any;
-  isGeneratingPolicy: boolean;
 }
 
 export default function AuditChecklist({
@@ -32,9 +28,6 @@ export default function AuditChecklist({
   truePassedCount,
   allExpanded,
   onToggleExpand,
-  merchant,
-  policyFetcher,
-  isGeneratingPolicy,
 }: AuditChecklistProps) {
   if (sortedChecks.length === 0) return null;
 
@@ -184,41 +177,6 @@ export default function AuditChecklist({
                       {check.fix_instruction
                         ? check.fix_instruction
                         : "Detailed remediation copy coming soon — check back after your next scan."}
-
-                      {/* AI Policy Generation — Pro only, for policy-related checks */}
-                      {merchant?.tier === "pro" &&
-                        ["refund_return_policy", "shipping_policy", "privacy_and_terms"].includes(check.check_name) && (
-                        <div style={{ marginTop: "10px" }}>
-                          <button
-                            type="button"
-                            disabled={isGeneratingPolicy}
-                            onClick={() => {
-                              const policyType =
-                                check.check_name === "refund_return_policy" ? "refund"
-                                : check.check_name === "shipping_policy" ? "shipping"
-                                : check.check_name === "privacy_and_terms" ? "privacy"
-                                : "terms";
-                              policyFetcher.submit(
-                                { action: "generatePolicy", policyType },
-                                { method: "POST" },
-                              );
-                            }}
-                            style={{
-                              fontSize: "13px",
-                              fontWeight: 600,
-                              color: "#0f172a",
-                              background: "#f1f5f9",
-                              border: "1px solid #cbd5e1",
-                              borderRadius: "8px",
-                              padding: "8px 16px",
-                              cursor: isGeneratingPolicy ? "wait" : "pointer",
-                              opacity: isGeneratingPolicy ? 0.7 : 1,
-                            }}
-                          >
-                            {isGeneratingPolicy ? "Generating…" : "Generate Policy with AI"}
-                          </button>
-                        </div>
-                      )}
                     </div>
                   )}
                 </div>

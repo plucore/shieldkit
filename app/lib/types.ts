@@ -6,11 +6,28 @@
 
 export type Severity = "critical" | "warning" | "info" | "error";
 
+export interface GeneratedPolicies {
+  refund?: string;
+  shipping?: string;
+  privacy?: string;
+  terms?: string;
+}
+
+export interface PolicyRegenUsed {
+  refund?: boolean;
+  shipping?: boolean;
+  privacy?: boolean;
+  terms?: boolean;
+}
+
 export interface Merchant {
   id: string;
   shopify_domain: string;
   scans_remaining: number | null;
   tier: string;
+  json_ld_enabled: boolean;
+  generated_policies: GeneratedPolicies;
+  policy_regen_used: PolicyRegenUsed;
 }
 
 export interface Scan {
@@ -47,6 +64,6 @@ export interface ApiScanResponse {
     body: string;
     disclaimer: string;
   };
-  policy_remaining?: number;
-  policy_reset_date?: string | null;
+  generated_policies?: GeneratedPolicies;
+  policy_regen_used?: PolicyRegenUsed;
 }

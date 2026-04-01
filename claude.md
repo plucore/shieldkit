@@ -41,7 +41,7 @@ app/
   routes/              # All Remix/RR7 routes (18 files)
   components/          # Extracted UI components from app._index.tsx
     ScoreBanner.tsx, KpiCards.tsx, ScanProgressIndicator.tsx,
-    UpgradeCard.tsx, PolicyGeneratorDisplay.tsx,
+    UpgradeCard.tsx, PolicyGenerationCard.tsx,
     AuditChecklist.tsx, SecurityStatusAside.tsx
   hooks/               # Custom React hooks
     useWebComponentClick.ts    (native DOM events for web components)
@@ -189,6 +189,9 @@ One row per installed shop. Soft-deleted on uninstall, hard-deleted by GDPR shop
 | `tier` | TEXT DEFAULT 'free' CHECK ('free', 'pro') | Free or Pro tier |
 | `billing_status` | TEXT | |
 | `scans_remaining` | INTEGER DEFAULT 1 | null = unlimited (paid), 0 = exhausted, n > 0 = available |
+| `json_ld_enabled` | BOOLEAN DEFAULT false | Whether merchant has enabled JSON-LD theme extension |
+| `generated_policies` | JSONB DEFAULT '{}' | Keyed by policy type: `{ refund?: string, shipping?: string, privacy?: string, terms?: string }` |
+| `policy_regen_used` | JSONB DEFAULT '{}' | Tracks regeneration: `{ refund?: boolean, ... }` — one regen per type |
 | `installed_at` | TIMESTAMPTZ DEFAULT now() | |
 | `uninstalled_at` | TIMESTAMPTZ | Soft-delete marker |
 | `created_at` | TIMESTAMPTZ DEFAULT now() | |
@@ -391,7 +394,7 @@ The welcome email and compliance alert email systems have been removed. The `res
 | Route File | URL Path | Type | Behavior |
 |-----------|----------|------|----------|
 | `app.tsx` | `/app` (layout) | Layout | Wraps all `/app/*` routes. Provides `AppProvider` with API key, renders sidebar nav via `NavMenu` from `@shopify/app-bridge-react` (Dashboard + Scan History), `<Outlet />` for children. |
-| `app._index.tsx` | `/app` | Loader + Action + Component | **Onboarding:** Logo + 3-step wizard + "Run Free Scan" CTA. **Dashboard:** Score banner, 4 KPI cards, 10-point checklist, aside with threat level + JSON-LD extension info. **Actions:** `runScan` (with quota enforcement + decrement), `generatePolicy` (Pro-only AI policy generation). Fires welcome email on first scan. Billing banner on `?billing=cancelled`. Upgrade CTAs use `useNavigate()` for embedded-app-safe navigation. |
+| `app._index.tsx` | `/app` | Loader + Action + Component | **Onboarding:** Logo + 3-step wizard + "Run Free Scan" CTA. **Dashboard:** Score banner, 4 KPI cards, 10-point checklist, aside with threat level + JSON-LD extension state + policy generation card (Pro). **Actions:** `runScan` (with quota enforcement + decrement), `generatePolicy` (Pro-only, persists to `generated_policies` JSONB), `enableJsonLd` (sets `json_ld_enabled` flag). **Billing self-heal:** loader checks Shopify billing state and syncs tier to Supabase if stale. Billing banner on `?billing=cancelled`. Upgrade CTAs use `useNavigate()` for embedded-app-safe navigation. |
 | `app.upgrade.tsx` | `/app/upgrade?plan=Pro` | Loader only | Pre-checks for existing active subscription via `billing.check()`. If already subscribed, redirects to `/app`. Otherwise calls `billing.request()` for Pro plan (redirects to Shopify approval page). Errors redirect to `/app?billing=error`. Has ErrorBoundary. |
 | `app.billing.confirm.tsx` | `/app/billing/confirm` | Loader only | Calls `billing.check()`. If active: maps plan → tier, writes `tier` + `scans_remaining=null` to Supabase, redirects to `/app`. If declined: redirects to `/app?billing=cancelled`. |
 | `app.dmca-takedowns.tsx` | `/app/dmca-takedowns` | Loader only | Redirects to `/app`. DMCA module deferred. |
@@ -553,6 +556,12 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 * **s-banner onDismiss broken** — `<s-banner onDismiss={handler}>` used React synthetic events which don't fire on Polaris web components. Fixed: replaced with native `<button>` dismiss elements inside banner content for billing cancellation banner and policy limit banner.
 * **Dead code cleanup** — Removed unused `useScanToast` hook (logic was inline in `app._index.tsx`). Removed all `console.log` statements from app code (kept `console.error`/`console.warn` for real errors). Removed "continuous monitoring", "automated monitoring", "ongoing monitoring" copy from UI. Fixed scan button text to match tier states ("Re-Scan My Store" for Pro, "Unlock Full Scanner — $29 one-time" for exhausted free tier).
 * **Stale access token in compliance scanner** — `createAdminClient()` was reading from `merchants.access_token_encrypted` which goes stale when tokens rotate via `expiringOfflineAccessTokens: true`. Fixed: now reads the offline session token from the `sessions` table first (always fresh — updated by `SupabaseSessionStorage.storeSession()` on every `authenticate.admin()` call), falls back to `merchants.access_token_encrypted` if no session found.
+* **Billing state desync** — Supabase `tier` could get stuck on 'free' if the billing confirmation redirect failed but Shopify accepted the charge. Fixed: dashboard loader and upgrade route now self-heal by checking `billing.check()` against Shopify and syncing tier to Supabase when stale.
+* **JSON-LD active state not tracked** — Added `json_ld_enabled` boolean column to merchants. Dashboard sidebar JSON-LD card now shows active state (green checkmark + "Manage" link) or inactive state (enable button that sets the flag + opens theme editor).
+* **Policy generator produced wrong policy type** — Anthropic prompt was generic. Fixed: added explicit `POLICY_INSTRUCTIONS` per type with detailed section requirements and explicit document title in both system and user prompts.
+* **Policy generation persistence overhaul** — Replaced rolling rate limit (`policy_gen_count`/`policy_gen_reset_at`) with per-type JSONB persistence (`generated_policies` stores HTML keyed by type, `policy_regen_used` tracks one regeneration per type). Policies persist across sessions.
+* **Policy generation UI moved to sidebar** — Replaced inline `PolicyGeneratorDisplay` component (deleted) with `PolicyGenerationCard` in the sidebar aside. Shows rows per failed/generated policy type with Generate → Regenerate (1 left) → Copy state progression. Expandable content view with copy-to-clipboard.
+* **KPI score display fix** — KPI "Checks Passed" card showed `"8/10"` as a string. Fixed: now shows just the number (`8`), matching other KPI cards.
 
 ---
 

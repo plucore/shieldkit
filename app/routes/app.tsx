@@ -20,7 +20,6 @@ export default function App() {
     <AppProvider embedded apiKey={apiKey}>
       <NavMenu>
         <a href="/app" rel="home">Dashboard</a>
-        <a href="/app/scan-history">Scan History</a>
       </NavMenu>
 
       <Outlet />

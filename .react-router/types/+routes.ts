@@ -55,9 +55,6 @@ type Pages = {
   "/app/dmca-takedowns": {
     params: {};
   };
-  "/app/scan-history": {
-    params: {};
-  };
   "/app/upgrade": {
     params: {};
   };
@@ -66,7 +63,7 @@ type Pages = {
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/webhooks/app_subscriptions/update" | "/webhooks/customers/data_request" | "/webhooks/app/scopes_update" | "/webhooks/customers/redact" | "/webhooks/app/uninstalled" | "/api/cron/weekly-scan" | "/webhooks/shop/redact" | "/auth/login" | "/api/scan" | "/auth/*" | "/app" | "/app/billing/confirm" | "/app/dmca-takedowns" | "/app/scan-history" | "/app/upgrade";
+    page: "/" | "/webhooks/app_subscriptions/update" | "/webhooks/customers/data_request" | "/webhooks/app/scopes_update" | "/webhooks/customers/redact" | "/webhooks/app/uninstalled" | "/api/cron/weekly-scan" | "/webhooks/shop/redact" | "/auth/login" | "/api/scan" | "/auth/*" | "/app" | "/app/billing/confirm" | "/app/dmca-takedowns" | "/app/upgrade";
   };
   "routes/webhooks.app_subscriptions.update.tsx": {
     id: "routes/webhooks.app_subscriptions.update";
@@ -114,7 +111,7 @@ type RouteFiles = {
   };
   "routes/app.tsx": {
     id: "routes/app";
-    page: "/app" | "/app/billing/confirm" | "/app/dmca-takedowns" | "/app/scan-history" | "/app/upgrade";
+    page: "/app" | "/app/billing/confirm" | "/app/dmca-takedowns" | "/app/upgrade";
   };
   "routes/app.billing.confirm.tsx": {
     id: "routes/app.billing.confirm";
@@ -123,10 +120,6 @@ type RouteFiles = {
   "routes/app.dmca-takedowns.tsx": {
     id: "routes/app.dmca-takedowns";
     page: "/app/dmca-takedowns";
-  };
-  "routes/app.scan-history.tsx": {
-    id: "routes/app.scan-history";
-    page: "/app/scan-history";
   };
   "routes/app.upgrade.tsx": {
     id: "routes/app.upgrade";
@@ -154,7 +147,6 @@ type RouteModules = {
   "routes/app": typeof import("./app/routes/app.tsx");
   "routes/app.billing.confirm": typeof import("./app/routes/app.billing.confirm.tsx");
   "routes/app.dmca-takedowns": typeof import("./app/routes/app.dmca-takedowns.tsx");
-  "routes/app.scan-history": typeof import("./app/routes/app.scan-history.tsx");
   "routes/app.upgrade": typeof import("./app/routes/app.upgrade.tsx");
   "routes/app._index": typeof import("./app/routes/app._index.tsx");
 };

@@ -7,7 +7,7 @@ ShieldKit is a B2B SaaS Shopify Embedded App that scans Shopify stores for Googl
 * **Module A (Current MVP):** A 10-point automated compliance scanner. Identifies suspension risks and provides plain-English fix instructions.
 * **Module B (Future/Hidden):** Automated DMCA Takedown Legal Engine. All DMCA features are deferred. `app/routes/app.dmca-takedowns.tsx` redirects to `/app`.
 
-**Business model:** Free + Pro ($29 one-time). Free tier gets 1 full scan + JSON-LD theme extension. Pro tier gets unlimited re-scans, AI-powered policy generation (Anthropic Claude), and full scan history.
+**Business model:** Free + Pro ($29 one-time). Free tier gets 1 full scan + JSON-LD theme extension. Pro tier gets unlimited re-scans and AI-powered policy generation (Anthropic Claude).
 
 ---
 
@@ -38,7 +38,7 @@ ShieldKit is a B2B SaaS Shopify Embedded App that scans Shopify stores for Googl
 ### Folder Structure
 ```
 app/
-  routes/              # All Remix/RR7 routes (18 files)
+  routes/              # All Remix/RR7 routes (17 files)
   components/          # Extracted UI components from app._index.tsx
     ScoreBanner.tsx, KpiCards.tsx, ScanProgressIndicator.tsx,
     UpgradeCard.tsx, PolicyGenerationCard.tsx,
@@ -144,7 +144,6 @@ All webhooks use `authenticate.webhook(request)` which verifies `X-Shopify-Hmac-
 **Pro tier features:**
 - Unlimited re-scans (`scans_remaining = null`)
 - AI policy generation (Anthropic Claude) — generates store policies from failed checks
-- Scan history page (`/app/scan-history`) — table of past scan results
 - Free tier gets 1 scan, then sees upgrade CTA
 
 ---
@@ -393,12 +392,12 @@ The welcome email and compliance alert email systems have been removed. The `res
 
 | Route File | URL Path | Type | Behavior |
 |-----------|----------|------|----------|
-| `app.tsx` | `/app` (layout) | Layout | Wraps all `/app/*` routes. Provides `AppProvider` with API key, renders sidebar nav via `NavMenu` from `@shopify/app-bridge-react` (Dashboard + Scan History), `<Outlet />` for children. |
+| `app.tsx` | `/app` (layout) | Layout | Wraps all `/app/*` routes. Provides `AppProvider` with API key, renders sidebar nav via `NavMenu` from `@shopify/app-bridge-react` (Dashboard only), `<Outlet />` for children. |
 | `app._index.tsx` | `/app` | Loader + Action + Component | **Onboarding:** Logo + 3-step wizard + "Run Free Scan" CTA. **Dashboard:** Score banner, 4 KPI cards, 10-point checklist, aside with threat level + JSON-LD extension state + policy generation card (Pro). **Actions:** `runScan` (with quota enforcement + decrement), `generatePolicy` (Pro-only, persists to `generated_policies` JSONB), `enableJsonLd` (sets `json_ld_enabled` flag). **Billing self-heal:** loader checks Shopify billing state and syncs tier to Supabase if stale. Billing banner on `?billing=cancelled`. Upgrade CTAs use `useNavigate()` for embedded-app-safe navigation. |
 | `app.upgrade.tsx` | `/app/upgrade?plan=Pro` | Loader only | Pre-checks for existing active subscription via `billing.check()`. If already subscribed, redirects to `/app`. Otherwise calls `billing.request()` for Pro plan (redirects to Shopify approval page). Errors redirect to `/app?billing=error`. Has ErrorBoundary. |
 | `app.billing.confirm.tsx` | `/app/billing/confirm` | Loader only | Calls `billing.check()`. If active: maps plan → tier, writes `tier` + `scans_remaining=null` to Supabase, redirects to `/app`. If declined: redirects to `/app?billing=cancelled`. |
 | `app.dmca-takedowns.tsx` | `/app/dmca-takedowns` | Loader only | Redirects to `/app`. DMCA module deferred. |
-| `app.scan-history.tsx` | `/app/scan-history` | Loader + Component | Pro-gated scan history. Free tier redirected to `/app?upgrade=scan-history`. |
+| ~~`app.scan-history.tsx`~~ | ~~`/app/scan-history`~~ | ~~Removed~~ | Scan history feature removed — doesn't add value for one-time purchase model. |
 
 ### API routes
 
@@ -542,12 +541,12 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 ### Fixed (feature/new-pricing)
 * **Unicode escape characters rendered as literal text** — `\uXXXX` sequences in JSX text content displayed as raw text. Fixed: replaced all escape sequences with actual Unicode characters in `app._index.tsx`.
 * **Pro tier scan decrement bug** — `scans_remaining` was decremented even when `null` (unlimited/Pro). Fixed: decrement guard changed to `typeof scansRemaining === "number" && scansRemaining > 0` in both `app._index.tsx` and `api.scan.ts`.
-* **Scan History navigation broke out of iframe** — Changed from `<s-app-nav>` + `<a>` tags to `NavMenu` from `@shopify/app-bridge-react` with `<a>` children and `rel="home"` on the Dashboard link. `NavMenu` wraps App Bridge's `<ui-nav-menu>` and handles embedded navigation correctly.
+* **~~Scan History navigation broke out of iframe~~** — Scan history feature entirely removed (doesn't add value for one-time purchase model). `NavMenu` now only has Dashboard link.
 * **Upgrade button did nothing when clicked** — Went through 3 iterations: (1) `<s-button url="...">` triggered full page reloads, (2) `<s-button onClick={...}>` didn't fire because React synthetic events don't work on web components, (3) Final fix: all buttons use `useWebComponentClick` hook with native DOM `addEventListener` via refs. The upgrade route (`app.upgrade.tsx`) also has `billing.check()` pre-check, try/catch error handling, and `ErrorBoundary`.
-* **Scan History loader had no error handling** — Added try/catch with `console.error` logging and graceful fallback. Response objects (redirects) are re-thrown.
+* **~~Scan History loader had no error handling~~** — Scan history route deleted entirely.
 * **JSON-LD extension not visible** — Merchants had no way to discover the free JSON-LD theme extension. Added an "Free JSON-LD Structured Data" card in the dashboard aside (visible to all tiers) with one-click enable deep link.
 * **Generate Policy button did nothing** — Same root cause as upgrade buttons: `<s-button submit="">` inside a `<Form>` doesn't participate in native form submission because web components don't integrate with the DOM form API. Fixed: replaced with native `<button>` that calls `policyFetcher.submit()` directly.
-* **Scan History redirected free users to login page** — `redirect("/app?upgrade=scan-history")` broke out of the embedded iframe. Fixed: loader now returns `tier` data, component conditionally renders an upgrade prompt for free users instead of redirecting.
+* **~~Scan History redirected free users to login page~~** — Scan history route deleted entirely.
 * **Upgrade card was in wrong location** — Moved from main content area to sidebar (between Security Status and JSON-LD cards). `UpgradeCard` now accepts a `sidebar` prop for compact aside layout.
 * **Sidebar headings too small** — Replaced `heading="..."` attribute on `<s-section>` with custom heading divs at 16px/700 weight for proper visual hierarchy.
 * **JSON-LD extension missing locales** — Created `extensions/json-ld-schema/locales/en.default.json` to fix ENOENT error during dev. Changed extension target from `section` to `body` for app embed block (JSON-LD is a script tag with no visible UI).
@@ -564,6 +563,9 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 * **KPI score display fix** — KPI "Checks Passed" card showed `"8/10"` as a string. Fixed: now shows just the number (`8`), matching other KPI cards.
 * **Policy check resolution guides reference sidebar generator** — For Pro merchants, checks 2/3/4 (refund, shipping, privacy/terms) now show resolution guide text directing them to use the sidebar Policy Generation tool instead of manually writing policies. Free tier sees original manual instructions. Override is in `AuditChecklist` component (display-only, scan data unchanged).
 * **Policy generation counter** — Replaced confusing "Regenerate (1 left)" label with clear "X/2 generations remaining" counter per policy type. Shows 2/2 (never generated), 1/2 (generated once), 0/2 (both used, red text).
+* **Scan history feature removed** — Deleted `app.scan-history.tsx` route, removed nav link from `app.tsx`, cleaned all "scan history" references from UpgradeCard, landing page, dashboard banners, and tests. The scans table is still used by the dashboard for latest results — only the history page and nav link were removed.
+* **Policy card showed generation for existing policies** — `PolicyGenerationCard` was showing rows for policies that already existed and passed the scan. Fixed: `visibleTypes` now only includes policy types where the check actually failed — passing policies are excluded.
+* **All policy generate buttons showed loading simultaneously** — A single `isGeneratingPolicy` boolean caused all 4 rows to show loading state when any one was clicked. Fixed: replaced with `generatingPolicyType` (tracks which specific type is loading via fetcher's formData). Only the clicked row shows loading indicator; other rows are disabled but not visually loading.
 
 ---
 
@@ -607,7 +609,7 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 
 * **Framework:** Vitest (dev dependency). Config in `vitest.config.ts`.
 * **Run:** `npm test` (alias for `vitest run`).
-* **Test file:** `tests/bug-fixes.test.ts` — 64 regression tests covering unicode rendering, web component click handling, scan decrement logic, navigation setup, billing flow, component extraction, shared types/helpers, hooks, policy generation, scan history upgrade prompt, JSON-LD extension, one-time billing model, email system removal, billing returnUrl format, and JSON-LD deep link format.
+* **Test file:** `tests/bug-fixes.test.ts` — 60 regression tests covering unicode rendering, web component click handling, scan decrement logic, navigation setup, billing flow, component extraction, shared types/helpers, hooks, policy generation, JSON-LD extension, one-time billing model, email system removal, billing returnUrl format, JSON-LD deep link format, and scan history removal verification.
 * **Note:** Tests that import route modules directly will fail without env vars (`SUPABASE_URL`, etc.) since module initialization triggers `supabase.server.ts`. Tests use file-content assertions (regex/string matching) to avoid this.
 
 ---

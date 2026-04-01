@@ -477,8 +477,10 @@ export default function Index() {
   const isScanning =
     fetcher.state === "submitting" || fetcher.state === "loading";
 
-  const isGeneratingPolicy =
-    policyFetcher.state === "submitting" || policyFetcher.state === "loading";
+  const generatingPolicyType: string | null =
+    policyFetcher.state === "submitting" || policyFetcher.state === "loading"
+      ? (policyFetcher.formData?.get("policyType") as string | null)
+      : null;
 
   const scanError =
     fetcher.state === "idle" && fetcher.data && !fetcher.data.success
@@ -600,7 +602,7 @@ export default function Index() {
           tone="warning"
         >
           You're on the Free plan. Upgrade to Pro ($29 one-time) for unlimited
-          re-scans, AI policy generation, and full scan history.
+          re-scans and AI policy generation.
           <s-button slot="actions" ref={upgradeRef3}>
             View upgrade options
           </s-button>
@@ -800,8 +802,8 @@ export default function Index() {
           {merchant.tier !== "pro" && sortedChecks.length > 0 && (
             <s-section>
               <s-banner tone="info">
-                Upgrade to Pro ($29 one-time) for unlimited re-scans, AI policy
-                generation, and full scan history.
+                Upgrade to Pro ($29 one-time) for unlimited re-scans and AI policy
+                generation.
                 <s-button slot="actions" ref={upgradeRef4}>
                   Upgrade to Pro
                 </s-button>
@@ -843,7 +845,7 @@ export default function Index() {
           policyRegenUsed={localRegenUsed}
           checkResults={checkResults}
           policyFetcher={policyFetcher}
-          isGeneratingPolicy={isGeneratingPolicy}
+          generatingPolicyType={generatingPolicyType}
           onCopy={(text) => {
             navigator.clipboard.writeText(text);
             shopify.toast.show("Policy copied to clipboard");

@@ -28,7 +28,7 @@ interface PolicyGenerationCardProps {
   checkResults: CheckResult[];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   policyFetcher: any;
-  isGeneratingPolicy: boolean;
+  generatingPolicyType: string | null;
   onCopy: (text: string) => void;
 }
 
@@ -37,7 +37,7 @@ export default function PolicyGenerationCard({
   policyRegenUsed,
   checkResults,
   policyFetcher,
-  isGeneratingPolicy,
+  generatingPolicyType,
   onCopy,
 }: PolicyGenerationCardProps) {
   const [expandedType, setExpandedType] = useState<PolicyType | null>(null);
@@ -57,7 +57,7 @@ export default function PolicyGenerationCard({
 
   const allTypes: PolicyType[] = ["refund", "shipping", "privacy", "terms"];
   const visibleTypes = allTypes.filter(
-    (t) => failedPolicyTypes.has(t) || generatedPolicies[t]
+    (t) => failedPolicyTypes.has(t)
   );
 
   if (visibleTypes.length === 0) return null;
@@ -78,6 +78,8 @@ export default function PolicyGenerationCard({
             const isExpanded = expandedType === type;
 
             const remaining = !generated ? 2 : !regenUsed ? 1 : 0;
+            const isLoadingThis = generatingPolicyType === type;
+            const isAnyLoading = generatingPolicyType !== null;
 
             return (
               <div key={type}>
@@ -147,7 +149,7 @@ export default function PolicyGenerationCard({
                     {!generated ? (
                       <button
                         type="button"
-                        disabled={isGeneratingPolicy}
+                        disabled={isAnyLoading}
                         onClick={() => {
                           policyFetcher.submit(
                             { action: "generatePolicy", policyType: type },
@@ -162,16 +164,16 @@ export default function PolicyGenerationCard({
                           border: "none",
                           borderRadius: "6px",
                           padding: "4px 10px",
-                          cursor: isGeneratingPolicy ? "wait" : "pointer",
-                          opacity: isGeneratingPolicy ? 0.7 : 1,
+                          cursor: isAnyLoading ? "wait" : "pointer",
+                          opacity: isLoadingThis ? 0.7 : 1,
                         }}
                       >
-                        {isGeneratingPolicy ? "…" : "Generate"}
+                        {isLoadingThis ? "…" : "Generate"}
                       </button>
                     ) : !regenUsed ? (
                       <button
                         type="button"
-                        disabled={isGeneratingPolicy}
+                        disabled={isAnyLoading}
                         onClick={() => {
                           policyFetcher.submit(
                             { action: "generatePolicy", policyType: type },
@@ -186,11 +188,11 @@ export default function PolicyGenerationCard({
                           border: "1px solid #cbd5e1",
                           borderRadius: "6px",
                           padding: "4px 10px",
-                          cursor: isGeneratingPolicy ? "wait" : "pointer",
-                          opacity: isGeneratingPolicy ? 0.7 : 1,
+                          cursor: isAnyLoading ? "wait" : "pointer",
+                          opacity: isLoadingThis ? 0.7 : 1,
                         }}
                       >
-                        {isGeneratingPolicy ? "…" : "Regenerate"}
+                        {isLoadingThis ? "…" : "Regenerate"}
                       </button>
                     ) : null}
                   </div>

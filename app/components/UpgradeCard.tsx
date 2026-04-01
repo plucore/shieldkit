@@ -20,7 +20,7 @@ export default function UpgradeCard({ onUpgrade, sidebar }: UpgradeCardProps) {
   const features = [
     "Unlimited compliance re-scans",
     "AI-powered policy generation",
-    "Full scan history & tracking",
+    "Priority support",
   ];
 
   return (
@@ -54,7 +54,7 @@ export default function UpgradeCard({ onUpgrade, sidebar }: UpgradeCardProps) {
             }}
           >
             {sidebar
-              ? "Unlock unlimited re-scans, AI policy generation, and full scan history for just $29."
+              ? "Unlock unlimited re-scans and AI policy generation for just $29."
               : "One payment. Unlimited re-scans. Keep your store compliant forever."}
           </div>
           {!sidebar && (

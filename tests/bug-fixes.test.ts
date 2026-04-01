@@ -6,12 +6,12 @@
  * 1. No billing_plan references in application code (only tier)
  * 2. Unicode escape characters replaced with actual characters
  * 3. Upgrade buttons use useWebComponentClick refs, not onClick
- * 4. Scan History route exports + NavMenu navigation
+ * 4. NavMenu navigation (Dashboard only)
  * 5. JSON-LD extension card visible in dashboard
  * 6. Pro tier scan decrement guard
  * 7. Component extraction from app._index.tsx
  * 8. Web component click hook
- * 9. Scan history error handling
+ * 9. (removed — scan history deleted)
  * 10. One-time $29 billing model (no $39, no /mo references)
  * 11. Email system removed (no resend, no email.server imports)
  * 12. JSON-LD deep link uses client_id, not extension UID
@@ -221,46 +221,13 @@ describe("Upgrade button uses React Router navigation", () => {
   });
 });
 
-// ─── Scan History route and navigation ───────────────────────────────────────
+// ─── Navigation ─────────────────────────────────────────────────────────────
 
-describe("Scan History navigation", () => {
-  const scanHistoryContent = fs.readFileSync(
-    path.join(APP_DIR, "routes/app.scan-history.tsx"),
-    "utf-8"
-  );
+describe("Navigation", () => {
   const appContent = fs.readFileSync(
     path.join(APP_DIR, "routes/app.tsx"),
     "utf-8"
   );
-
-  it("app.scan-history.tsx exports a default component", () => {
-    expect(scanHistoryContent).toMatch(/export\s+default\s+function\s+\w+/);
-  });
-
-  it("app.scan-history.tsx exports a loader function", () => {
-    expect(scanHistoryContent).toMatch(/export\s+const\s+loader\s*=/);
-  });
-
-  it("app.scan-history.tsx has try/catch error handling in loader", () => {
-    expect(scanHistoryContent).toContain("try {");
-    expect(scanHistoryContent).toContain("catch (err)");
-    expect(scanHistoryContent).toContain('console.error("[scan-history]');
-    expect(scanHistoryContent).toContain("if (err instanceof Response) throw err");
-  });
-
-  it("app.scan-history.tsx returns tier data instead of redirecting free users", () => {
-    // Should NOT redirect free users (that breaks embedded apps)
-    expect(scanHistoryContent).not.toContain('redirect("/app?upgrade=scan-history")');
-    // Should return tier info in loader data
-    expect(scanHistoryContent).toContain('"free"');
-    expect(scanHistoryContent).toContain('"pro"');
-    expect(scanHistoryContent).toContain("tier");
-  });
-
-  it("app.scan-history.tsx shows upgrade prompt for free users", () => {
-    expect(scanHistoryContent).toContain("Upgrade to Pro");
-    expect(scanHistoryContent).toContain("useWebComponentClick");
-  });
 
   it("app.tsx uses NavMenu from @shopify/app-bridge-react for navigation", () => {
     expect(appContent).toContain("NavMenu");
@@ -270,7 +237,6 @@ describe("Scan History navigation", () => {
   it("nav links are <a> tags inside <NavMenu>, not <s-link> or <s-app-nav>", () => {
     expect(appContent).toContain("<NavMenu>");
     expect(appContent).toContain('<a href="/app"');
-    expect(appContent).toContain('<a href="/app/scan-history"');
     expect(appContent).not.toContain("<s-app-nav>");
     expect(appContent).not.toMatch(/<s-link[^>]*href="\/app/);
   });
@@ -279,10 +245,13 @@ describe("Scan History navigation", () => {
     expect(appContent).toMatch(/<a\s+href="\/app"\s+rel="home"/);
   });
 
-  it("nav link path matches scan history route file convention", () => {
+  it("scan history route does not exist (feature removed)", () => {
     const routeFile = path.join(APP_DIR, "routes/app.scan-history.tsx");
-    expect(fs.existsSync(routeFile)).toBe(true);
-    expect(appContent).toContain('href="/app/scan-history"');
+    expect(fs.existsSync(routeFile)).toBe(false);
+  });
+
+  it("no scan-history nav link in app.tsx", () => {
+    expect(appContent).not.toContain("scan-history");
   });
 });
 

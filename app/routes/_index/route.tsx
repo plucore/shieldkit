@@ -58,7 +58,7 @@ export default function App() {
             <ul className={styles.pricingFeatures}>
               <li>Unlimited compliance re-scans</li>
               <li>AI-powered policy generation</li>
-              <li>Full scan history &amp; tracking</li>
+              <li>Priority support</li>
               <li>Everything in Free, plus more</li>
               <li>Everything in Free</li>
             </ul>

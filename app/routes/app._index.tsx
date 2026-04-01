@@ -834,20 +834,29 @@ export default function Index() {
             <s-section>
               <s-banner tone="info">
                 If ShieldKit helped, a quick review helps other merchants discover us.
-                <a
+                <button
                   slot="actions"
-                  href="https://apps.shopify.com/shieldkit/reviews"
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  type="button"
+                  onClick={() =>
+                    window.open(
+                      "https://apps.shopify.com/shieldkit/reviews",
+                      "_blank",
+                      "noopener,noreferrer",
+                    )
+                  }
                   style={{
                     fontSize: "13px",
                     fontWeight: 600,
-                    color: "#0f172a",
-                    textDecoration: "underline",
+                    color: "#fff",
+                    background: "#0f172a",
+                    border: "none",
+                    borderRadius: "6px",
+                    padding: "6px 14px",
+                    cursor: "pointer",
                   }}
                 >
-                  Leave a Review ↗
-                </a>
+                  Leave a Review
+                </button>
                 <button
                   slot="actions"
                   type="button"

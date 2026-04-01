@@ -28,6 +28,7 @@ export interface Merchant {
   json_ld_enabled: boolean;
   generated_policies: GeneratedPolicies;
   policy_regen_used: PolicyRegenUsed;
+  review_prompted: boolean;
 }
 
 export interface Scan {

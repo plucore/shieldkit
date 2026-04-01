@@ -56,11 +56,10 @@ export default function App() {
               $29<span className={styles.pricingInterval}> one-time</span>
             </div>
             <ul className={styles.pricingFeatures}>
+              <li>Everything in Free, plus:</li>
               <li>Unlimited compliance re-scans</li>
               <li>AI-powered policy generation</li>
               <li>Priority support</li>
-              <li>Everything in Free, plus more</li>
-              <li>Everything in Free</li>
             </ul>
           </div>
         </div>

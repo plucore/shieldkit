@@ -10,15 +10,16 @@
  *   1. Verify CRON_SECRET bearer token.
  *   2. Fetch all active Pro merchants.
  *   3. Run compliance scans sequentially (2s delay between each).
- *   4. Compare each scan against the merchant's previous scan.
- *   5. Send alert email if score dropped or new critical/warning issues appeared.
- *   6. Return summary JSON.
+ *   4. Persist results to DB (scans + violations tables).
+ *   5. Return summary JSON.
+ *
+ * Scan results surface on the merchant dashboard via the loader in
+ * app._index.tsx (lastAutomatedScan, newAutoIssueCount).
  */
 
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { supabase } from "../supabase.server";
 import { runComplianceScan } from "../lib/compliance-scanner.server";
-import { compareScanWithPrevious } from "../lib/scan-comparison.server";
 
 function json<T>(body: T, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -67,34 +68,21 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 
   if (!merchants || merchants.length === 0) {
-    return json({ merchants_scanned: 0, alerts_sent: 0, errors: 0 });
+    return json({ merchants_scanned: 0, errors: 0 });
   }
 
   // ── 3. Process merchants sequentially ────────────────────────────────────────
   let merchantsScanned = 0;
-  let alertsSent = 0;
   let errors = 0;
 
   for (const merchant of merchants) {
     try {
-      // Run automated scan
-      const scanResult = await runComplianceScan(
+      await runComplianceScan(
         merchant.id,
         merchant.shopify_domain,
         "automated"
       );
       merchantsScanned++;
-
-      // ── 4. Compare against previous scan ───────────────────────────────────
-      const comparison = await compareScanWithPrevious(
-        merchant.id,
-        scanResult.scan,
-        scanResult.violations,
-      );
-
-      if (comparison?.shouldAlert) {
-        alertsSent++;
-      }
     } catch (err) {
       errors++;
       console.error(
@@ -107,5 +95,5 @@ export async function action({ request }: ActionFunctionArgs) {
     await sleep(2000);
   }
 
-  return json({ merchants_scanned: merchantsScanned, alerts_sent: alertsSent, errors });
+  return json({ merchants_scanned: merchantsScanned, errors });
 }

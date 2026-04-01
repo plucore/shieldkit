@@ -44,10 +44,8 @@ ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;
 CREATE TABLE IF NOT EXISTS merchants (
   id                     UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   shopify_domain         TEXT        NOT NULL UNIQUE,
-  shop_name              TEXT,
   access_token_encrypted TEXT,
   tier                   TEXT        NOT NULL DEFAULT 'free' CHECK (tier IN ('free', 'pro')),
-  billing_status         TEXT,
   scans_remaining        INTEGER     NOT NULL DEFAULT 1,
   json_ld_enabled        BOOLEAN     NOT NULL DEFAULT false,
   generated_policies     JSONB       NOT NULL DEFAULT '{}'::jsonb,
@@ -70,7 +68,7 @@ CREATE POLICY "merchants_shop_isolation" ON merchants
 
 -- ============================================================
 -- TABLE: leads
--- Deduplication for welcome emails. One row per shop.
+-- Lead collection for future retargeting. One row per shop.
 -- ============================================================
 CREATE TABLE IF NOT EXISTS leads (
   id            UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,

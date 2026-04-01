@@ -37,7 +37,6 @@ interface AppSubscriptionPayload {
     created_at: string;
     updated_at: string;
     currency: string;
-    trial_days: number;
   };
 }
 

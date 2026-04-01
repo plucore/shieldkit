@@ -14,12 +14,25 @@ import {
   checkRowBg,
 } from "../lib/scan-helpers";
 
+const POLICY_CHECK_NAMES = new Set([
+  "refund_return_policy",
+  "shipping_policy",
+  "privacy_and_terms",
+]);
+
+const PRO_POLICY_FIX =
+  "1. Use the Policy Generation tool in the sidebar to generate a compliant policy, then click Copy to Clipboard.\n" +
+  "2. In Shopify Admin → Settings → Policies, paste the generated policy into the appropriate field.\n" +
+  "3. Review the policy to ensure it reflects your actual business practices, then Save.\n" +
+  "4. Ensure the policy page is linked in your store footer.";
+
 interface AuditChecklistProps {
   sortedChecks: CheckResult[];
   totalChecks: number;
   truePassedCount: number;
   allExpanded: boolean;
   onToggleExpand: () => void;
+  tier: string;
 }
 
 export default function AuditChecklist({
@@ -28,6 +41,7 @@ export default function AuditChecklist({
   truePassedCount,
   allExpanded,
   onToggleExpand,
+  tier,
 }: AuditChecklistProps) {
   if (sortedChecks.length === 0) return null;
 
@@ -174,9 +188,11 @@ export default function AuditChecklist({
                       >
                         Resolution Guide
                       </strong>
-                      {check.fix_instruction
-                        ? check.fix_instruction
-                        : "Detailed remediation copy coming soon — check back after your next scan."}
+                      {tier === "pro" && !check.passed && POLICY_CHECK_NAMES.has(check.check_name)
+                        ? PRO_POLICY_FIX
+                        : check.fix_instruction
+                          ? check.fix_instruction
+                          : "Detailed remediation copy coming soon — check back after your next scan."}
                     </div>
                   )}
                 </div>

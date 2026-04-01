@@ -562,6 +562,8 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 * **Policy generation persistence overhaul** — Replaced rolling rate limit (`policy_gen_count`/`policy_gen_reset_at`) with per-type JSONB persistence (`generated_policies` stores HTML keyed by type, `policy_regen_used` tracks one regeneration per type). Policies persist across sessions.
 * **Policy generation UI moved to sidebar** — Replaced inline `PolicyGeneratorDisplay` component (deleted) with `PolicyGenerationCard` in the sidebar aside. Shows rows per failed/generated policy type with Generate → Regenerate (1 left) → Copy state progression. Expandable content view with copy-to-clipboard.
 * **KPI score display fix** — KPI "Checks Passed" card showed `"8/10"` as a string. Fixed: now shows just the number (`8`), matching other KPI cards.
+* **Policy check resolution guides reference sidebar generator** — For Pro merchants, checks 2/3/4 (refund, shipping, privacy/terms) now show resolution guide text directing them to use the sidebar Policy Generation tool instead of manually writing policies. Free tier sees original manual instructions. Override is in `AuditChecklist` component (display-only, scan data unchanged).
+* **Policy generation counter** — Replaced confusing "Regenerate (1 left)" label with clear "X/2 generations remaining" counter per policy type. Shows 2/2 (never generated), 1/2 (generated once), 0/2 (both used, red text).
 
 ---
 

@@ -816,6 +816,7 @@ export default function Index() {
             truePassedCount={truePassedCount}
             allExpanded={allExpanded}
             onToggleExpand={() => setAllExpanded((v) => !v)}
+            tier={merchant.tier}
           />
 
         </div>

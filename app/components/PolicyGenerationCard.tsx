@@ -42,17 +42,28 @@ export default function PolicyGenerationCard({
 }: PolicyGenerationCardProps) {
   const [expandedType, setExpandedType] = useState<PolicyType | null>(null);
 
-  // Determine which policy types to show: failed checks or already generated
+  // Determine which policy types to show: only failed checks
   const failedPolicyTypes = new Set<PolicyType>();
   for (const check of checkResults) {
-    if (!check.passed && POLICY_CHECK_MAP[check.check_name]) {
-      failedPolicyTypes.add(POLICY_CHECK_MAP[check.check_name]);
+    if (!check.passed) {
+      if (check.check_name === "privacy_and_terms") {
+        // privacy_and_terms can fail for privacy, terms, or both.
+        // Parse the title to determine which specific policies are missing.
+        const title = check.title ?? "";
+        const privacyMissing = /Missing Privacy Policy/i.test(title);
+        const termsMissing = /Missing Terms of Service/i.test(title) ||
+          /Terms of Service was found/i.test(check.description ?? "");
+        if (privacyMissing) failedPolicyTypes.add("privacy");
+        if (termsMissing) failedPolicyTypes.add("terms");
+        // Fallback: if we can't determine specifics, add both
+        if (!privacyMissing && !termsMissing) {
+          failedPolicyTypes.add("privacy");
+          failedPolicyTypes.add("terms");
+        }
+      } else if (POLICY_CHECK_MAP[check.check_name]) {
+        failedPolicyTypes.add(POLICY_CHECK_MAP[check.check_name]);
+      }
     }
-  }
-
-  // privacy_and_terms covers both privacy and terms
-  if (failedPolicyTypes.has("privacy")) {
-    failedPolicyTypes.add("terms");
   }
 
   const allTypes: PolicyType[] = ["refund", "shipping", "privacy", "terms"];

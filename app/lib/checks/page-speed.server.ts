@@ -97,7 +97,7 @@ export async function checkPageSpeed(storeUrl: string): Promise<CheckResult> {
       return {
         check_name: CHECK_NAME,
         passed: true,
-        severity: "info",
+        severity: "warning",
         title: "Page Speed",
         description: `Mobile performance score: ${performanceScore}/100. No intrusive interstitials detected.`,
         fix_instruction: "No action required.",

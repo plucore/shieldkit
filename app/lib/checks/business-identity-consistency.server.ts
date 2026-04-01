@@ -94,7 +94,7 @@ export function checkBusinessIdentityConsistency(
     return {
       check_name: CHECK_NAME,
       passed: true,
-      severity: "info",
+      severity: "warning",
       title: "Business Identity Consistency",
       description:
         `Store name "${shopInfo.name}" is consistent with the primary domain ` +

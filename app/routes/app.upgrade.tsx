@@ -72,7 +72,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     await billing.request({
       plan: plan as any,
       isTest: process.env.NODE_ENV !== "production",
-      returnUrl: "/app/billing/confirm",
+      returnUrl: `${process.env.SHOPIFY_APP_URL}/app/billing/confirm`,
     });
   } catch (err) {
     // billing.request() throws a Response (redirect) on success — re-throw it

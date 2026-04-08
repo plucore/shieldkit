@@ -6,7 +6,7 @@
  */
 
 import { useState } from "react";
-import DOMPurify from "isomorphic-dompurify";
+import DOMPurify from "dompurify";
 import type { PolicyType } from "../lib/policy-generator.server";
 import type { GeneratedPolicies, PolicyRegenUsed, CheckResult } from "../lib/types";
 

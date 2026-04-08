@@ -380,17 +380,36 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     );
   }
 
-  // ── Quota enforcement ─────────────────────────────────────────────────────
+  // ── Quota enforcement (atomic decrement) ──────────────────────────────────
   const scansRemaining: number | null = merchant.scans_remaining;
-  if (scansRemaining !== null && scansRemaining <= 0) {
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error_code: "scan_limit_reached",
-        message: "You've used your free scan. Upgrade to Pro ($29 one-time) for unlimited re-scans.",
-      }),
-      { status: 402, headers: { "Content-Type": "application/json" } }
-    );
+
+  if (scansRemaining !== null) {
+    // Atomic decrement — returns the new value, or no rows if already exhausted.
+    const { data: rpcResult, error: rpcError } = await supabase
+      .rpc("decrement_scan_quota", { p_merchant_id: merchant.id });
+
+    if (rpcError) {
+      // RPC not deployed yet — fall back to non-atomic check
+      if (scansRemaining <= 0) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error_code: "scan_limit_reached",
+            message: "You've used your free scan. Upgrade to Pro ($29 one-time) for unlimited re-scans.",
+          }),
+          { status: 402, headers: { "Content-Type": "application/json" } }
+        );
+      }
+    } else if (!rpcResult || (Array.isArray(rpcResult) && rpcResult.length === 0)) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error_code: "scan_limit_reached",
+          message: "You've used your free scan. Upgrade to Pro ($29 one-time) for unlimited re-scans.",
+        }),
+        { status: 402, headers: { "Content-Type": "application/json" } }
+      );
+    }
   }
 
   let scanResult: Awaited<ReturnType<typeof runComplianceScan>>;
@@ -402,15 +421,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       JSON.stringify({ success: false, message }),
       { status: 500, headers: { "Content-Type": "application/json" } }
     );
-  }
-
-  // ── Decrement quota after successful scan ─────────────────────────────────
-  // null = unlimited (Pro tier) — skip decrement entirely
-  if (typeof scansRemaining === "number" && scansRemaining > 0) {
-    await supabase
-      .from("merchants")
-      .update({ scans_remaining: Math.max(0, scansRemaining - 1) })
-      .eq("id", merchant.id);
   }
 
   // ── Collect merchant email for retargeting (fire-and-forget) ──────────────

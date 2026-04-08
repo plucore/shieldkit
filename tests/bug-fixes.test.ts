@@ -303,24 +303,20 @@ describe("Scan decrement guard", () => {
     expect(shouldDecrement(undefined)).toBe(false);
   });
 
-  it("app._index.tsx uses the correct guard", () => {
+  it("app._index.tsx uses atomic decrement via RPC", () => {
     const content = fs.readFileSync(
       path.join(APP_DIR, "routes/app._index.tsx"),
       "utf-8"
     );
-    expect(content).toContain(
-      'typeof scansRemaining === "number" && scansRemaining > 0'
-    );
+    expect(content).toContain("decrement_scan_quota");
   });
 
-  it("api.scan.ts uses the correct guard", () => {
+  it("api.scan.ts uses atomic decrement via RPC", () => {
     const content = fs.readFileSync(
       path.join(APP_DIR, "routes/api.scan.ts"),
       "utf-8"
     );
-    expect(content).toContain(
-      'typeof scansRemaining === "number" && scansRemaining > 0'
-    );
+    expect(content).toContain("decrement_scan_quota");
   });
 });
 

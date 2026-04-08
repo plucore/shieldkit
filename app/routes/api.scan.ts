@@ -82,8 +82,8 @@ export async function action({ request }: ActionFunctionArgs) {
   const { session } = await authenticate.admin(request);
   const shopDomain = session.shop; // e.g. "mystore.myshopify.com"
 
-  // ── 1b. In-memory rate limiting ──────────────────────────────────────────────
-  const rateCheck = checkRateLimit(shopDomain);
+  // ── 1b. Rate limiting ────────────────────────────────────────────────────────
+  const rateCheck = await checkRateLimit(shopDomain);
   if (!rateCheck.allowed) {
     return json(
       {
@@ -129,30 +129,62 @@ export async function action({ request }: ActionFunctionArgs) {
     );
   }
 
-  // ── 3. Enforce scan quota ────────────────────────────────────────────────────
+  // ── 3. Enforce scan quota (atomic) ────────────────────────────────────────────
   //
   // scans_remaining semantics:
   //   null  → unlimited (paid tier / override — always allow)
   //   0     → exhausted — block and prompt upgrade
-  //   n > 0 → allowed   — proceed, then decrement
+  //   n > 0 → allowed   — atomically decrement before running scan
   //
-  // Treat a missing column (pre-migration) as null (unlimited) so the app
-  // degrades gracefully before the DB migration is applied.
   const scansRemaining: number | null =
     "scans_remaining" in merchant ? (merchant.scans_remaining as number | null) : null;
 
-  if (scansRemaining !== null && scansRemaining <= 0) {
-    return json(
-      {
-        error: "scan_limit_reached",
-        message:
-          "You have used all your available scans on the free tier. " +
-          "Upgrade to Pro to run unlimited compliance scans.",
-        scans_remaining: 0,
-        upgrade_url: "/app/upgrade", // placeholder — update to real billing route
-      },
-      402 // 402 Payment Required
-    );
+  let newScansRemaining: number | null = scansRemaining;
+
+  if (scansRemaining !== null) {
+    // Atomic decrement — returns the new value, or no rows if already exhausted.
+    const { data: rpcResult, error: rpcError } = await supabase
+      .rpc("decrement_scan_quota", { p_merchant_id: merchant.id });
+
+    if (rpcError) {
+      console.error(
+        `[API/scan] decrement_scan_quota RPC error for ${shopDomain}:`,
+        rpcError.message
+      );
+      // Fall back to non-atomic check so we don't block scans if the RPC
+      // hasn't been deployed yet.
+      if (scansRemaining <= 0) {
+        return json(
+          {
+            error: "scan_limit_reached",
+            message:
+              "You have used all your available scans on the free tier. " +
+              "Upgrade to Pro to run unlimited compliance scans.",
+            scans_remaining: 0,
+            upgrade_url: "/app/upgrade",
+          },
+          402
+        );
+      }
+    } else if (!rpcResult || (Array.isArray(rpcResult) && rpcResult.length === 0)) {
+      // No rows returned — quota was already 0
+      return json(
+        {
+          error: "scan_limit_reached",
+          message:
+            "You have used all your available scans on the free tier. " +
+            "Upgrade to Pro to run unlimited compliance scans.",
+          scans_remaining: 0,
+          upgrade_url: "/app/upgrade",
+        },
+        402
+      );
+    } else {
+      // Atomic decrement succeeded
+      newScansRemaining = Array.isArray(rpcResult)
+        ? rpcResult[0]?.new_scans_remaining ?? 0
+        : 0;
+    }
   }
 
   // ── 4. Run the compliance scan ───────────────────────────────────────────────
@@ -205,35 +237,9 @@ export async function action({ request }: ActionFunctionArgs) {
     );
   }
 
-  // ── 5. Decrement scans_remaining for quota-limited merchants ─────────────────
-  //
-  // This happens AFTER a successful scan commit so we never consume a quota
-  // credit for a scan that failed to save.
-  let newScansRemaining: number | null = scansRemaining;
-
-  // null = unlimited (Pro tier) — skip decrement entirely
-  if (typeof scansRemaining === "number" && scansRemaining > 0) {
-    const decremented = Math.max(0, scansRemaining - 1);
-
-    const { error: decrementError } = await supabase
-      .from("merchants")
-      .update({ scans_remaining: decremented })
-      .eq("id", merchant.id);
-
-    if (decrementError) {
-      // Non-fatal: the scan is already committed. Log and proceed — worst case
-      // the merchant gets one extra scan before we catch up.
-      console.error(
-        `[API/scan] Failed to decrement scans_remaining for ${shopDomain}:`,
-        decrementError.message
-      );
-    } else {
-      newScansRemaining = decremented;
-    }
-  }
-
-  // ── 5b. Record successful scan for rate limiting ──────────────────────────────
-  recordScanRequest(shopDomain);
+  // ── 5. Record successful scan for rate limiting ──────────────────────────────
+  // Quota was already decremented atomically in step 3 (before the scan).
+  await recordScanRequest(shopDomain);
 
   // ── 6. Return complete scan results ──────────────────────────────────────────
   //

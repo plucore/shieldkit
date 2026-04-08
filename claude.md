@@ -7,7 +7,7 @@ ShieldKit is a B2B SaaS Shopify Embedded App that scans Shopify stores for Googl
 * **Module A (Current MVP):** A 10-point automated compliance scanner. Identifies suspension risks and provides plain-English fix instructions.
 * **Module B (Future/Hidden):** Automated DMCA Takedown Legal Engine. All DMCA features are deferred. `app/routes/app.dmca-takedowns.tsx` redirects to `/app`.
 
-**Business model:** Free + Pro ($29 one-time). Free tier gets 1 full scan + JSON-LD theme extension. Pro tier gets unlimited re-scans and AI-powered policy generation (Anthropic Claude).
+**Business model:** Free + Pro ($29 one-time). Free tier gets 1 full scan + JSON-LD theme extension. Pro tier gets unlimited re-scans, AI-powered policy generation (Anthropic Claude), and automated weekly compliance monitoring.
 
 ---
 
@@ -15,14 +15,16 @@ ShieldKit is a B2B SaaS Shopify Embedded App that scans Shopify stores for Googl
 
 ### Framework & Runtime
 * **React Router v7** (file-based routing via `@react-router/fs-routes`). Routes defined by convention in `app/routes/`.
-* **React 18.3**, **Vite** build toolchain.
+* **React 18.3**, **Vite 6.3** build toolchain.
 * **Node.js** >= 20.19 < 22 or >= 22.12 (enforced in `package.json` engines).
-* **TypeScript** 5.9.3, strict mode.
+* **TypeScript** ^5.9.3, strict mode.
 
 ### Hosting & Deployment
-* **Vercel** at `shieldkit.vercel.app`. No `vercel.json` — uses default Vercel settings.
+* **Vercel** at `shieldkit.vercel.app`.
+* **`vercel.json`** defines a Vercel Cron job: `POST /api/cron/weekly-scan` every Monday at 08:00 UTC.
+* **`react-router.config.ts`** uses `@vercel/react-router` preset for serverless deployment.
 * **Dockerfile** provided (Node 20-alpine, port 3000) for alternative deployment.
-* `npm run build` → `react-router build`. `npm start` → `react-router-serve ./build/server/index.js`.
+* `npm run build` -> `react-router build`. `npm start` -> `react-router-serve ./build/server/index.js`.
 
 ### Key Dependencies
 | Package | Version | Purpose |
@@ -31,14 +33,25 @@ ShieldKit is a B2B SaaS Shopify Embedded App that scans Shopify stores for Googl
 | `@shopify/shopify-app-react-router` | ^1.1.0 | Auth, billing, webhooks, session management |
 | `@supabase/supabase-js` | ^2.47.0 | PostgreSQL client (service role) |
 | `cheerio` | ^1.2.0 | Server-side HTML parsing for compliance checks |
-| ~~`resend`~~ | ~~^6.9.2~~ | ~~Removed — email system deleted~~ |
-| `@anthropic-ai/sdk` | latest | AI policy generation (Pro feature) |
+| `@anthropic-ai/sdk` | latest | AI policy generation (Pro feature, model: `claude-sonnet-4-20250514`) |
 | `isbot` | ^5.1.31 | Bot detection for streaming SSR |
+| `isomorphic-dompurify` | latest | HTML sanitization for AI-generated policy content |
+| `vite-tsconfig-paths` | ^5.1.4 | TypeScript path aliases |
+
+### Key Dev Dependencies
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `typescript` | ^5.9.3 | Type checking |
+| `vitest` | ^4.1.2 | Test runner |
+| `vite` | ^6.3.6 | Build toolchain |
+| `@vercel/react-router` | ^1.2.6 | Vercel serverless adapter |
+| `eslint` | ^8.57.1 | Linting |
+| `prettier` | ^3.6.2 | Formatting |
 
 ### Folder Structure
 ```
 app/
-  routes/              # All Remix/RR7 routes (17 files)
+  routes/              # All RR7 routes (17 files)
   components/          # Extracted UI components from app._index.tsx
     ScoreBanner.tsx, KpiCards.tsx, ScanProgressIndicator.tsx,
     UpgradeCard.tsx, PolicyGenerationCard.tsx,
@@ -61,17 +74,16 @@ app/
     policy-generator.server.ts     (Anthropic-powered policy generation)
     session-storage.server.ts      (custom Supabase session adapter)
     crypto.server.ts               (AES-256-GCM encrypt/decrypt)
-    rate-limiter.server.ts         (in-memory rate limiting for /api/scan)
-    scan-comparison.server.ts      (score diff logic for weekly alerts)
+    rate-limiter.server.ts         (persistent rate limiting via Supabase, in-memory fallback)
     types.ts                       (shared UI types: Merchant, Scan, etc.)
     constants.ts                   (shared UI color constants)
     scan-helpers.ts                (pure helper functions for dashboard)
-  utils/                           (email system removed)
   shopify.server.ts   # Shopify app config, billing plans, afterAuth hook
   supabase.server.ts  # Supabase client singleton
   root.tsx, entry.server.tsx, routes.ts, globals.d.ts, styles.css
 scripts/
-  outbound-scanner.ts  # Standalone CLI scanner (no OAuth)
+  outbound-scanner.ts       # Standalone CLI scanner (no OAuth)
+  cleanup-orphan-webhooks.ts # One-off: deletes orphan webhook subscriptions from old dev tunnels
 supabase/
   schema.sql           # Database DDL
 public/
@@ -79,7 +91,7 @@ public/
 extensions/
   json-ld-schema/      # Theme extension: Product JSON-LD structured data block
 tests/
-  bug-fixes.test.ts    # Regression tests (unicode, scan decrement, nav, billing)
+  bug-fixes.test.ts    # Regression tests (60 tests)
 ```
 
 ---
@@ -90,8 +102,9 @@ tests/
 * **client_id:** `071fc51ee1ef7f358cdaed5f95922498`
 * **App type:** Embedded (`embedded = true`)
 * **application_url:** `https://shieldkit.vercel.app`
+* **Build setting:** `automatically_update_urls_on_dev = false` (prevents `shopify app dev` from overwriting production webhook URLs with dev tunnel URLs)
 * **Webhooks API version:** `2026-04`
-* **Access scopes:** `read_products,read_content,read_legal_policies` (read-only — app never writes to merchant stores)
+* **Access scopes:** `read_products,read_content,read_legal_policies` (read-only -- app never writes to merchant stores)
 * **Auth redirect URLs:**
   - `https://shieldkit.vercel.app/auth/callback`
   - `https://shieldkit.vercel.app/auth/shopify/callback`
@@ -100,11 +113,12 @@ tests/
 
 ### App Bridge & Auth (`app/shopify.server.ts`)
 * **API Version:** `ApiVersion.October25` (October 2025)
-* **Scopes at runtime:** `process.env.SCOPES ?? "read_products,read_content"` — the toml declares `read_legal_policies` too, but the code fallback omits it. In practice the CLI injects the full set from toml at dev time.
+* **Scopes at runtime:** `process.env.SCOPES ?? "read_products,read_content,read_legal_policies"` -- matches `shopify.app.toml`.
 * **Session storage:** Custom `SupabaseSessionStorage` class (not Prisma/SQLite).
-* **Token rotation:** `expiringOfflineAccessTokens: true` — refresh tokens stored in sessions table.
+* **Token rotation:** `expiringOfflineAccessTokens: true` -- refresh tokens stored in sessions table.
 * **afterAuth hook:** Fires on every OAuth completion (install + re-auth). For offline sessions only, upserts a `merchants` row: sets `shopify_domain`, encrypts `access_token`, sets `installed_at`, clears `uninstalled_at`.
-* **authenticate.admin(request):** Validates App Bridge 4.x JWT on every `/app/*` route. Called in `app.tsx` loader (gates all nested routes) and again in individual loaders/actions that need the session object.
+* **authenticate.admin(request):** Validates App Bridge 4.x JWT on every `/app/*` route.
+* **Exports:** `authenticate`, `login`, `registerWebhooks`, `sessionStorage`, `addDocumentResponseHeaders`, `unauthenticated`, `apiVersion`, `PLAN_PRO`, `PlanName`.
 
 ### Webhook Subscriptions
 Declared in `shopify.app.toml` and handled by route files:
@@ -113,12 +127,12 @@ Declared in `shopify.app.toml` and handled by route files:
 |-------|-----------|----------|
 | `app/uninstalled` | `webhooks.app.uninstalled.tsx` | Deletes all sessions for shop, soft-deletes merchant (`uninstalled_at = NOW()`). |
 | `app/scopes_update` | `webhooks.app.scopes_update.tsx` | Updates session scope string in Supabase. |
-| `app_subscriptions/update` | `webhooks.app_subscriptions.update.tsx` | Maps plan name to tier, writes to merchants. One-time charge — no cancellation/downgrade flow. |
+| `app_subscriptions/update` | `webhooks.app_subscriptions.update.tsx` | Maps plan name to tier, writes to merchants. One-time charge -- no cancellation/downgrade flow. |
 | `customers/data_request` | `webhooks.customers.data_request.tsx` | GDPR. Logs and returns 200 (app stores no customer PII). |
 | `customers/redact` | `webhooks.customers.redact.tsx` | GDPR. Logs and returns 200 (no customer PII to delete). |
 | `shop/redact` | `webhooks.shop.redact.tsx` | GDPR. Hard-deletes merchant row (CASCADE to scans, violations). Fires 48h after uninstall. |
 
-All webhooks use `authenticate.webhook(request)` which verifies `X-Shopify-Hmac-Sha256`. Invalid HMAC → automatic 401.
+All webhooks use `authenticate.webhook(request)` which verifies `X-Shopify-Hmac-Sha256`. Invalid HMAC -> automatic 401.
 
 ### Billing (`app/shopify.server.ts`, `app.upgrade.tsx`, `app.billing.confirm.tsx`)
 
@@ -128,22 +142,23 @@ All webhooks use `authenticate.webhook(request)` which verifies `X-Shopify-Hmac-
 | `PLAN_PRO` | `"Pro"` | $29.00 USD | One-time |
 
 **Billing flow:**
-1. Merchant clicks upgrade link → GET `/app/upgrade?plan=Pro`
-2. `app.upgrade.tsx` loader first calls `billing.check()` — if already subscribed, redirects to `/app` (skips billing)
+1. Merchant clicks upgrade link -> GET `/app/upgrade?plan=Pro`
+2. `app.upgrade.tsx` loader calls `billing.check()` -- if already subscribed, redirects to `/app`
 3. If no active subscription, calls `billing.request()` for the Pro plan with `isTest: NODE_ENV !== 'production'`
 4. Shopify redirects merchant to hosted approval page
-5. Return URL: `/app/billing/confirm` (relative path — the Shopify library converts it to the full embedded admin URL)
-6. `app.billing.confirm.tsx` loader calls `billing.check()`, maps `"Pro"` → `"pro"` tier
+5. Return URL: `/app/billing/confirm` (relative path -- Shopify library converts to full embedded admin URL)
+6. `app.billing.confirm.tsx` loader calls `billing.check()`, maps `"Pro"` -> `"pro"` tier
 7. Updates merchants table: `tier = 'pro', scans_remaining = null` (null = unlimited)
 8. Redirects to `/app` (dashboard)
-9. On decline: redirects to `/app?billing=cancelled` → dashboard shows dismissible warning banner
+9. On decline: redirects to `/app?billing=cancelled` -> dashboard shows dismissible warning banner
 10. On billing error: redirects to `/app?billing=error`
 
-**Webhook reconciliation:** `APP_SUBSCRIPTIONS_UPDATE` webhook fires as a backstop. ACTIVE → upgrades tier. One-time charges don't have cancellation lifecycle events, so no downgrade logic is needed.
+**Billing self-heal:** Dashboard loader checks `billing.check()` against Shopify and syncs tier to Supabase when stale. Webhook is backup.
 
 **Pro tier features:**
 - Unlimited re-scans (`scans_remaining = null`)
-- AI policy generation (Anthropic Claude) — generates store policies from failed checks
+- AI policy generation (Anthropic Claude) -- generates store policies from failed checks
+- Automated weekly compliance scans via Vercel Cron
 - Free tier gets 1 scan, then sees upgrade CTA
 
 ---
@@ -174,7 +189,6 @@ Shopify OAuth session storage. Replaces default Prisma adapter.
 | `refresh_token_expires` | TIMESTAMPTZ | |
 
 * **Index:** `idx_sessions_shop` on (`shop`)
-* **RLS:** Enabled, no anon/authenticated policies (server-only via service_role)
 
 ### Table: `merchants`
 One row per installed shop. Soft-deleted on uninstall, hard-deleted by GDPR shop/redact 48h later.
@@ -183,21 +197,30 @@ One row per installed shop. Soft-deleted on uninstall, hard-deleted by GDPR shop
 |--------|------|-------|
 | `id` | UUID PK (gen_random_uuid) | |
 | `shopify_domain` | TEXT NOT NULL UNIQUE | e.g. `mystore.myshopify.com` |
-| `shop_name` | TEXT | |
 | `access_token_encrypted` | TEXT | AES-256-GCM encrypted token |
 | `tier` | TEXT DEFAULT 'free' CHECK ('free', 'pro') | Free or Pro tier |
-| `billing_status` | TEXT | |
 | `scans_remaining` | INTEGER DEFAULT 1 | null = unlimited (paid), 0 = exhausted, n > 0 = available |
 | `json_ld_enabled` | BOOLEAN DEFAULT false | Whether merchant has enabled JSON-LD theme extension |
 | `generated_policies` | JSONB DEFAULT '{}' | Keyed by policy type: `{ refund?: string, shipping?: string, privacy?: string, terms?: string }` |
-| `policy_regen_used` | JSONB DEFAULT '{}' | Tracks regeneration: `{ refund?: boolean, ... }` — one regen per type |
+| `policy_regen_used` | JSONB DEFAULT '{}' | Tracks regeneration: `{ refund?: boolean, ... }` -- one regen per type |
+| `review_prompted` | BOOLEAN DEFAULT false | Set true when merchant dismisses review banner; never shown again. |
 | `installed_at` | TIMESTAMPTZ DEFAULT now() | |
 | `uninstalled_at` | TIMESTAMPTZ | Soft-delete marker |
 | `created_at` | TIMESTAMPTZ DEFAULT now() | |
 
-* **Indexes:** `idx_merchants_domain` on (`shopify_domain`), `idx_merchants_active` on (`uninstalled_at`) WHERE `uninstalled_at IS NULL`
-* **RLS Policy:** `merchants_shop_isolation` — row accessible only when `shopify_domain = current_setting('app.current_shop')`
+* **Indexes:** `idx_merchants_domain`, `idx_merchants_active` (WHERE `uninstalled_at IS NULL`)
+* **RLS Policy:** `merchants_shop_isolation` -- row accessible only when `shopify_domain = current_setting('app.current_shop')`
 * **CASCADE:** Deleting a merchant cascades to scans, then to violations.
+
+### Table: `leads`
+Lead collection for future retargeting. One row per shop.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | UUID PK | |
+| `shop_domain` | TEXT NOT NULL UNIQUE | |
+| `email` | TEXT NOT NULL | Shop owner email (from GraphQL `shop { email }`) |
+| `created_at` | TIMESTAMPTZ DEFAULT now() | |
 
 ### Table: `scans`
 One row per compliance scan run.
@@ -205,7 +228,7 @@ One row per compliance scan run.
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | UUID PK | |
-| `merchant_id` | UUID FK → merchants(id) ON DELETE CASCADE | |
+| `merchant_id` | UUID FK -> merchants(id) ON DELETE CASCADE | |
 | `scan_type` | TEXT DEFAULT 'manual' CHECK IN ('manual','automated') | |
 | `compliance_score` | NUMERIC(5,2) | 0-100 |
 | `total_checks`, `passed_checks` | INTEGER | |
@@ -213,7 +236,6 @@ One row per compliance scan run.
 | `created_at` | TIMESTAMPTZ DEFAULT now() | |
 
 * **Indexes:** `idx_scans_merchant_id`, `idx_scans_created_at` (DESC)
-* **RLS Policy:** `scans_merchant_isolation` via merchant_id join
 
 ### Table: `violations`
 Individual check results per scan.
@@ -221,24 +243,33 @@ Individual check results per scan.
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | UUID PK | |
-| `scan_id` | UUID FK → scans(id) ON DELETE CASCADE | |
+| `scan_id` | UUID FK -> scans(id) ON DELETE CASCADE | |
 | `check_name` | TEXT NOT NULL | e.g. `contact_information` |
 | `passed` | BOOLEAN DEFAULT false | |
-| `severity` | TEXT CHECK IN ('critical','warning','info','error') | Severity level |
+| `severity` | TEXT CHECK IN ('critical','warning','info','error') | |
 | `title`, `description`, `fix_instruction` | TEXT | Human-readable results |
 | `raw_data` | JSONB | Machine-readable check details |
 | `created_at` | TIMESTAMPTZ DEFAULT now() | |
 
 * **Indexes:** `idx_violations_scan_id`, `idx_violations_severity`, `idx_violations_raw_data` (GIN)
-* **RLS Policy:** `violations_merchant_isolation` via scan → merchant cascade
 
-### Table: `leads`
-Deduplication for welcome emails. Defined in `supabase/schema.sql`.
+### Table: `scan_rate_limits`
+Persistent rate limiting for scan API requests.
 
 | Column | Type | Notes |
 |--------|------|-------|
-| `shop_domain` | TEXT | Unique constraint (for upsert `onConflict`) |
-| `email` | TEXT | Store owner email |
+| `id` | UUID PK | |
+| `shop` | TEXT NOT NULL | Shop domain |
+| `requested_at` | TIMESTAMPTZ DEFAULT now() | |
+
+* **Index:** `idx_rate_limits_shop_time` on (`shop`, `requested_at`)
+
+### Function: `decrement_scan_quota`
+Atomically decrements `scans_remaining` for a merchant. Returns the new value, or no rows if quota was already exhausted. Used by both scan entry points to prevent race conditions.
+
+```sql
+decrement_scan_quota(p_merchant_id UUID) RETURNS TABLE(new_scans_remaining INTEGER)
+```
 
 ---
 
@@ -246,28 +277,33 @@ Deduplication for welcome emails. Defined in `supabase/schema.sql`.
 
 ### How scans are triggered
 
-**Path A — Dashboard form submit** (`app._index.tsx` action):
-1. Merchant clicks "Run My Free Compliance Scan" → form POST with `action=runScan`
-2. Action authenticates, looks up merchant, calls `runComplianceScan(merchant.id, shopDomain, "manual")`
-3. Returns `{ success: true, scanId }`. Fetcher state change triggers toast + loader revalidation.
-
-**Path B — API endpoint** (`api.scan.ts` action):
-1. POST `/api/scan` with App Bridge JWT
-2. Authenticates, looks up merchant, enforces quota (`scans_remaining`)
+**Path A -- Dashboard form submit** (`app._index.tsx` action):
+1. Merchant clicks "Run My Free Compliance Scan" -> form POST with `action=runScan`
+2. Action authenticates, looks up merchant, atomically decrements quota via `decrement_scan_quota` RPC
 3. Calls `runComplianceScan(merchant.id, shopDomain, "manual")`
-4. Decrements `scans_remaining` (non-atomic — separate SELECT then UPDATE)
+4. Returns `{ success: true, scanId }`. Fetcher state change triggers toast + loader revalidation.
+
+**Path B -- API endpoint** (`api.scan.ts` action):
+1. POST `/api/scan` with App Bridge JWT
+2. Authenticates, rate-limits (persistent), looks up merchant
+3. Atomically decrements quota via `decrement_scan_quota` RPC (402 if exhausted)
+4. Calls `runComplianceScan(merchant.id, shopDomain, "manual")`
 5. Returns full scan + violations + summary as JSON
 
-### Scan execution flow (`app/lib/compliance-scanner.server.ts`)
+**Path C -- Weekly cron** (`api.cron.weekly-scan.ts`):
+1. POST `/api/cron/weekly-scan` with `CRON_SECRET` bearer token (triggered by Vercel Cron)
+2. Fetches all active Pro merchants
+3. Runs scans sequentially with 2s delay between merchants
+4. Persists results as `scan_type = 'automated'`
+
+### Scan execution flow (`app/lib/checks/index.server.ts`)
 
 `runComplianceScan(merchantId, shopifyDomain, scanType)`:
 
-1. **Build admin GraphQL client** via `createAdminClient(shopifyDomain)` — reads the offline session token from `sessions` table first (always fresh), falls back to `merchants.access_token_encrypted`. Decrypts and creates fetch-based executor.
+1. **Build admin GraphQL client** via `createAdminClient(shopifyDomain)` -- reads the offline session token from `sessions` table first (always fresh), falls back to `merchants.access_token_encrypted`. Decrypts and creates fetch-based executor.
 2. **Fetch Shopify data** (concurrent): `getShopInfo()`, `getShopPolicies()`, `getProducts(first=50)`, `getPages(first=20)`.
-3. **Pre-fetch public storefront pages** (concurrent):
-   - Homepage: `https://{primaryDomain.host}` (falls back to `https://{myshopifyDomain}`)
-   - Up to 3 product pages: from `product.onlineStoreUrl`
-4. **Run all 10 checks** concurrently via `Promise.all`, each wrapped in `safeCheck()` (catches exceptions, returns severity "error" so scan continues).
+3. **Pre-fetch public storefront pages** (concurrent): Homepage + up to 3 product pages. All fetches go through `fetchPublicPage()` which includes SSRF protection (DNS resolution + private IP blocking).
+4. **Run all 10 checks** in two concurrent batches via `Promise.all`, each wrapped in `safeCheck()` (catches exceptions, returns severity "error" so scan continues).
 5. **Calculate score:** `(passedChecks / scorableTotal) * 100`. Errored checks excluded from denominator.
 6. **Persist results:** INSERT into `scans` table, then bulk INSERT all violations with `raw_data` JSONB.
 7. **Return:** `{ scan, violations }`.
@@ -276,113 +312,68 @@ Deduplication for welcome emails. Defined in `supabase/schema.sql`.
 
 #### Check 1: `contact_information` (severity: critical)
 **What:** Verifies the store publicly displays at least 2 of 3 contact methods: phone number, store-domain email, physical street address.
-**How:** Scans HTML of contact/about pages (`/pages/contact-us`, `/pages/contact`, `/pages/about-us`, `/pages/about`) fetched via Shopify Pages GraphQL. Also checks `shopInfo.billingAddress` as fallback for physical address. Uses regex patterns:
-- Phone: international format `\+?\d[\d\s\-().]{6,}\d`
-- Email: `[a-zA-Z0-9._%+-]+@{storeDomainHost}`
-- Address: street patterns (`\d+\s+[\w\s]+\b(Street|St|Ave|Rd|Drive|Blvd|...)\b`)
-- Flags PO Boxes (`\bP\.?O\.?\s*Box\b`)
-
-**Pass:** >= 2 methods publicly visible. **Fail:** critical if < 2.
-**raw_data:** `phone_found, email_found, address_found, po_box_detected, methods_found, billing_address, contact_pages_checked`
+**How:** Scans HTML of contact/about pages fetched via Shopify Pages GraphQL. Also checks `shopInfo.billingAddress` as fallback for physical address. Uses regex patterns for phone, email, address. Flags PO Boxes.
+**Pass:** >= 2 methods publicly visible.
 
 #### Check 2: `refund_return_policy` (severity: critical)
 **What:** Validates the store has a refund/return policy with substantive content.
-**How:** Reads `REFUND_POLICY` from `getShopPolicies()`. Checks body length and searches for 3 content signals:
-- Return window: regex for day counts (`\d+\s*days?`, "within X days")
-- Item condition: keywords ("unused", "original packaging", "tags attached", etc.)
-- Refund method: keywords ("full refund", "store credit", "exchange", "original payment")
-- Flags placeholder text: ("insert your", "your policy here", "[company name]", "lorem ipsum")
-
-**Pass:** Policy present + 3 content signals, no placeholders. **Fail:** critical if missing, warning if thin.
-**raw_data:** `policy_present, body_length, has_return_window, has_item_condition, has_refund_method, has_placeholder_text, policy_url`
+**How:** Reads `REFUND_POLICY` from `getShopPolicies()`. Checks for 3 content signals: return window, item condition, refund method. Flags placeholder text.
+**Pass:** Policy present + 3 content signals, no placeholders.
 
 #### Check 3: `shipping_policy` (severity: critical)
 **What:** Validates the store has a shipping policy with delivery timeline and cost info.
-**How:** Reads `SHIPPING_POLICY` from `getShopPolicies()`. Searches for:
-- Timeline: regex for delivery estimates ("3-7 business days", "next day", "overnight", "within N days")
-- Cost: keywords ("free shipping", "flat rate", "$" amounts, "calculated at checkout", "shipping costs")
-
-**Pass:** Both timeline AND cost info present. **Fail:** critical if missing, warning if incomplete.
-**raw_data:** `policy_present, body_length, has_delivery_timeline, has_shipping_cost_info, policy_url`
+**How:** Reads `SHIPPING_POLICY` from `getShopPolicies()`. Searches for timeline and cost keywords.
+**Pass:** Both timeline AND cost info present.
 
 #### Check 4: `privacy_and_terms` (severity: critical)
 **What:** Checks that both privacy policy and terms of service exist.
 **How:** Reads `PRIVACY_POLICY` and `TERMS_OF_SERVICE` from `getShopPolicies()`.
-
-**Pass:** Both present. **Fail:** critical if privacy missing, warning if only ToS missing.
-**raw_data:** `privacy_policy_present, terms_of_service_present, urls`
+**Pass:** Both present. Warning if only ToS missing.
 
 #### Check 5: `product_data_quality` (severity: warning)
 **What:** Evaluates product listings for description length, images, pricing, and SKUs.
-**How:** Iterates all fetched products (up to 50). Flags products with:
-- Description < 100 characters
-- Zero images
-- Zero or negative price
-- Missing SKU
-
-**Pass:** No products flagged OR < 20% flagged. **Fail:** warning.
-**raw_data:** `total_products, flagged_count, flagged_percentage, flagged_products` (capped at 15)
+**How:** Iterates fetched products (up to 50). Flags products with short descriptions, zero images, bad pricing, or missing SKUs.
+**Pass:** < 20% flagged.
 
 #### Check 6: `checkout_transparency` (severity: warning)
 **What:** Detects payment method icons on the storefront homepage.
-**How:** Fetches public homepage HTML via `fetchPublicPage()`. Uses Cheerio to search for 26 payment keywords (visa, mastercard, paypal, amex, discover, apple-pay, google-pay, shop-pay, klarna, afterpay, etc.) in: `<img>` src/alt, SVG `<use>` href, CSS class names, `aria-label`, `data-payment-icon`, `data-method` attributes.
-
-**Pass:** >= 1 payment icon found. **Fail:** warning.
-**raw_data:** `store_url, payment_icons_found, icons_count`
+**How:** Uses Cheerio to search pre-fetched homepage HTML for 26 payment keywords in img, SVG, CSS classes, aria-labels, and data attributes.
+**Pass:** >= 1 payment icon found.
 
 #### Check 7: `storefront_accessibility` (severity: critical)
 **What:** Detects password protection and verifies product pages are reachable.
-**How:** Analyzes pre-fetched homepage HTML for password signals:
-- HTTP 401 status
-- `body` class contains `template-password`
-- Page title contains "enter using password" or "password required"
-- `form[action='/password']` present
-- `#shopify-challenge-page` element
-
-Then checks HTTP status of up to 3 sampled product pages.
-
-**Pass:** Not password-protected AND all sampled products return HTTP 200. **Fail:** critical if password-protected, warning if product pages fail.
-**raw_data:** `store_url, homepage_status, password_protected, password_signals, product_checks, failed_product_pages`
+**How:** Analyzes pre-fetched homepage HTML for password signals. Checks HTTP status of up to 3 sampled product pages.
+**Pass:** Not password-protected AND all sampled products return HTTP 200.
 
 #### Check 8: `structured_data_json_ld` (severity: warning)
 **What:** Validates Product JSON-LD structured data on product pages.
-**How:** Parses pre-fetched product page HTML. Extracts all `<script type="application/ld+json">` blocks, searches for `@type: "Product"` nodes (handles `@graph` arrays). Validates:
-- Required: `name`, `image`, `description`, `offers`
-- Offer required: `price`, `priceCurrency`, `availability`
-- Recommended (non-failing): `sku`, `itemCondition`
-
-**Pass:** All scanned pages have valid Product schema with no missing required fields. **Fail:** warning.
-**raw_data:** `pages_scanned, pages_with_product_schema, page_reports` (per-page: url, schema_found, missing_required, missing_recommended)
+**How:** Parses pre-fetched product page HTML. Extracts `<script type="application/ld+json">` blocks, validates required fields (name, image, description, offers with price/currency/availability).
+**Pass:** All scanned pages have valid Product schema.
 
 #### Check 9: `page_speed` (severity: warning)
 **What:** Mobile performance score via Google PageSpeed Insights API.
-**How:** Calls `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url={storeUrl}&strategy=mobile`. Extracts `lighthouseResult.categories.performance.score` (0-1, multiplied by 100). Also checks `intrusive-interstitials` audit.
-
-**Pass:** Performance score >= 50 AND no intrusive interstitials. **Fail:** warning. Skipped (severity "info") if no API key and rate-limited.
-**raw_data:** `store_url, performance_score, intrusive_interstitials_failed, authenticated, api_status`
+**How:** Calls PageSpeed API with `strategy=mobile`. Extracts performance score. Checks for intrusive interstitials.
+**Pass:** Performance score >= 50 AND no intrusive interstitials.
 
 #### Check 10: `business_identity_consistency` (severity: info)
 **What:** Checks if shop name, primary domain, and about page content are consistent.
-**How:** Compares shop name vs primary domain host vs about/contact page text using Jaccard word-set similarity. Excludes stop words ("the", "shop", "store", etc.). Weighted score: 60% domain match + 40% about-page match. Threshold: 0.3.
-
-**Pass:** Consistency score >= 0.3 OR shop name has no meaningful tokens after stop-word removal. **Fail:** info.
-**raw_data:** `shop_name, primary_domain, consistency_score, name_vs_domain_score, name_vs_about_score, threshold`
+**How:** Jaccard word-set similarity with stop-word removal. Weighted: 60% domain + 40% about-page. Threshold: 0.3.
+**Pass:** Consistency score >= 0.3.
 
 ---
 
-## 6. Results Delivery & Email Flow
+## 6. Results Delivery
 
 ### Dashboard display
 After a scan completes, the `app._index.tsx` loader revalidates and renders:
 - **Score banner:** Large percentage display (color-coded green/orange/red at 80/50 thresholds)
 - **4 KPI cards:** Checks Passed, Critical Threats, Warnings, Skipped
-- **10-point checklist:** Sorted (failed first, by severity). Each check expandable with description + "Resolution Guide" box showing `fix_instruction`.
-- **Aside:** Security Status card with threat level (Minimal/Low/Elevated/High/Critical), About ShieldKit card.
+- **Review request banner:** Shown after scan. Two buttons: "Leave a Review" (opens Shopify app reviews) and "Dismiss" (POSTs `action=dismissReview`, sets `review_prompted = true`, never shown again).
+- **10-point checklist:** Sorted (failed first, by severity). Each check expandable with description + "Resolution Guide" box. Pro merchants see policy generation guidance for checks 2/3/4.
+- **Aside:** Security Status card, Upgrade card (free tier), Policy Generation card (Pro), JSON-LD extension card, About ShieldKit card.
 
-### Email system (REMOVED) / Lead collection
-The welcome email and compliance alert email systems have been removed. The `resend` dependency, `email.server.ts`, and `email-templates/` directory no longer exist.
-
-**Lead collection** still works: on first scan, the merchant's email is collected via GraphQL and upserted into the `leads` table (deduplicated by `shop_domain`). No email is sent — the leads are collected for future retargeting only. Fire-and-forget, silent on failure.
+### Lead collection
+On first scan, the merchant's email is collected via GraphQL (`shop { email }`) and upserted into the `leads` table. No email is sent -- leads are collected for future retargeting only. Fire-and-forget, silent on failure.
 
 ---
 
@@ -392,29 +383,29 @@ The welcome email and compliance alert email systems have been removed. The `res
 
 | Route File | URL Path | Type | Behavior |
 |-----------|----------|------|----------|
-| `app.tsx` | `/app` (layout) | Layout | Wraps all `/app/*` routes. Provides `AppProvider` with API key, renders sidebar nav via `NavMenu` from `@shopify/app-bridge-react` (Dashboard only), `<Outlet />` for children. |
-| `app._index.tsx` | `/app` | Loader + Action + Component | **Onboarding:** Logo + 3-step wizard + "Run Free Scan" CTA. **Dashboard:** Score banner, 4 KPI cards, 10-point checklist, aside with threat level + JSON-LD extension state + policy generation card (Pro). **Actions:** `runScan` (with quota enforcement + decrement), `generatePolicy` (Pro-only, persists to `generated_policies` JSONB), `enableJsonLd` (sets `json_ld_enabled` flag). **Billing self-heal:** loader checks Shopify billing state and syncs tier to Supabase if stale. Billing banner on `?billing=cancelled`. Upgrade CTAs use `useNavigate()` for embedded-app-safe navigation. |
-| `app.upgrade.tsx` | `/app/upgrade?plan=Pro` | Loader only | Pre-checks for existing active subscription via `billing.check()`. If already subscribed, redirects to `/app`. Otherwise calls `billing.request()` for Pro plan (redirects to Shopify approval page). Errors redirect to `/app?billing=error`. Has ErrorBoundary. |
-| `app.billing.confirm.tsx` | `/app/billing/confirm` | Loader only | Calls `billing.check()`. If active: maps plan → tier, writes `tier` + `scans_remaining=null` to Supabase, redirects to `/app`. If declined: redirects to `/app?billing=cancelled`. |
-| `app.dmca-takedowns.tsx` | `/app/dmca-takedowns` | Loader only | Redirects to `/app`. DMCA module deferred. |
-| ~~`app.scan-history.tsx`~~ | ~~`/app/scan-history`~~ | ~~Removed~~ | Scan history feature removed — doesn't add value for one-time purchase model. |
+| `app.tsx` | `/app` (layout) | Layout | Wraps all `/app/*` routes. Provides `AppProvider` with API key, renders sidebar nav via `NavMenu` (Dashboard only), `<Outlet />` for children. |
+| `app._index.tsx` | `/app` | Loader + Action + Component | **Onboarding:** Logo + 3-step wizard + "Run Free Scan" CTA. **Dashboard:** Score banner, 4 KPI cards, 10-point checklist, aside with threat level + policy gen + JSON-LD. **Actions:** `runScan`, `generatePolicy`, `dismissReview`, `enableJsonLd`. |
+| `app.upgrade.tsx` | `/app/upgrade?plan=Pro` | Loader only | Pre-checks billing, redirects to Shopify approval page. |
+| `app.billing.confirm.tsx` | `/app/billing/confirm` | Loader only | Confirms billing, syncs tier to Supabase, redirects to `/app`. |
+| `app.dmca-takedowns.tsx` | `/app/dmca-takedowns` | Loader only | Redirects to `/app`. DMCA deferred. |
 
 ### API routes
 
 | Route File | URL Path | Method | Behavior |
 |-----------|----------|--------|----------|
-| `api.scan.ts` | `/api/scan` | POST | Authenticated scan endpoint. Enforces `scans_remaining` quota (402 if exhausted). Runs full 10-check scan. Decrements quota after success. Returns `{ success, scans_remaining, scan, violations, summary }`. GET returns 405. |
+| `api.scan.ts` | `/api/scan` | POST | Authenticated scan endpoint. Enforces rate limit + quota (atomic). Returns full scan results JSON. GET returns 405. |
+| `api.cron.weekly-scan.ts` | `/api/cron/weekly-scan` | POST | Bearer token auth via `CRON_SECRET`. Scans all active Pro merchants sequentially. Triggered by Vercel Cron (Monday 08:00 UTC). GET returns 405. |
 
 ### Public routes
 
 | Route File | URL Path | Behavior |
 |-----------|----------|----------|
-| `_index/route.tsx` | `/` | Landing page. If `?shop` param present, redirects to `/app?{params}`. Otherwise renders ShieldKit marketing page with login form (submits to `/auth/login`). Styled via `_index/styles.module.css`. |
-| `auth.login/route.tsx` | `/auth/login` | Shop domain form. Uses `login()` from shopify.server. Error messages via `auth.login/error.server.tsx` (MissingShop, InvalidShop). |
-| `auth.$.tsx` | `/auth/*` | Catch-all OAuth callback. Calls `authenticate.admin(request)` to complete OAuth flow. |
+| `_index/route.tsx` | `/` | Landing page with pricing cards (Free vs Pro $29). If `?shop` param present, redirects to `/app`. Login form submits to `/auth/login`. |
+| `auth.login/route.tsx` | `/auth/login` | Shop domain form. Uses `login()` from shopify.server. |
+| `auth.$.tsx` | `/auth/*` | Catch-all OAuth callback. |
 
 ### Webhook routes (all use `authenticate.webhook` for HMAC verification)
-See Section 3 (Shopify Integration → Webhook Subscriptions) for full details.
+See Section 3 for full details.
 
 ---
 
@@ -422,150 +413,96 @@ See Section 3 (Shopify Integration → Webhook Subscriptions) for full details.
 
 ### Encryption (`app/lib/crypto.server.ts`)
 * **Algorithm:** AES-256-GCM (authenticated encryption)
-* **Key derivation:** `scryptSync(TOKEN_ENCRYPTION_KEY, "shieldkit-token-v1", 32)`. Salt is intentionally static/public — exists for key versioning, not as a secret. Derived key cached after first call.
-* **IV:** 12 bytes (96-bit, NIST recommendation), random per encryption
+* **Key derivation:** `scryptSync(TOKEN_ENCRYPTION_KEY, "shieldkit-token-v1", 32)`. Salt is static/public -- exists for key versioning. Derived key cached after first call.
+* **IV:** 12 bytes (96-bit), random per encryption
 * **Auth tag:** 128-bit
-* **Ciphertext format:** `<hex_iv>:<hex_authTag>:<hex_ciphertext>` (single string, safe for TEXT column)
+* **Ciphertext format:** `<hex_iv>:<hex_authTag>:<hex_ciphertext>`
 * **Key requirement:** `TOKEN_ENCRYPTION_KEY` env var must be >= 32 characters
-* **Functions:** `encrypt(plaintext) → string`, `decrypt(ciphertext) → string` (throws on tamper/format error)
 
 ### Session Storage (`app/lib/session-storage.server.ts`)
-Custom class implementing Shopify's `SessionStorage` interface:
-
-| Method | Behavior |
-|--------|----------|
-| `storeSession(session)` | UPSERT by id. Encrypts `accessToken` and `refreshToken` before storage. |
-| `loadSession(id)` | SELECT by id, `maybeSingle()`. Decrypts tokens. On decrypt failure: logs error, returns session without token (triggers re-auth). |
-| `deleteSession(id)` | DELETE by id. Idempotent (returns true even if missing). |
-| `deleteSessions(ids)` | DELETE by id array. |
-| `findSessionsByShop(shop)` | SELECT by shop, ordered by `expires DESC`, limit 25. |
+Custom class implementing Shopify's `SessionStorage` interface. Encrypts `accessToken` and `refreshToken` before storage. Decrypts on load with graceful fallback on decrypt failure (triggers re-auth).
 
 ### Shopify GraphQL API (`app/lib/shopify-api.server.ts` + split modules)
+* **API Version:** `2025-10`
+* **Queries:** `SHOP_INFO_QUERY`, `SHOP_POLICIES_QUERY`, `PRODUCTS_QUERY` (paginated, up to 250), `PAGES_QUERY` (paginated, up to 100)
+* **Retry logic:** Max 3 retries, 500ms base delay (exponential backoff). Detects THROTTLED errors.
+* **Executor factories:** `wrapAdminClient()` for route handlers, `createAdminClient()` for background jobs (reads session token first, falls back to merchant token).
 
-**GraphQL queries:**
+### Rate Limiter (`app/lib/rate-limiter.server.ts`)
+* **Primary:** Persistent via Supabase `scan_rate_limits` table. 10 requests per hour per shop.
+* **Fallback:** In-memory `Map` if DB table not yet deployed.
+* **Cleanup:** Deletes records older than 1 hour on each check (fire-and-forget).
 
-| Query | Variables | Fields Fetched |
-|-------|-----------|----------------|
-| `SHOP_INFO_QUERY` | none | `name, contactEmail, billingAddress {address1,city,province,country,zip}, myshopifyDomain, currencyCode, primaryDomain {url,host}` |
-| `SHOP_POLICIES_QUERY` | none | `shopPolicies { type, title, url, body }` — returns all 4 types (REFUND, PRIVACY, TERMS, SHIPPING) |
-| `PRODUCTS_QUERY` | `$first: Int` (default 50) | `title, description, descriptionHtml, handle, onlineStoreUrl, images(first:5) {url,altText}, variants(first:10) {price,compareAtPrice,inventoryQuantity,sku,barcode}` |
-| `PAGES_QUERY` | `$first: Int` (default 20) | `title, body, handle` (no url — `onlineStoreUrl` removed from Page type in API 2025-10) |
-
-**Cursor-based pagination** — `getProducts()` paginates up to 250 products (50 per page), `getPages()` up to 100 pages (50 per page). Both use `pageInfo { hasNextPage endCursor }` for cursor iteration.
-
-**Retry logic** (`executeWithRetry`): Max 3 retries, 500ms base delay (exponential backoff). Detects THROTTLED errors and retries. Logs query cost on every response.
-
-**Executor factories:**
-- `wrapAdminClient(adminGraphql)` — wraps the library's `admin.graphql` for route handlers
-- `createAdminClient(shopDomain)` — standalone: reads the offline session token from `sessions` table first (always fresh after token rotation), falls back to `merchants.access_token_encrypted`. Decrypts and creates raw fetch executor (used by compliance scanner and cron jobs)
+### Policy Generator (`app/lib/policy-generator.server.ts`)
+* **Model:** `claude-sonnet-4-20250514`
+* **Types:** refund, shipping, privacy, terms
+* **Per-type instructions** with detailed section requirements
+* **Output:** HTML policy text stored in `merchants.generated_policies` JSONB
+* **Limits:** 2 generations per policy type (initial + 1 regeneration), tracked in `policy_regen_used`
 
 ### Supabase Client (`app/supabase.server.ts`)
-* Singleton pattern: dev caches on `global` to survive hot reload. Production creates fresh on import.
+* Singleton pattern: dev caches on `global` to survive hot reload.
 * Uses `service_role` key (admin access, bypasses RLS).
-* Supabase auth features disabled (`autoRefreshToken: false, persistSession: false, detectSessionInUrl: false`).
-* Global type uses `any` to avoid TS generic mismatch.
+* Auth features disabled.
 
 ---
 
 ## 9. Outbound Scanner (`scripts/outbound-scanner.ts`)
 
-Standalone CLI tool that runs a subset of compliance checks against any public Shopify storefront without OAuth or app installation.
+Standalone CLI tool that runs a subset of compliance checks against any public Shopify storefront without OAuth.
 
 **Usage:**
 ```bash
 npx tsx scripts/outbound-scanner.ts https://example.myshopify.com
-GOOGLE_PAGESPEED_API_KEY=... npx tsx scripts/outbound-scanner.ts <url>
 ```
 
-**Checks run (9 of 10):** `contact_information`, `shipping_policy`, `privacy_and_terms`, `checkout_transparency`, `storefront_accessibility`, `structured_data_json_ld`, `page_speed`, and partial variants of others. Same regex patterns and Cheerio logic as in-app scanner.
+**Checks run:** contact_information, shipping_policy, privacy_and_terms, checkout_transparency, storefront_accessibility, structured_data_json_ld, page_speed.
 
-**Key difference from in-app scanner:** No Shopify Admin API access. Cannot check `billingAddress` fallback for contact info, cannot read policy bodies via API (scrapes public URLs instead), cannot check product data quality (no product listing access).
+**Key difference from in-app scanner:** No Shopify Admin API access. Cannot check billingAddress fallback, policy bodies via API, or product data quality.
 
-**SSRF Protection** (not present in in-app scanner):
-```typescript
-// Private IP patterns blocked:
-127.0.0.0/8     // loopback
-10.0.0.0/8      // RFC 1918
-172.16.0.0/12   // RFC 1918
-192.168.0.0/16  // RFC 1918
-169.254.0.0/16  // link-local / AWS metadata
-0.0.0.0         // unspecified
-::1             // IPv6 loopback
-fc00::/7        // IPv6 ULA
-fd00::/8        // IPv6 ULA
-```
-Before fetching any URL, resolves all A/AAAA DNS records and rejects any that match private ranges. Also enforces HTTPS-only.
+**SSRF Protection:** DNS resolution + private IP blocking (same protection as in-app scanner).
+
+### Cleanup Script (`scripts/cleanup-orphan-webhooks.ts`)
+
+One-off utility to delete orphaned webhook subscriptions from old `shopify app dev` tunnel sessions. Fetches all webhooks via GraphQL, filters those pointing to dead trycloudflare.com URLs, deletes them.
 
 ---
 
 ## 10. UI & Styling Rules
 
-* **Polaris Only:** Use native Shopify Polaris web components (`<s-page>`, `<s-card>`, `<s-button>`, `<s-banner>`, `<s-badge>`, `<s-section>`, `<s-paragraph>`, etc.). Do not use raw HTML/CSS for layout.
-* **Brand Color:** "Security Blue" `#0F172A`. Injected in `app._index.tsx` onboarding section by overriding `--p-color-bg-fill-brand` on primary buttons.
+* **Polaris Only:** Use native Shopify Polaris web components (`<s-page>`, `<s-card>`, `<s-button>`, `<s-banner>`, `<s-badge>`, etc.). Do not use raw HTML/CSS for layout.
+* **Brand Color:** "Security Blue" `#0F172A`.
 * **Score colors:** Green `#1a9e5c` (>= 80), Orange `#e8820c` (>= 50), Red `#e51c00` (< 50).
 * **Threat level colors:** Minimal `#1a9e5c`, Low `#6aad81`, Elevated `#e8820c`, High `#d82c0d`, Critical `#c00000`.
 * **Check status colors:** Passed `#1a9e5c`, Critical `#e51c00`, Warning `#e8820c`, Info `#5c6ac4`, Error `#8c9196`.
-* **KPI card backgrounds:** Success `#f1f8f5`, Warning `#fff5ea`, Critical `#fff4f4`, Neutral `#f4f6f8`.
 
 ---
 
 ## 11. Architecture Decisions & Patterns
 
-* **No Prisma/SQLite** — All persistence via Supabase JS client with service_role key.
-* **`maybeSingle()` not `single()`** — Prevents 406 errors on missing rows.
-* **Billing return flow** — `billing.request()` uses relative `returnUrl: "/app/billing/confirm"` (the Shopify library converts to full embedded admin URL). Tier is written to Supabase synchronously before dashboard loads. Webhook is backup.
-* **Email system removed** — Welcome and compliance alert emails were removed. The `resend` dependency and all email templates have been deleted.
-* **Two scan entry points** — Dashboard form submit (`app._index.tsx` action) for the UI, and `api.scan.ts` for programmatic access. Both enforce `scans_remaining` quota and decrement after successful scan.
-* **safeCheck() wrapper** — Every individual compliance check is wrapped so exceptions become severity "error" results instead of failing the entire scan.
-* **Polaris web component type gaps** — Props like `submit`, `loading` (as string) work at runtime but aren't in TS type defs. Codebase uses `@ts-ignore` or `{...(condition ? { prop: "" } : {})}` spread patterns. This is expected; do not try to fix these.
-* **Embedded app navigation** — In Shopify embedded apps, navigation MUST go through App Bridge or React Router. Raw `<a>` tags and `<s-button url="...">` trigger full page reloads that break out of the embedded iframe context. Use `NavMenu` from `@shopify/app-bridge-react` for sidebar nav, and `useNavigate()` from React Router for in-app link buttons.
-* **useWebComponentClick hook** — React's synthetic `onClick` does NOT fire on Shopify Polaris web components (`<s-button>`, etc.) because they are custom elements with shadow DOM. All click handlers on `<s-button>` MUST use the `useWebComponentClick` hook (`app/hooks/useWebComponentClick.ts`) which attaches native DOM `addEventListener("click", handler)` via a ref. Never use `onClick` directly on web components.
-* **s-banner onDismiss** — Same issue as `onClick` on `<s-button>`: React synthetic events don't fire on Polaris web components. `<s-banner onDismiss={handler}>` silently fails. Use a native `<button>` inside the banner content for dismiss actions instead. All banners in the app have been fixed to use this pattern.
-* **billing_plan vs tier** — The live Supabase DB has both `billing_plan` (stale, unused) and `tier` columns. All application code uses `tier`. The `billing_plan` column should be dropped from the live DB via `ALTER TABLE merchants DROP COLUMN IF EXISTS billing_plan;`.
-* **Streaming SSR** — `entry.server.tsx` uses `renderToPipeableStream`. Bots get `onAllReady` (full render), humans get `onShellReady` (early streaming). 5s timeout.
+* **No Prisma/SQLite** -- All persistence via Supabase JS client with service_role key.
+* **`maybeSingle()` not `single()`** -- Prevents 406 errors on missing rows.
+* **Atomic scan quota** -- `decrement_scan_quota` Supabase RPC prevents race conditions on concurrent scan requests. Both scan entry points call this before running the scan.
+* **Persistent rate limiting** -- `scan_rate_limits` table survives serverless cold starts. Falls back to in-memory if table not deployed.
+* **Two scan entry points** -- Dashboard form submit (`app._index.tsx` action) for the UI, and `api.scan.ts` for programmatic access. Both use atomic quota decrement.
+* **safeCheck() wrapper** -- Every individual compliance check is wrapped so exceptions become severity "error" results instead of failing the entire scan.
+* **Polaris web component type gaps** -- Props like `submit`, `loading` work at runtime but aren't in TS type defs. Codebase uses `@ts-ignore` or spread patterns. This is expected; do not try to fix these.
+* **Embedded app navigation** -- Navigation MUST go through App Bridge or React Router. Raw `<a>` tags trigger full page reloads that break the embedded iframe. Use `NavMenu` for sidebar nav, `useNavigate()` for in-app links.
+* **useWebComponentClick hook** -- React's synthetic `onClick` does NOT fire on Polaris web components. All click handlers on `<s-button>` MUST use the `useWebComponentClick` hook which attaches native DOM `addEventListener` via a ref.
+* **s-banner onDismiss** -- Same issue as `onClick`: synthetic events don't fire on web components. Use native `<button>` inside banners for dismiss actions.
+* **SSRF protection** -- `fetchPublicPage()` in `helpers.server.ts` validates DNS records against private IP ranges before fetching. Both in-app and outbound scanners have this protection.
+* **Streaming SSR** -- `entry.server.tsx` uses `renderToPipeableStream`. Bots get `onAllReady` (full render), humans get `onShellReady` (early streaming). 5s timeout.
+* **DOMPurify sanitization** -- AI-generated policy HTML is sanitized with `isomorphic-dompurify` before rendering as defense-in-depth.
 
 ---
 
 ## 12. Known Issues
 
 ### Medium
-* **In-memory rate limiting on `/api/scan`** — 10 requests per hour per shop, but state resets on deploy. Only gated by `scans_remaining`, rate limiter, and Shopify auth.
-* **Race condition on scan quota** — `scans_remaining` is read then decremented in separate queries. Concurrent requests can both pass the check.
-* **Scopes fallback mismatch** — `shopify.server.ts` falls back to `"read_products,read_content"` when `SCOPES` env var is missing, but `shopify.app.toml` declares `read_products,read_content,read_legal_policies`. In practice the CLI injects the full set.
-* **No SSRF protection in in-app scanner** — `fetchPublicPage()` in `compliance-scanner.server.ts` follows arbitrary URLs without DNS/IP validation. The outbound scanner has this protection but it was not ported.
-* **Stale `billing_plan` column in live DB** — The live Supabase `merchants` table has both `billing_plan` (stale) and `tier` columns. All code uses `tier`. Run `ALTER TABLE merchants DROP COLUMN IF EXISTS billing_plan;` to clean up. Zero application code references `billing_plan`.
+* **Stale `billing_plan` column in live DB** -- The live Supabase `merchants` table may have both `billing_plan` (stale) and `tier` columns. All code uses `tier`. Run `ALTER TABLE merchants DROP COLUMN IF EXISTS billing_plan;` to clean up.
 
 ### Low
-* **`feature/pro-tier` local branch** — Exists locally but not pushed to remote. Unknown state.
-
-### Fixed (feature/new-pricing)
-* **Unicode escape characters rendered as literal text** — `\uXXXX` sequences in JSX text content displayed as raw text. Fixed: replaced all escape sequences with actual Unicode characters in `app._index.tsx`.
-* **Pro tier scan decrement bug** — `scans_remaining` was decremented even when `null` (unlimited/Pro). Fixed: decrement guard changed to `typeof scansRemaining === "number" && scansRemaining > 0` in both `app._index.tsx` and `api.scan.ts`.
-* **~~Scan History navigation broke out of iframe~~** — Scan history feature entirely removed (doesn't add value for one-time purchase model). `NavMenu` now only has Dashboard link.
-* **Upgrade button did nothing when clicked** — Went through 3 iterations: (1) `<s-button url="...">` triggered full page reloads, (2) `<s-button onClick={...}>` didn't fire because React synthetic events don't work on web components, (3) Final fix: all buttons use `useWebComponentClick` hook with native DOM `addEventListener` via refs. The upgrade route (`app.upgrade.tsx`) also has `billing.check()` pre-check, try/catch error handling, and `ErrorBoundary`.
-* **~~Scan History loader had no error handling~~** — Scan history route deleted entirely.
-* **JSON-LD extension not visible** — Merchants had no way to discover the free JSON-LD theme extension. Added an "Free JSON-LD Structured Data" card in the dashboard aside (visible to all tiers) with one-click enable deep link.
-* **Generate Policy button did nothing** — Same root cause as upgrade buttons: `<s-button submit="">` inside a `<Form>` doesn't participate in native form submission because web components don't integrate with the DOM form API. Fixed: replaced with native `<button>` that calls `policyFetcher.submit()` directly.
-* **~~Scan History redirected free users to login page~~** — Scan history route deleted entirely.
-* **Upgrade card was in wrong location** — Moved from main content area to sidebar (between Security Status and JSON-LD cards). `UpgradeCard` now accepts a `sidebar` prop for compact aside layout.
-* **Sidebar headings too small** — Replaced `heading="..."` attribute on `<s-section>` with custom heading divs at 16px/700 weight for proper visual hierarchy.
-* **JSON-LD extension missing locales** — Created `extensions/json-ld-schema/locales/en.default.json` to fix ENOENT error during dev. Changed extension target from `section` to `body` for app embed block (JSON-LD is a script tag with no visible UI).
-* **Billing confirmation route 404** — `returnUrl` was manually constructed as `https://admin.shopify.com/store/{shop}/apps/{apiKey}/billing/confirm`, which Shopify strips to `/billing/confirm` — but the route lives at `/app/billing/confirm`. Fixed: use relative path `"/app/billing/confirm"` as the Shopify library converts it to the full embedded URL.
-* **JSON-LD deep link "App embed does not exist"** — Two issues: (1) Deep link used extension handle (`json-ld-schema`) instead of block filename (`product-schema` from `blocks/product-schema.liquid`). (2) Extension needs `shopify app deploy` to register with Shopify servers — running `shopify app dev` only serves locally.
-* **s-banner onDismiss broken** — `<s-banner onDismiss={handler}>` used React synthetic events which don't fire on Polaris web components. Fixed: replaced with native `<button>` dismiss elements inside banner content for billing cancellation banner and policy limit banner.
-* **Dead code cleanup** — Removed unused `useScanToast` hook (logic was inline in `app._index.tsx`). Removed all `console.log` statements from app code (kept `console.error`/`console.warn` for real errors). Removed "continuous monitoring", "ongoing monitoring" marketing copy from UI. The functional "automated monitoring detected N new issues" banner in `ScoreBanner.tsx` is intentional — it shows only to Pro merchants when the weekly cron scan finds new issues vs. their last manual scan. Fixed scan button text to match tier states ("Re-Scan My Store" for Pro, "Unlock Full Scanner — $29 one-time" for exhausted free tier).
-* **Stale access token in compliance scanner** — `createAdminClient()` was reading from `merchants.access_token_encrypted` which goes stale when tokens rotate via `expiringOfflineAccessTokens: true`. Fixed: now reads the offline session token from the `sessions` table first (always fresh — updated by `SupabaseSessionStorage.storeSession()` on every `authenticate.admin()` call), falls back to `merchants.access_token_encrypted` if no session found.
-* **Billing state desync** — Supabase `tier` could get stuck on 'free' if the billing confirmation redirect failed but Shopify accepted the charge. Fixed: dashboard loader and upgrade route now self-heal by checking `billing.check()` against Shopify and syncing tier to Supabase when stale.
-* **JSON-LD active state not tracked** — Added `json_ld_enabled` boolean column to merchants. Dashboard sidebar JSON-LD card now shows active state (green checkmark + "Manage" link) or inactive state (enable button that sets the flag + opens theme editor).
-* **Policy generator produced wrong policy type** — Anthropic prompt was generic. Fixed: added explicit `POLICY_INSTRUCTIONS` per type with detailed section requirements and explicit document title in both system and user prompts.
-* **Policy generation persistence overhaul** — Replaced rolling rate limit (`policy_gen_count`/`policy_gen_reset_at`) with per-type JSONB persistence (`generated_policies` stores HTML keyed by type, `policy_regen_used` tracks one regeneration per type). Policies persist across sessions.
-* **Policy generation UI moved to sidebar** — Replaced inline `PolicyGeneratorDisplay` component (deleted) with `PolicyGenerationCard` in the sidebar aside. Shows rows per failed/generated policy type with Generate → Regenerate (1 left) → Copy state progression. Expandable content view with copy-to-clipboard.
-* **KPI score display fix** — KPI "Checks Passed" card showed `"8/10"` as a string. Fixed: now shows just the number (`8`), matching other KPI cards.
-* **Policy check resolution guides reference sidebar generator** — For Pro merchants, checks 2/3/4 (refund, shipping, privacy/terms) now show resolution guide text directing them to use the sidebar Policy Generation tool instead of manually writing policies. Free tier sees original manual instructions. Override is in `AuditChecklist` component (display-only, scan data unchanged).
-* **Policy generation counter** — Replaced confusing "Regenerate (1 left)" label with clear "X/2 generations remaining" counter per policy type. Shows 2/2 (never generated), 1/2 (generated once), 0/2 (both used, red text).
-* **Scan history feature removed** — Deleted `app.scan-history.tsx` route, removed nav link from `app.tsx`, cleaned all "scan history" references from UpgradeCard, landing page, dashboard banners, and tests. The scans table is still used by the dashboard for latest results — only the history page and nav link were removed.
-* **Policy card showed generation for existing policies** — `PolicyGenerationCard` was showing rows for policies that already existed and passed the scan. Fixed: `visibleTypes` now only includes policy types where the check actually failed — passing policies are excluded.
-* **All policy generate buttons showed loading simultaneously** — A single `isGeneratingPolicy` boolean caused all 4 rows to show loading state when any one was clicked. Fixed: replaced with `generatingPolicyType` (tracks which specific type is loading via fetcher's formData). Only the clicked row shows loading indicator; other rows are disabled but not visually loading.
+* **npm audit: 24 vulnerabilities in dev dependencies** -- All in ESLint, GraphQL codegen, and related transitive deps. No production runtime impact. No non-breaking fixes available.
 
 ---
 
@@ -577,18 +514,17 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 | `SHOPIFY_API_KEY` | `shopify.server.ts`, `app.tsx` | Shopify app client ID |
 | `SHOPIFY_API_SECRET` | `shopify.server.ts` | Webhook HMAC verification, OAuth |
 | `SHOPIFY_APP_URL` | `shopify.server.ts`, `vite.config.ts` | App base URL |
-| `SCOPES` | `shopify.server.ts` | OAuth scopes (falls back to `read_products,read_content`) |
+| `SCOPES` | `shopify.server.ts` | OAuth scopes (falls back to `read_products,read_content,read_legal_policies`) |
 | `SUPABASE_URL` | `supabase.server.ts` | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | `supabase.server.ts` | Admin-level DB access (bypasses RLS) |
 | `TOKEN_ENCRYPTION_KEY` | `crypto.server.ts` | AES-256-GCM key material (>= 32 chars) |
-| ~~`RESEND_API_KEY`~~ | ~~`email.server.ts`~~ | ~~Removed — email system deleted~~ |
 
 ### Optional
 | Variable | Used By | Purpose |
 |----------|---------|---------|
 | `ANTHROPIC_API_KEY` | `policy-generator.server.ts` | Required for AI policy generation (Pro feature) |
-| `GOOGLE_PAGESPEED_API_KEY` | `compliance-scanner.server.ts`, `outbound-scanner.ts` | Higher PageSpeed API quota. Without it, check 9 may be rate-limited. |
-| `CRON_SECRET` | `api.cron.weekly-scan.ts` | Bearer token for authenticating Vercel Cron weekly scan endpoint |
+| `GOOGLE_PAGESPEED_API_KEY` | `page-speed.server.ts` | Higher PageSpeed API quota. Without it, check 9 may be rate-limited. |
+| `CRON_SECRET` | `api.cron.weekly-scan.ts` | Bearer token for Vercel Cron weekly scan endpoint |
 | `SHOP_CUSTOM_DOMAIN` | `shopify.server.ts` | Custom Shopify domain support |
 | `PORT` | `vite.config.ts` | Server port (default 3000) |
 | `NODE_ENV` | Various | Controls billing `isTest` flag, Supabase singleton caching |
@@ -597,20 +533,19 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 | Service | Purpose | Endpoint |
 |---------|---------|----------|
 | Supabase | PostgreSQL database | `https://bhnpcirhutczdorkhibm.supabase.co` |
-| Shopify Admin API | GraphQL data (shop info, policies, products, pages) | Per-store `https://{shop}/admin/api/2025-10/graphql.json` |
+| Shopify Admin API | GraphQL data | Per-store `https://{shop}/admin/api/2025-10/graphql.json` |
 | Shopify Billing API | Subscription management | Via `billing.request()` / `billing.check()` |
-| Google PageSpeed Insights | Mobile performance scoring | `https://www.googleapis.com/pagespeedonline/v5/runPagespeed` |
-| ~~Resend~~ | ~~Transactional email~~ | ~~Removed~~ |
-| Anthropic API | AI policy generation (Pro feature) | Via `@anthropic-ai/sdk` npm package |
+| Google PageSpeed Insights | Mobile performance scoring | `googleapis.com/pagespeedonline/v5/runPagespeed` |
+| Anthropic API | AI policy generation | Via `@anthropic-ai/sdk` (`claude-sonnet-4-20250514`) |
 
 ---
 
 ## 14. Testing
 
-* **Framework:** Vitest (dev dependency). Config in `vitest.config.ts`.
+* **Framework:** Vitest ^4.1.2. Config in `vitest.config.ts`.
 * **Run:** `npm test` (alias for `vitest run`).
-* **Test file:** `tests/bug-fixes.test.ts` — 60 regression tests covering unicode rendering, web component click handling, scan decrement logic, navigation setup, billing flow, component extraction, shared types/helpers, hooks, policy generation, JSON-LD extension, one-time billing model, email system removal, billing returnUrl format, JSON-LD deep link format, and scan history removal verification.
-* **Note:** Tests that import route modules directly will fail without env vars (`SUPABASE_URL`, etc.) since module initialization triggers `supabase.server.ts`. Tests use file-content assertions (regex/string matching) to avoid this.
+* **Test file:** `tests/bug-fixes.test.ts` -- 60 regression tests covering unicode rendering, web component click handling, atomic scan quota decrement, navigation, billing flow, component extraction, shared types/helpers, hooks, policy generation, JSON-LD extension, one-time billing model, email system removal, billing returnUrl format, JSON-LD deep link format, and scan history removal verification.
+* **Note:** Tests use file-content assertions (regex/string matching) to avoid needing env vars for module initialization.
 
 ---
 
@@ -618,7 +553,8 @@ Before fetching any URL, resolves all A/AAAA DNS records and rejects any that ma
 
 ### Vercel (current)
 * App URL: `https://shieldkit.vercel.app`
-* No `vercel.json` — default Vercel config.
+* **`vercel.json`:** Defines Vercel Cron job -- `POST /api/cron/weekly-scan` at `0 8 * * 1` (Monday 08:00 UTC).
+* **`react-router.config.ts`:** Uses `@vercel/react-router` preset for serverless deployment.
 * Build: `react-router build` (Vite). Serve: `react-router-serve ./build/server/index.js`.
 
 ### Docker (alternative)
@@ -640,15 +576,17 @@ CMD ["npm", "run", "docker-start"]
 * Optimized deps: `@shopify/app-bridge-react`
 
 ### Shopify CLI
-* `npm run dev` → `shopify app dev` (starts dev server with tunnel)
-* `npm run deploy` → `shopify app deploy`
+* `npm run dev` -> `shopify app dev` (starts dev server with tunnel)
+* `npm run deploy` -> `shopify app deploy`
+* `npm run typecheck` -> `react-router typegen && tsc --noEmit`
+
+### Database Migrations
+After deploying code changes that add new tables or functions, apply the corresponding SQL from `supabase/schema.sql` to the live database. Current pending migrations:
+* `scan_rate_limits` table (for persistent rate limiting)
+* `decrement_scan_quota` function (for atomic quota enforcement)
 
 ---
 
-## 16. Next Priorities (in order)
+## 16. Next Priorities
 
-1. **Apply live DB migration** — Run ALTER statements on Supabase to rename `billing_plan` → `tier`, update CHECK constraints, add `leads` table if not present.
-2. **Port SSRF protection** — Copy DNS resolution + private IP blocking from `outbound-scanner.ts` into `compliance-scanner.server.ts`'s `fetchPublicPage()`.
-3. **Build `app.pricing.tsx`** — Standalone pricing page showing Free vs Pro ($29 one-time) feature comparison.
-4. **Add rate limiting to `/api/scan`** — Prevent abuse beyond `scans_remaining` quota gating.
-5. **Deploy JSON-LD theme extension** — Run `shopify app deploy` to register the `json-ld-schema` theme extension.
+<!-- Fill in as needed -->

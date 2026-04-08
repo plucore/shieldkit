@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS merchants (
   shopify_domain         TEXT        NOT NULL UNIQUE,
   access_token_encrypted TEXT,
   tier                   TEXT        NOT NULL DEFAULT 'free' CHECK (tier IN ('free', 'pro')),
-  scans_remaining        INTEGER     NOT NULL DEFAULT 1,
+  scans_remaining        INTEGER     DEFAULT 1,
   json_ld_enabled        BOOLEAN     NOT NULL DEFAULT false,
   generated_policies     JSONB       NOT NULL DEFAULT '{}'::jsonb,
   policy_regen_used      JSONB       NOT NULL DEFAULT '{}'::jsonb,
@@ -143,3 +143,43 @@ CREATE POLICY "violations_merchant_isolation" ON violations
       WHERE m.shopify_domain = current_setting('app.current_shop', true)
     )
   );
+
+-- ============================================================
+-- TABLE: scan_rate_limits
+-- Persistent rate limiting for scan API requests.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS scan_rate_limits (
+  id           UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  shop         TEXT        NOT NULL,
+  requested_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_rate_limits_shop_time ON scan_rate_limits(shop, requested_at);
+
+ALTER TABLE scan_rate_limits ENABLE ROW LEVEL SECURITY;
+
+-- ============================================================
+-- FUNCTION: decrement_scan_quota
+-- Atomically decrements scans_remaining for a merchant.
+-- Returns the new scans_remaining value, or no rows if quota
+-- was already exhausted (scans_remaining <= 0).
+-- Merchants with NULL scans_remaining (Pro/unlimited) are
+-- not affected — callers should skip this RPC for them.
+-- ============================================================
+CREATE OR REPLACE FUNCTION decrement_scan_quota(p_merchant_id UUID)
+RETURNS TABLE(new_scans_remaining INTEGER) AS $$
+  UPDATE merchants
+  SET scans_remaining = scans_remaining - 1
+  WHERE id = p_merchant_id
+    AND scans_remaining IS NOT NULL
+    AND scans_remaining > 0
+  RETURNING scans_remaining AS new_scans_remaining;
+$$ LANGUAGE sql;
+
+-- ============================================================
+-- MIGRATION: allow NULL scans_remaining for unlimited (Pro) tier
+-- The Pro tier sets scans_remaining = NULL to indicate unlimited.
+-- The original schema had NOT NULL which caused upgrade writes to fail.
+-- ============================================================
+ALTER TABLE merchants
+  ALTER COLUMN scans_remaining DROP NOT NULL;

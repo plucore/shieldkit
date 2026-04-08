@@ -23,7 +23,7 @@
     "node": ">=20.19 <22 || >=22.12"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.80.0",
+    "@anthropic-ai/sdk": "^0.85.0",
     "@react-router/dev": "^7.12.0",
     "@react-router/fs-routes": "^7.12.0",
     "@react-router/node": "^7.12.0",
@@ -33,6 +33,7 @@
     "@supabase/supabase-js": "^2.47.0",
     "cheerio": "^1.2.0",
     "isbot": "^5.1.31",
+    "isomorphic-dompurify": "^3.7.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router": "^7.12.0",

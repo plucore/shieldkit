@@ -25,7 +25,7 @@ const shopify = shopifyApp({
   apiVersion: ApiVersion.October25,
   // Read from env if present (CLI injects at dev time), otherwise fall back
   // to the exact scopes declared in shopify.app.toml — read-only scanner.
-  scopes: (process.env.SCOPES ?? "read_products,read_content").split(","),
+  scopes: (process.env.SCOPES ?? "read_products,read_content,read_legal_policies").split(","),
   appUrl: process.env.SHOPIFY_APP_URL || "",
   authPathPrefix: "/auth",
   sessionStorage,

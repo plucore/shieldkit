@@ -20,6 +20,7 @@ export default function App() {
     <AppProvider embedded apiKey={apiKey}>
       <NavMenu>
         <a href="/app" rel="home">Dashboard</a>
+        <a href="/app/plan-switcher">Manage plan</a>
       </NavMenu>
 
       <Outlet />

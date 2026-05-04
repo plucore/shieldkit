@@ -126,6 +126,75 @@ export const PLAN_FEATURES: Record<PlanKey, readonly string[]> = {
   ],
 };
 
+// ─── Tier groups: monthly / annual variants per brand tier ───────────────────
+// Used by the 2-card Monthly | Annual picker UI in app.upgrade and
+// app.plan-switcher. Keeps the picker layout independent of how many
+// individual plan keys we register with Shopify.
+export type TierGroupKey = "shield" | "pro";
+
+export const TIER_GROUPS: Record<
+  TierGroupKey,
+  {
+    label: string;
+    monthlyName: PaidPlanName;
+    annualName: PaidPlanName;
+    monthlyPrice: number;
+    annualPrice: number;
+  }
+> = {
+  shield: {
+    label: PLANS.shield_monthly.name, // "Shield"
+    monthlyName: PLANS.shield_monthly.name,
+    annualName: PLANS.shield_annual.name,
+    monthlyPrice: PLANS.shield_monthly.monthly,
+    annualPrice: PLANS.shield_annual.annual,
+  },
+  pro: {
+    label: PLANS.pro_monthly.name, // "Shield Pro"
+    monthlyName: PLANS.pro_monthly.name,
+    annualName: PLANS.pro_annual.name,
+    monthlyPrice: PLANS.pro_monthly.monthly,
+    annualPrice: PLANS.pro_annual.annual,
+  },
+};
+
+// Annual savings (monthly × 12 − annual) per tier — used for the savings badge.
+export function annualSavings(group: TierGroupKey): number {
+  const g = TIER_GROUPS[group];
+  return g.monthlyPrice * 12 - g.annualPrice;
+}
+
+// Feature lists keyed by tier group (combined across cycles since we don't
+// differentiate features by cycle).
+export const TIER_FEATURES: Record<TierGroupKey, readonly string[]> = {
+  shield: [
+    "Unlimited compliance scans",
+    "Continuous weekly monitoring",
+    "Weekly health digest email",
+    "AI policy generator",
+    "GMC re-review appeal letter generator",
+    "Hidden fee detector",
+    "Image hosting audit (dropshipper detection)",
+  ],
+  pro: [
+    "Everything in Shield, plus:",
+    "Merchant Listings JSON-LD enricher",
+    "GTIN / MPN / brand auto-filler",
+    "Organization & WebSite schema (site-wide)",
+    "llms.txt at root domain",
+    "AI bot allow/block toggle",
+  ],
+};
+
+// Plan name → tier group for "current plan" detection in plan-switcher.
+export const PLAN_NAME_TO_GROUP: Record<PlanName, TierGroupKey | null> = {
+  Free: null,
+  Shield: "shield",
+  "Shield Annual": "shield",
+  "Shield Pro": "pro",
+  "Shield Pro Annual": "pro",
+};
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 export function planKeyByName(name: string): PlanKey | null {
   for (const key of Object.keys(PLANS) as PlanKey[]) {

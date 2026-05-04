@@ -5,8 +5,12 @@
  *
  * v2 — recurring billing.
  *
- * Behavior:
- *   - GET /app/upgrade               → renders 4-plan picker
+ * Picker UI: 2-card layout (Shield, Shield Pro) with a Monthly | Annual
+ * cycle toggle. Default cycle is Monthly. The "Choose" button on each card
+ * navigates to /app/upgrade?plan=<concrete plan name> based on the selected
+ * cycle, e.g. cycle='annual' on the Shield card → plan="Shield Annual".
+ *
+ *   - GET /app/upgrade               → renders picker (default monthly)
  *   - GET /app/upgrade?plan=Shield   → loader calls billing.request() and
  *                                      throws a redirect to Shopify's hosted
  *                                      approval page. Return URL points at
@@ -17,7 +21,7 @@
  * isTest mirrors NODE_ENV !== 'production' (test charges in dev).
  */
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import {
   redirect,
   useLoaderData,
@@ -30,12 +34,16 @@ import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
 import { useWebComponentClick } from "../hooks/useWebComponentClick";
 import {
-  PLANS,
   PAID_PLAN_NAMES,
-  PLAN_FEATURES,
+  TIER_GROUPS,
+  TIER_FEATURES,
+  annualSavings,
   type PaidPlanName,
-  type PaidPlanKey,
+  type TierGroupKey,
 } from "../lib/billing/plans";
+
+type Cycle = "monthly" | "annual";
+const TIER_KEYS: TierGroupKey[] = ["shield", "pro"];
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
@@ -100,7 +108,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         isTest: process.env.NODE_ENV !== "production",
         returnUrl,
       });
-      // billing.request always throws a Response — this line is unreachable.
       console.error("[upgrade] billing.request returned without throwing redirect — unexpected");
     } catch (err) {
       if (err instanceof Response) {
@@ -114,9 +121,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     }
   }
 
-  // No plan param (or invalid) → render the 4-plan picker.
+  // No plan param (or invalid) → render the picker.
   return {
-    mode: "pick" as const,
     currentTier: (merchant?.tier ?? "free") as string,
     currentCycle: (merchant?.billing_cycle ?? null) as string | null,
   };
@@ -124,42 +130,29 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-const PAID_KEYS: PaidPlanKey[] = [
-  "shield_monthly",
-  "shield_annual",
-  "pro_monthly",
-  "pro_annual",
-];
-
-function priceLabel(planKey: PaidPlanKey) {
-  const p = PLANS[planKey];
-  if ("monthly" in p && (p as any).monthly) return `$${(p as any).monthly}/month`;
-  if ("annual" in p && (p as any).annual) return `$${(p as any).annual}/year`;
-  return "";
-}
-
 export default function UpgradePage() {
   useLoaderData<typeof loader>();
+  const [cycle, setCycle] = useState<Cycle>("monthly");
 
   return (
     <s-page heading="Choose a ShieldKit plan">
       <s-section>
         <s-paragraph>
           Stay compliant with Google Merchant Center and visible in AI search.
-          Annual plans save 16%. All paid plans include unlimited scans and
-          continuous weekly monitoring.
+          Choose monthly or annual billing — annual saves 16%.
         </s-paragraph>
+        <CycleToggle cycle={cycle} onChange={setCycle} />
       </s-section>
 
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+          gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
           gap: "16px",
         }}
       >
-        {PAID_KEYS.map((key) => (
-          <PlanCard key={key} planKey={key} />
+        {TIER_KEYS.map((key) => (
+          <PlanCard key={key} groupKey={key} cycle={cycle} />
         ))}
       </div>
 
@@ -172,20 +165,71 @@ export default function UpgradePage() {
   );
 }
 
-function PlanCard({ planKey }: { planKey: PaidPlanKey }) {
-  const plan = PLANS[planKey];
-  const features = PLAN_FEATURES[planKey];
+// ─── Cycle toggle ────────────────────────────────────────────────────────────
+
+function CycleToggle({
+  cycle,
+  onChange,
+}: {
+  cycle: Cycle;
+  onChange: (next: Cycle) => void;
+}) {
+  const onMonthly = useCallback(() => onChange("monthly"), [onChange]);
+  const onAnnual = useCallback(() => onChange("annual"), [onChange]);
+  const monthlyRef = useWebComponentClick<HTMLElement>(onMonthly);
+  const annualRef = useWebComponentClick<HTMLElement>(onAnnual);
+
+  return (
+    <div
+      role="group"
+      aria-label="Billing cycle"
+      style={{ display: "flex", gap: "8px", marginTop: "12px" }}
+    >
+      <s-button
+        ref={monthlyRef}
+        variant={cycle === "monthly" ? "primary" : "secondary"}
+      >
+        Monthly
+      </s-button>
+      <s-button
+        ref={annualRef}
+        variant={cycle === "annual" ? "primary" : "secondary"}
+      >
+        Annual — save 16%
+      </s-button>
+    </div>
+  );
+}
+
+// ─── Plan card ───────────────────────────────────────────────────────────────
+
+function PlanCard({ groupKey, cycle }: { groupKey: TierGroupKey; cycle: Cycle }) {
+  const group = TIER_GROUPS[groupKey];
+  const features = TIER_FEATURES[groupKey];
+  const planName = cycle === "annual" ? group.annualName : group.monthlyName;
+  const price =
+    cycle === "annual"
+      ? `$${group.annualPrice}/year`
+      : `$${group.monthlyPrice}/month`;
+  const savings = cycle === "annual" ? annualSavings(groupKey) : 0;
+
   const navigate = useNavigate();
   const onChoose = useCallback(() => {
-    console.log(`[upgrade] PlanCard clicked plan="${plan.name}"`);
-    navigate(`/app/upgrade?plan=${encodeURIComponent(plan.name)}`);
-  }, [navigate, plan.name]);
+    console.log(`[upgrade] PlanCard clicked plan="${planName}"`);
+    navigate(`/app/upgrade?plan=${encodeURIComponent(planName)}`);
+  }, [navigate, planName]);
   const buttonRef = useWebComponentClick<HTMLElement>(onChoose);
 
   return (
-    <s-section heading={plan.name}>
+    <s-section heading={group.label}>
       <s-paragraph>
-        <strong style={{ fontSize: "20px" }}>{priceLabel(planKey)}</strong>
+        <strong style={{ fontSize: "22px" }}>{price}</strong>
+        {savings > 0 && (
+          <>
+            {" "}
+            <s-badge tone="success">Save ${savings}/yr</s-badge>
+          </>
+        )}
       </s-paragraph>
       <ul style={{ paddingLeft: "20px", margin: "12px 0", lineHeight: 1.6 }}>
         {features.map((f) => (
@@ -193,7 +237,7 @@ function PlanCard({ planKey }: { planKey: PaidPlanKey }) {
         ))}
       </ul>
       <s-button variant="primary" ref={buttonRef}>
-        Choose {plan.name}
+        Choose {group.label}
       </s-button>
     </s-section>
   );

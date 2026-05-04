@@ -8,6 +8,11 @@
  *   - Cancel their subscription without contacting support
  *   - Page accessible from the main nav (see app/routes/app.tsx NavMenu)
  *
+ * Layout: 2-card (Shield, Shield Pro) with a Monthly | Annual cycle toggle.
+ * The toggle defaults to the merchant's current cycle if they have one.
+ * Each card derives its concrete plan name from the toggle state — switching
+ * cycles re-targets the "Switch to" button at the same tier's other variant.
+ *
  * Switch flow:
  *   1. Cancel current Shopify subscription via billing.cancel()
  *   2. Re-create the new one via billing.request() (throws redirect to approval)
@@ -19,7 +24,7 @@
  *      and clear all paid-plan billing fields.
  */
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import {
   redirect,
   useFetcher,
@@ -37,15 +42,18 @@ import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
 import { useWebComponentClick } from "../hooks/useWebComponentClick";
 import {
-  PLANS,
   PAID_PLAN_NAMES,
-  PLAN_FEATURES,
-  planKeyByName,
-  type PaidPlanKey,
+  TIER_GROUPS,
+  TIER_FEATURES,
+  PLAN_NAME_TO_GROUP,
+  annualSavings,
   type PaidPlanName,
-  type PlanKey,
   type PlanName,
+  type TierGroupKey,
 } from "../lib/billing/plans";
+
+type Cycle = "monthly" | "annual";
+const TIER_KEYS: TierGroupKey[] = ["shield", "pro"];
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
@@ -180,20 +188,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-const PAID_KEYS: PaidPlanKey[] = [
-  "shield_monthly",
-  "shield_annual",
-  "pro_monthly",
-  "pro_annual",
-];
-
-function priceLabel(planKey: PlanKey) {
-  const p: any = PLANS[planKey];
-  if (p.monthly) return `$${p.monthly}/month`;
-  if (p.annual) return `$${p.annual}/year`;
-  return "Free";
-}
-
 const ERROR_MESSAGES: Record<string, string> = {
   switch_failed:
     "We couldn't switch your plan. Your current subscription is unchanged. Please try again or contact support if the problem persists.",
@@ -215,7 +209,9 @@ export default function PlanSwitcher() {
   const [searchParams] = useSearchParams();
   const errorMsg = errorMessage(searchParams.get("error"));
 
-  const currentKey = activePlanName ? planKeyByName(activePlanName) : null;
+  // Default the toggle to the merchant's current cycle if any, else monthly.
+  const initialCycle: Cycle = billingCycle === "annual" ? "annual" : "monthly";
+  const [cycle, setCycle] = useState<Cycle>(initialCycle);
 
   return (
     <s-page heading="Manage your plan">
@@ -236,21 +232,23 @@ export default function PlanSwitcher() {
             ? "You can switch plans or cancel at any time below. Shopify will prorate your next charge automatically."
             : "You are on the Free plan. Pick a paid plan below to unlock continuous monitoring, weekly digests, and AI-search visibility."}
         </s-paragraph>
+        <CycleToggle cycle={cycle} onChange={setCycle} />
       </s-section>
 
-      {/* ── 4 plan cards (mobile-friendly: auto-fit grid down to 260px) ──── */}
+      {/* ── 2 plan cards ────────────────────────────────────────────────── */}
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+          gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
           gap: "16px",
         }}
       >
-        {PAID_KEYS.map((key) => (
+        {TIER_KEYS.map((key) => (
           <PlanCard
             key={key}
-            planKey={key}
-            isCurrent={currentKey === key}
+            groupKey={key}
+            cycle={cycle}
+            activePlanName={activePlanName}
             hasActivePaid={!!activePlanName}
           />
         ))}
@@ -261,6 +259,44 @@ export default function PlanSwitcher() {
     </s-page>
   );
 }
+
+// ─── Cycle toggle ────────────────────────────────────────────────────────────
+
+function CycleToggle({
+  cycle,
+  onChange,
+}: {
+  cycle: Cycle;
+  onChange: (next: Cycle) => void;
+}) {
+  const onMonthly = useCallback(() => onChange("monthly"), [onChange]);
+  const onAnnual = useCallback(() => onChange("annual"), [onChange]);
+  const monthlyRef = useWebComponentClick<HTMLElement>(onMonthly);
+  const annualRef = useWebComponentClick<HTMLElement>(onAnnual);
+
+  return (
+    <div
+      role="group"
+      aria-label="Billing cycle"
+      style={{ display: "flex", gap: "8px", marginTop: "12px" }}
+    >
+      <s-button
+        ref={monthlyRef}
+        variant={cycle === "monthly" ? "primary" : "secondary"}
+      >
+        Monthly
+      </s-button>
+      <s-button
+        ref={annualRef}
+        variant={cycle === "annual" ? "primary" : "secondary"}
+      >
+        Annual — save 16%
+      </s-button>
+    </div>
+  );
+}
+
+// ─── Cancel section ──────────────────────────────────────────────────────────
 
 function CancelSection() {
   const cancelFetcher = useFetcher();
@@ -287,35 +323,65 @@ function CancelSection() {
   );
 }
 
+// ─── Plan card ───────────────────────────────────────────────────────────────
+
 function PlanCard({
-  planKey,
-  isCurrent,
+  groupKey,
+  cycle,
+  activePlanName,
   hasActivePaid,
 }: {
-  planKey: PaidPlanKey;
-  isCurrent: boolean;
+  groupKey: TierGroupKey;
+  cycle: Cycle;
+  activePlanName: PlanName | null;
   hasActivePaid: boolean;
 }) {
-  const plan = PLANS[planKey];
-  const features = PLAN_FEATURES[planKey];
+  const group = TIER_GROUPS[groupKey];
+  const features = TIER_FEATURES[groupKey];
+  const planName = cycle === "annual" ? group.annualName : group.monthlyName;
+  const price =
+    cycle === "annual"
+      ? `$${group.annualPrice}/year`
+      : `$${group.monthlyPrice}/month`;
+  const savings = cycle === "annual" ? annualSavings(groupKey) : 0;
+  const isCurrent = activePlanName === planName;
+
+  // Highlight the merchant's tier even when the toggle is on the other
+  // cycle — e.g. they're on Shield Annual but toggled to Monthly: the
+  // Shield card still gets a "Your tier" badge so the orientation is clear.
+  const isMerchantTier =
+    activePlanName !== null && PLAN_NAME_TO_GROUP[activePlanName] === groupKey;
+
   const switchFetcher = useFetcher();
   const onSwitch = useCallback(() => {
-    console.log(`[plan-switcher] switch clicked plan="${plan.name}"`);
+    console.log(`[plan-switcher] switch clicked plan="${planName}"`);
     switchFetcher.submit(
-      { intent: "switch", plan: plan.name },
+      { intent: "switch", plan: planName },
       { method: "post", action: "/app/plan-switcher" },
     );
-  }, [switchFetcher, plan.name]);
+  }, [switchFetcher, planName]);
   const switchRef = useWebComponentClick<HTMLElement>(onSwitch);
 
   return (
-    <s-section heading={plan.name}>
+    <s-section heading={group.label}>
       <s-paragraph>
-        <strong style={{ fontSize: "20px" }}>{priceLabel(planKey)}</strong>
+        <strong style={{ fontSize: "22px" }}>{price}</strong>
+        {savings > 0 && (
+          <>
+            {" "}
+            <s-badge tone="success">Save ${savings}/yr</s-badge>
+          </>
+        )}
         {isCurrent && (
           <>
             {" "}
             <s-badge tone="success">Current plan</s-badge>
+          </>
+        )}
+        {!isCurrent && isMerchantTier && (
+          <>
+            {" "}
+            <s-badge>Your tier</s-badge>
           </>
         )}
       </s-paragraph>
@@ -326,7 +392,7 @@ function PlanCard({
       </ul>
       {!isCurrent && (
         <s-button variant="primary" ref={switchRef}>
-          {hasActivePaid ? `Switch to ${plan.name}` : `Choose ${plan.name}`}
+          {hasActivePaid ? `Switch to ${planName}` : `Choose ${group.label}`}
         </s-button>
       )}
     </s-section>

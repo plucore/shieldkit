@@ -1,34 +1,79 @@
 /**
  * app/components/UpgradeCard.tsx
  *
- * Upgrade CTA card for free-tier users.
- * Uses useWebComponentClick for native DOM event handling on <s-button>.
+ * Tier-aware sidebar/main upgrade CTA.
  *
- * When `sidebar` is true, renders in the aside slot with a compact layout.
+ * Free merchants see Shield ($14/mo) upsell with Shield's feature highlights.
+ * Shield merchants see Shield Pro ($39/mo) upsell focused on AI search visibility.
+ * Pro / Pro Legacy merchants should not render this card — gate at the call site.
+ *
+ * Uses useWebComponentClick for native DOM event handling on <s-button>
+ * (synthetic React onClick does not fire on Polaris web components).
  */
 
 import { useWebComponentClick } from "../hooks/useWebComponentClick";
 
 interface UpgradeCardProps {
+  tier: string; // "free" | "shield" | (other tiers should not render this card)
   onUpgrade: () => void;
   sidebar?: boolean;
 }
 
-export default function UpgradeCard({ onUpgrade, sidebar }: UpgradeCardProps) {
+const COPY: Record<
+  "free" | "shield",
+  {
+    heading: string;
+    sidebarBlurb: string;
+    mainBlurb: string;
+    features: string[];
+    cta: string;
+    sidebarCta: string;
+  }
+> = {
+  free: {
+    heading: "Upgrade to Shield",
+    sidebarBlurb:
+      "Get unlimited scans, continuous monitoring, and AI policy generation from $14/month.",
+    mainBlurb:
+      "Continuous compliance monitoring. Stay one step ahead of GMC suspensions.",
+    features: [
+      "Unlimited compliance scans",
+      "Weekly health digest email",
+      "GMC re-review appeal letter",
+      "AI-powered policy generator",
+    ],
+    cta: "See plans",
+    sidebarCta: "Upgrade — from $14/mo",
+  },
+  shield: {
+    heading: "Upgrade to Shield Pro",
+    sidebarBlurb:
+      "Make your products show up correctly in Google AI Overviews and ChatGPT shopping.",
+    mainBlurb:
+      "Full Merchant Listings JSON-LD enrichment, llms.txt at root, AI bot controls.",
+    features: [
+      "Merchant Listings JSON-LD enricher",
+      "GTIN / MPN / brand auto-filler",
+      "llms.txt at root domain",
+      "AI bot allow/block toggle",
+    ],
+    cta: "Upgrade to Pro",
+    sidebarCta: "Upgrade to Pro — $39/mo",
+  },
+};
+
+export default function UpgradeCard({ tier, onUpgrade, sidebar }: UpgradeCardProps) {
   const upgradeRef = useWebComponentClick<HTMLElement>(onUpgrade);
 
-  const features = [
-    "Unlimited compliance re-scans",
-    "AI-powered policy generation",
-    "Priority support",
-  ];
+  // Defensive: if a non-upgradeable tier slipped through, render nothing.
+  const copy = tier === "shield" ? COPY.shield : COPY.free;
 
   return (
     <s-section {...(sidebar ? { slot: "aside" } : {})}>
       {sidebar && (
         <div style={{ marginBottom: "12px" }}>
           <div style={{ fontSize: "16px", fontWeight: 700, color: "#0f172a" }}>
-            Upgrade to Pro
+            {copy.heading}
           </div>
         </div>
       )}
@@ -43,7 +88,7 @@ export default function UpgradeCard({ onUpgrade, sidebar }: UpgradeCardProps) {
                 marginBottom: "8px",
               }}
             >
-              Upgrade to Pro — $29
+              {copy.heading}
             </div>
           )}
           <div
@@ -53,9 +98,7 @@ export default function UpgradeCard({ onUpgrade, sidebar }: UpgradeCardProps) {
               marginBottom: sidebar ? "12px" : "16px",
             }}
           >
-            {sidebar
-              ? "Unlock unlimited re-scans and AI policy generation for just $29."
-              : "One payment. Unlimited re-scans. Keep your store compliant forever."}
+            {sidebar ? copy.sidebarBlurb : copy.mainBlurb}
           </div>
           {!sidebar && (
             <div
@@ -68,7 +111,7 @@ export default function UpgradeCard({ onUpgrade, sidebar }: UpgradeCardProps) {
                 color: "var(--p-color-text, #303030)",
               }}
             >
-              {features.map((feature) => (
+              {copy.features.map((feature) => (
                 <div key={feature} style={{ display: "flex", gap: "6px", alignItems: "center" }}>
                   <s-icon type="check-circle-filled" tone="success" size="base" />
                   <span>{feature}</span>
@@ -87,7 +130,7 @@ export default function UpgradeCard({ onUpgrade, sidebar }: UpgradeCardProps) {
                 color: "var(--p-color-text, #303030)",
               }}
             >
-              {features.map((feature) => (
+              {copy.features.map((feature) => (
                 <div key={feature} style={{ display: "flex", gap: "6px", alignItems: "center" }}>
                   <s-icon type="check-circle-filled" tone="success" size="small" />
                   <span>{feature}</span>
@@ -96,7 +139,7 @@ export default function UpgradeCard({ onUpgrade, sidebar }: UpgradeCardProps) {
             </div>
           )}
           <s-button variant="primary" ref={upgradeRef}>
-            Upgrade to Pro{sidebar ? " — $29" : ""}
+            {sidebar ? copy.sidebarCta : copy.cta}
           </s-button>
         </div>
       </s-card>

@@ -423,7 +423,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           JSON.stringify({
             success: false,
             error_code: "scan_limit_reached",
-            message: "You've used your free scan. Upgrade to Pro ($29 one-time) for unlimited re-scans.",
+            message: "You've used your free scan for this month. Upgrade to Shield ($14/mo) for unlimited re-scans.",
           }),
           { status: 402, headers: { "Content-Type": "application/json" } }
         );
@@ -433,7 +433,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         JSON.stringify({
           success: false,
           error_code: "scan_limit_reached",
-          message: "You've used your free scan. Upgrade to Pro ($29 one-time) for unlimited re-scans.",
+          message: "You've used your free scan for this month. Upgrade to Shield ($14/mo) for unlimited re-scans.",
         }),
         { status: 402, headers: { "Content-Type": "application/json" } }
       );
@@ -517,9 +517,18 @@ export default function Index() {
   const shopify       = useAppBridge();
 
   const navigateToUpgrade = useCallback(
-    () => navigate("/app/upgrade?plan=Pro"),
+    () => navigate("/app/upgrade"),
     [navigate],
   );
+  const navigateToPlanSwitcher = useCallback(
+    () => navigate("/app/plan-switcher"),
+    [navigate],
+  );
+
+  // tier-aware helpers — v2 has free, shield, pro, pro_legacy.
+  const tier = merchant?.tier ?? "free";
+  const isPaid = tier === "shield" || tier === "pro" || tier === "pro_legacy";
+  const isShield = tier === "shield";
   const [searchParams, setSearchParams] = useSearchParams();
   const [allExpanded, setAllExpanded]   = useState(false);
   const [localPolicies, setLocalPolicies] = useState(merchant?.generated_policies ?? {});
@@ -608,14 +617,14 @@ export default function Index() {
   ).length;
 
   const freeUserUsedScan =
-    merchant?.tier !== "pro" &&
+    !isPaid &&
     merchant?.scans_remaining !== null &&
     merchant?.scans_remaining !== undefined &&
     merchant.scans_remaining <= 0;
 
   // ── Web component click refs (native DOM events for <s-button>) ───────────
   const rescanRef        = useWebComponentClick<HTMLElement>(runScan);
-  const upgradeRef1      = useWebComponentClick<HTMLElement>(navigateToUpgrade);
+  const managePlanRef    = useWebComponentClick<HTMLElement>(navigateToPlanSwitcher);
   const upgradeRef2      = useWebComponentClick<HTMLElement>(navigateToUpgrade);
   const upgradeRef3      = useWebComponentClick<HTMLElement>(navigateToUpgrade);
   const upgradeRef4      = useWebComponentClick<HTMLElement>(navigateToUpgrade);
@@ -626,7 +635,7 @@ export default function Index() {
 
       {/* ── Primary action (dashboard state only) ────────────────────────── */}
       {!showOnboarding && merchant && (
-        merchant.tier === "pro" || (merchant.scans_remaining !== null && merchant.scans_remaining > 0) ? (
+        isPaid || (merchant.scans_remaining !== null && merchant.scans_remaining > 0) ? (
           <s-button
             slot="primary-action"
             variant="primary"
@@ -639,9 +648,9 @@ export default function Index() {
           <s-button
             slot="primary-action"
             variant="primary"
-            ref={upgradeRef1}
+            ref={managePlanRef}
           >
-            Unlock Full Scanner — $29 one-time
+            Manage plan
           </s-button>
         )
       )}
@@ -670,8 +679,8 @@ export default function Index() {
         <s-banner
           tone="warning"
         >
-          You're on the Free plan. Upgrade to Pro ($29 one-time) for unlimited
-          re-scans and AI policy generation.
+          You're on the Free plan. Upgrade to Shield (from $14/month) for
+          unlimited re-scans, continuous monitoring, and AI policy generation.
           <s-button slot="actions" ref={upgradeRef3}>
             View upgrade options
           </s-button>
@@ -916,12 +925,23 @@ export default function Index() {
             </s-section>
           )}
 
-          {/* ── Inline upgrade banner for free users ── */}
-          {merchant.tier !== "pro" && sortedChecks.length > 0 && (
+          {/* ── Inline upgrade banner ── */}
+          {tier === "free" && sortedChecks.length > 0 && (
             <s-section>
               <s-banner tone="info">
-                Upgrade to Pro ($29 one-time) for unlimited re-scans and AI policy
-                generation.
+                Upgrade to Shield (from $14/month) for unlimited re-scans,
+                continuous monitoring, and AI policy generation.
+                <s-button slot="actions" ref={upgradeRef4}>
+                  See plans
+                </s-button>
+              </s-banner>
+            </s-section>
+          )}
+          {isShield && sortedChecks.length > 0 && (
+            <s-section>
+              <s-banner tone="info">
+                Upgrade to Shield Pro ($39/month) to make your products show up
+                correctly in Google AI Overviews and ChatGPT shopping.
                 <s-button slot="actions" ref={upgradeRef4}>
                   Upgrade to Pro
                 </s-button>
@@ -951,13 +971,16 @@ export default function Index() {
         previousScan={previousScan}
       />
 
-      {/* Upgrade CTA for free-tier users (sidebar) */}
-      {merchant && merchant.tier !== "pro" && !showOnboarding && (
-        <UpgradeCard onUpgrade={navigateToUpgrade} sidebar />
+      {/* Upgrade CTA — hidden for pro/pro_legacy, tier-aware copy otherwise */}
+      {merchant && (tier === "free" || tier === "shield") && !showOnboarding && (
+        <UpgradeCard tier={tier} onUpgrade={navigateToUpgrade} sidebar />
       )}
 
-      {/* Policy Generation card (Pro only, sidebar) */}
-      {merchant?.tier === "pro" && !showOnboarding && (
+      {/* Policy Generation card (Pro / Pro Legacy only).
+          Shield-tier policy gen is in PLAN_FEATURES but the action handler
+          and DB still gate on tier='pro'; widening to Shield is a Phase 3
+          change so we don't ship a card that fires 403 on click. */}
+      {merchant && (tier === "pro" || tier === "pro_legacy") && !showOnboarding && (
         <PolicyGenerationCard
           generatedPolicies={localPolicies}
           policyRegenUsed={localRegenUsed}

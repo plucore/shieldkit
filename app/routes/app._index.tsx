@@ -81,9 +81,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   let merchant = merchantRow as Merchant | null;
 
   // ── Billing self-heal: if Shopify says paid but Supabase tier is stale ──
-  // Skip pro_legacy merchants — their grandfathered tier is intentional and
-  // they have no Shopify subscription to reconcile against.
-  if (merchant && merchant.tier !== "pro_legacy") {
+  if (merchant) {
     try {
       const billingCheck = await billing.check({
         plans: [...PAID_PLAN_NAMES],
@@ -525,9 +523,9 @@ export default function Index() {
     [navigate],
   );
 
-  // tier-aware helpers — v2 has free, shield, pro, pro_legacy.
+  // tier-aware helpers — v2 has free, shield, pro.
   const tier = merchant?.tier ?? "free";
-  const isPaid = tier === "shield" || tier === "pro" || tier === "pro_legacy";
+  const isPaid = tier === "shield" || tier === "pro";
   const isShield = tier === "shield";
   const [searchParams, setSearchParams] = useSearchParams();
   const [allExpanded, setAllExpanded]   = useState(false);
@@ -980,16 +978,16 @@ export default function Index() {
         previousScan={previousScan}
       />
 
-      {/* Upgrade CTA — hidden for pro/pro_legacy, tier-aware copy otherwise */}
+      {/* Upgrade CTA — hidden for pro, tier-aware copy otherwise */}
       {merchant && (tier === "free" || tier === "shield") && !showOnboarding && (
         <UpgradeCard tier={tier} onUpgrade={navigateToUpgrade} sidebar />
       )}
 
-      {/* Policy Generation card (Pro / Pro Legacy only).
+      {/* Policy Generation card (Pro only).
           Shield-tier policy gen is in PLAN_FEATURES but the action handler
           and DB still gate on tier='pro'; widening to Shield is a Phase 3
           change so we don't ship a card that fires 403 on click. */}
-      {merchant && (tier === "pro" || tier === "pro_legacy") && !showOnboarding && (
+      {merchant && tier === "pro" && !showOnboarding && (
         <PolicyGenerationCard
           generatedPolicies={localPolicies}
           policyRegenUsed={localRegenUsed}

@@ -14,7 +14,6 @@
  *            grant 1 fresh scan with reset_at=now().
  *
  * Plan name → tier mapping lives in app/lib/billing/plans.ts.
- * pro_legacy merchants are skipped — they have no Shopify subscription.
  */
 
 import type { ActionFunctionArgs } from "react-router";
@@ -59,16 +58,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   // Ignore PENDING — fires before merchant has approved; nothing to persist.
   if (status === "PENDING") return new Response();
-
-  // Skip pro_legacy: their grandfathered tier is intentional and they have no
-  // Shopify subscription to drive these updates from.
-  const { data: merchant } = await supabase
-    .from("merchants")
-    .select("tier")
-    .eq("shopify_domain", shop)
-    .maybeSingle();
-
-  if (merchant?.tier === "pro_legacy") return new Response();
 
   if (status === "ACTIVE") {
     const tier = PLAN_NAME_TO_TIER[name as PlanName];

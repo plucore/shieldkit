@@ -11,7 +11,6 @@
  *                                      throws a redirect to Shopify's hosted
  *                                      approval page. Return URL points at
  *                                      /app/billing/confirm.
- *   - tier=='pro_legacy' merchants   → see grandfather banner only; no picker.
  *   - Already on a paid plan         → forwarded to /app/plan-switcher so they
  *                                      switch instead of double-charging.
  *
@@ -51,15 +50,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     .select("tier, billing_cycle")
     .eq("shopify_domain", session.shop)
     .maybeSingle();
-
-  // ── Grandfathered Pro merchants: no picker, banner only ─────────────────
-  if (merchant?.tier === "pro_legacy") {
-    return {
-      mode: "legacy" as const,
-      currentTier: "pro_legacy" as const,
-      currentCycle: null,
-    };
-  }
 
   // ── A specific paid plan was requested → kick off Shopify billing ───────
   if (planParam) {
@@ -149,28 +139,7 @@ function priceLabel(planKey: PaidPlanKey) {
 }
 
 export default function UpgradePage() {
-  const data = useLoaderData<typeof loader>();
-
-  if (data.mode === "legacy") {
-    return (
-      <s-page heading="You're on a perpetual Pro plan">
-        <s-section>
-          <s-banner tone="success">
-            You bought ShieldKit Pro before we moved to monthly billing.
-            Your account is grandfathered with full Pro access — every Pro feature,
-            no recurring charge, ever.
-          </s-banner>
-        </s-section>
-        <s-section heading="What's coming next">
-          <s-paragraph>
-            Beacon, our sister app for AI search visibility, launches soon — you'll
-            get early access. We'll email you when it's ready.
-          </s-paragraph>
-          <s-link href="/app">Return to dashboard</s-link>
-        </s-section>
-      </s-page>
-    );
-  }
+  useLoaderData<typeof loader>();
 
   return (
     <s-page heading="Choose a ShieldKit plan">

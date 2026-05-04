@@ -17,10 +17,6 @@
  *   1. billing.cancel() the current subscription
  *   2. UPDATE merchants set tier='free', scans_remaining=1, scans_reset_at=now(),
  *      and clear all paid-plan billing fields.
- *
- * pro_legacy merchants: they have no Shopify subscription to cancel and the
- * tier is grandfathered. We show a read-only banner and forward upgrade links
- * to /app/upgrade (which itself shows the legacy banner).
  */
 
 import { useCallback } from "react";
@@ -86,7 +82,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     billingCycle: (merchant?.billing_cycle ?? null) as string | null,
     activePlanName,
     activeSubscriptionId,
-    isLegacy: merchant?.tier === "pro_legacy",
   };
 };
 
@@ -216,33 +211,11 @@ function errorMessage(key: string | null): string | null {
 }
 
 export default function PlanSwitcher() {
-  const { tier, billingCycle, activePlanName, isLegacy } =
-    useLoaderData<typeof loader>();
+  const { tier, billingCycle, activePlanName } = useLoaderData<typeof loader>();
   const [searchParams] = useSearchParams();
   const errorMsg = errorMessage(searchParams.get("error"));
 
   const currentKey = activePlanName ? planKeyByName(activePlanName) : null;
-
-  // ── Legacy grandfather case ─────────────────────────────────────────────
-  if (isLegacy) {
-    return (
-      <s-page heading="Your plan">
-        <s-section>
-          <s-banner tone="success">
-            You're on a perpetual Pro plan — every Pro feature, no recurring charge.
-            There's nothing to switch or cancel here.
-          </s-banner>
-        </s-section>
-        <s-section heading="What's coming next">
-          <s-paragraph>
-            Beacon, our sister app for AI search visibility, launches soon. You'll
-            get early access. We'll email when it's ready.
-          </s-paragraph>
-          <s-link href="/app">Return to dashboard</s-link>
-        </s-section>
-      </s-page>
-    );
-  }
 
   return (
     <s-page heading="Manage your plan">

@@ -12,11 +12,11 @@ type = "theme"
   target = "body"
 
   [[extensions.blocks]]
-  name = "Organization Schema (JSON-LD)"
+  name = "Organization JSON-LD"
   template = "blocks/organization-schema.liquid"
   target = "head"
 
   [[extensions.blocks]]
-  name = "WebSite Schema (JSON-LD)"
+  name = "WebSite JSON-LD"
   template = "blocks/website-schema.liquid"
   target = "head"

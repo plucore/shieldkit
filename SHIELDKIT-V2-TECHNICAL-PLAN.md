@@ -112,16 +112,16 @@ SELECT shopify_domain FROM merchants WHERE tier = 'pro' OR id IN (SELECT merchan
 ```typescript
 export const PLANS = {
   free: { name: 'Free', monthly: 0, annual: 0 },
-  shield_monthly: { name: 'Shield', monthly: 14, interval: 'EVERY_30_DAYS' },
-  shield_annual: { name: 'Shield Annual', annual: 140, interval: 'ANNUAL' },
-  pro_monthly: { name: 'Shield Pro', monthly: 39, interval: 'EVERY_30_DAYS' },
-  pro_annual: { name: 'Shield Pro Annual', annual: 390, interval: 'ANNUAL' },
+  shield_monthly: { name: 'Shield Pro', monthly: 14, interval: 'EVERY_30_DAYS' },
+  shield_annual: { name: 'Shield Pro Annual', annual: 140, interval: 'ANNUAL' },
+  pro_monthly: { name: 'Shield Max', monthly: 39, interval: 'EVERY_30_DAYS' },
+  pro_annual: { name: 'Shield Max Annual', annual: 390, interval: 'ANNUAL' },
 } as const;
 ```
 
 ### 2.2 Modify upgrade route
 
-`app/routes/app.upgrade.tsx` — show 4 plan options (Shield monthly, Shield annual, Pro monthly, Pro annual). For `pro_legacy` merchants, hide upgrade UI; show "You're on a perpetual Pro plan" banner with link to Beacon cross-sell (placeholder route).
+`app/routes/app.upgrade.tsx` — show 4 plan options (Shield Pro monthly, Shield Pro annual, Shield Max monthly, Shield Max annual). The pro_legacy tier was removed — paying v1 customers received the v1 product they paid for and now flow through the free tier like everyone else.
 
 ### 2.3 Modify billing confirm
 
@@ -142,7 +142,7 @@ Every `appSubscriptionCreate` call uses `isTest: process.env.NODE_ENV !== 'produ
 
 ---
 
-## Phase 3 — Shield features (1.5 days)
+## Phase 3 — Shield Pro features (1.5 days)
 
 ### 3.1 Free tier monthly reset cron
 
@@ -177,14 +177,14 @@ Add to `vercel.json` crons:
 
 `app/routes/api.cron.weekly-digest.ts` (Vercel Cron, Monday 13:00 UTC):
 ```typescript
-// For each Shield/Pro/pro_legacy merchant, send digest email via Resend
+// For each Shield Pro / Shield Max merchant, send digest email via Resend
 // Email content:
 // - Score this week vs last week
 // - New issues caught (with fix links)
 // - Fixes confirmed
 // - Payment icon status
 // - Customer Privacy API status
-// - For Pro/pro_legacy merchants: append "Pro This Week" section
+// - For Shield Max merchants: append "Shield Max This Week" section
 //   - Products auto-enriched this week (count from schema_enrichments)
 //   - Schema status (count of products with full Merchant Listings schema)
 //   - llms.txt last refresh
@@ -318,8 +318,8 @@ Lead with: "ShieldKit — the trust layer for Shopify stores. Stay compliant wit
 
 Pricing section:
 - Free: 1 scan/month, fix instructions for top 3 findings
-- Shield $14/mo or $140/yr (16% off): unlimited scans, continuous monitoring, AI policy generator, GMC re-review appeal letter, hidden fee detector, image hosting audit, weekly digest email
-- Shield Pro $39/mo or $390/yr: everything in Shield, plus: Merchant Listings JSON-LD Enricher, GTIN/MPN/Brand Auto-Filler, Organization & WebSite schema, llms.txt at root, AI bot allow/block toggle. Pitched as: "Your products show up correctly in Google AI Overviews and ChatGPT shopping results."
+- Shield Pro $14/mo or $140/yr (16% off): unlimited scans, continuous monitoring, AI policy generator, GMC re-review appeal letter, hidden fee detector, image hosting audit, weekly digest email
+- Shield Max $39/mo or $390/yr: everything in Shield Pro, plus: Merchant Listings JSON-LD Enricher, GTIN/MPN/Brand Auto-Filler, Organization & WebSite schema, llms.txt at root, AI bot allow/block toggle. Pitched as: "Your products show up correctly in Google AI Overviews and ChatGPT shopping results."
 
 ### 6.2 Screenshots (6 max, per Shopify listing requirements)
 
@@ -355,15 +355,20 @@ Partner Dashboard → app listing → submit changes. Listing review SLA 5–14 
 
 ### To the 2 paying customers (NORMAE, Glamourous Grace)
 
-> Subject: ShieldKit just got monthly billing — your perpetual Pro plan is locked in
+> **Note:** the pro_legacy grandfather migration was abandoned in v2.7. v1
+> customers received the v1 product they paid for and now flow through the
+> regular free tier; the email below is kept for historical reference of the
+> earlier plan and would need to be rewritten if grandfathering is revisited.
+
+> Subject: ShieldKit just got monthly billing — your perpetual plan is locked in
 >
 > Hey [name],
 >
-> Quick update: ShieldKit moved from one-time pricing to monthly recurring (Shield $14/mo, Shield Pro $39/mo). You bought before the change, so I've upgraded your account to a perpetual Pro plan — full access to every Pro feature, no recurring charge, ever.
+> Quick update: ShieldKit moved from one-time pricing to monthly recurring (Shield Pro $14/mo, Shield Max $39/mo). You bought before the change, so I've upgraded your account to a perpetual Shield Max plan — full access to every paid feature, no recurring charge, ever.
 >
-> What's new in Pro you now have free for life: continuous weekly monitoring, weekly health digest email, GMC appeal letter generator, hidden fee detector, dropshipper image audit, full Merchant Listings JSON-LD schema, GTIN/MPN/brand auto-filler, Organization schema, llms.txt at root, AI bot allow/block toggle.
+> What's new you now have free for life: continuous weekly monitoring, weekly health digest email, GMC appeal letter generator, hidden fee detector, dropshipper image audit, full Merchant Listings JSON-LD schema, GTIN/MPN/brand auto-filler, Organization schema, llms.txt at root, AI bot allow/block toggle.
 >
-> As a thank-you, I'd like to give you 12 months free Shield Pro on a second store — let me know which domain to apply it to.
+> As a thank-you, I'd like to give you 12 months free Shield Max on a second store — let me know which domain to apply it to.
 >
 > [your name]
 
@@ -388,8 +393,8 @@ Partner Dashboard → app listing → submit changes. Listing review SLA 5–14 
 > Thanks for trying ShieldKit. Quick update on what's new:
 >
 > 1. Free tier now resets monthly. You get a fresh scan every 30 days instead of just once.
-> 2. New Shield plan ($14/mo): continuous weekly monitoring, weekly health digest, GMC re-review appeal letter generator.
-> 3. New Shield Pro ($39/mo): everything in Shield, plus your products show up correctly in Google AI Overviews and ChatGPT shopping results via full schema enrichment.
+> 2. New Shield Pro plan ($14/mo): continuous weekly monitoring, weekly health digest, GMC re-review appeal letter generator.
+> 3. New Shield Max ($39/mo): everything in Shield Pro, plus your products show up correctly in Google AI Overviews and ChatGPT shopping results via full schema enrichment.
 >
 > Want a 5-minute walkthrough? Reply to this email.
 >
@@ -403,14 +408,13 @@ For each feature, verify on the dev store before merge:
 
 ### Pricing migration
 - [ ] Free merchant can install
-- [ ] Free → Shield monthly upgrade flow completes (test mode)
-- [ ] Free → Shield annual upgrade flow completes
-- [ ] Free → Pro monthly upgrade flow completes
-- [ ] Shield → Pro upgrade prorates correctly
-- [ ] Pro → Shield downgrade prorates correctly
+- [ ] Free → Shield Pro monthly upgrade flow completes (test mode)
+- [ ] Free → Shield Pro Annual upgrade flow completes
+- [ ] Free → Shield Max monthly upgrade flow completes
+- [ ] Shield Pro → Shield Max upgrade prorates correctly
+- [ ] Shield Max → Shield Pro downgrade prorates correctly
 - [ ] Annual ↔ monthly switch
 - [ ] Cancel subscription → returns to free tier with `scans_remaining = 1`
-- [ ] `pro_legacy` merchant sees grandfather banner, no upgrade prompt
 - [ ] App uninstall webhook clears subscription state
 
 ### Continuous Monitor + Weekly Digest
@@ -420,7 +424,7 @@ For each feature, verify on the dev store before merge:
 - [ ] Digest email sends via Resend
 - [ ] `digest_emails` row inserted with provider ID
 - [ ] Email renders correctly in Gmail, Outlook, Apple Mail
-- [ ] Pro section appears only for Pro/pro_legacy
+- [ ] Shield Max section appears only for Shield Max merchants
 - [ ] Quiet week ("0 issues, 200+ checks run") still sends digest
 
 ### GMC Appeal Letter Generator

@@ -46,6 +46,9 @@ type Pages = {
       "*": string;
     };
   };
+  "/scan": {
+    params: {};
+  };
   "/app": {
     params: {};
   };
@@ -63,7 +66,7 @@ type Pages = {
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/webhooks/app_subscriptions/update" | "/webhooks/customers/data_request" | "/webhooks/app/scopes_update" | "/webhooks/customers/redact" | "/webhooks/app/uninstalled" | "/api/cron/weekly-scan" | "/webhooks/shop/redact" | "/auth/login" | "/api/scan" | "/auth/*" | "/app" | "/app/billing/confirm" | "/app/dmca-takedowns" | "/app/upgrade";
+    page: "/" | "/webhooks/app_subscriptions/update" | "/webhooks/customers/data_request" | "/webhooks/app/scopes_update" | "/webhooks/customers/redact" | "/webhooks/app/uninstalled" | "/api/cron/weekly-scan" | "/webhooks/shop/redact" | "/auth/login" | "/api/scan" | "/auth/*" | "/scan" | "/app" | "/app/billing/confirm" | "/app/dmca-takedowns" | "/app/upgrade";
   };
   "routes/webhooks.app_subscriptions.update.tsx": {
     id: "routes/webhooks.app_subscriptions.update";
@@ -109,6 +112,10 @@ type RouteFiles = {
     id: "routes/auth.$";
     page: "/auth/*";
   };
+  "routes/scan.tsx": {
+    id: "routes/scan";
+    page: "/scan";
+  };
   "routes/app.tsx": {
     id: "routes/app";
     page: "/app" | "/app/billing/confirm" | "/app/dmca-takedowns" | "/app/upgrade";
@@ -144,6 +151,7 @@ type RouteModules = {
   "routes/api.scan": typeof import("./app/routes/api.scan.ts");
   "routes/_index": typeof import("./app/routes/_index/route.tsx");
   "routes/auth.$": typeof import("./app/routes/auth.$.tsx");
+  "routes/scan": typeof import("./app/routes/scan.tsx");
   "routes/app": typeof import("./app/routes/app.tsx");
   "routes/app.billing.confirm": typeof import("./app/routes/app.billing.confirm.tsx");
   "routes/app.dmca-takedowns": typeof import("./app/routes/app.dmca-takedowns.tsx");

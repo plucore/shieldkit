@@ -30,7 +30,13 @@ import {
   useSearchParams,
 } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
-import { authenticate, PLAN_PRO } from "../shopify.server";
+import { authenticate } from "../shopify.server";
+import {
+  PAID_PLAN_NAMES,
+  PLAN_NAME_TO_TIER,
+  PLAN_NAME_TO_CYCLE,
+  type PlanName,
+} from "../lib/billing/plans";
 import { supabase } from "../supabase.server";
 import { runComplianceScan } from "../lib/compliance-scanner.server";
 import {
@@ -75,19 +81,41 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   let merchant = merchantRow as Merchant | null;
 
   // ── Billing self-heal: if Shopify says paid but Supabase tier is stale ──
-  if (merchant && merchant.tier !== "pro") {
+  // Skip pro_legacy merchants — their grandfathered tier is intentional and
+  // they have no Shopify subscription to reconcile against.
+  if (merchant && merchant.tier !== "pro_legacy") {
     try {
       const billingCheck = await billing.check({
-        plans: [PLAN_PRO],
+        plans: [...PAID_PLAN_NAMES],
         isTest: process.env.NODE_ENV !== "production",
         returnObject: true,
       });
       if (billingCheck.hasActivePayment) {
-        await supabase
-          .from("merchants")
-          .update({ tier: "pro", scans_remaining: null })
-          .eq("id", merchant.id);
-        merchant = { ...merchant, tier: "pro", scans_remaining: null };
+        const sub = billingCheck.appSubscriptions?.[0];
+        const activeName = (sub?.name ?? "") as PlanName;
+        const expectedTier = PLAN_NAME_TO_TIER[activeName];
+        const expectedCycle = PLAN_NAME_TO_CYCLE[activeName];
+
+        if (expectedTier && expectedTier !== "free" && merchant.tier !== expectedTier) {
+          const subscriptionId = (sub as any)?.id ?? null;
+          const startedAt = (sub as any)?.createdAt ?? new Date().toISOString();
+
+          await supabase
+            .from("merchants")
+            .update({
+              tier: expectedTier,
+              billing_cycle: expectedCycle,
+              shopify_subscription_id: subscriptionId,
+              subscription_started_at: startedAt,
+              scans_remaining: null,
+            })
+            .eq("id", merchant.id);
+          merchant = {
+            ...merchant,
+            tier: expectedTier,
+            scans_remaining: null,
+          };
+        }
       }
     } catch (_) {
       // billing.check() throws when no subscription exists — expected for free tier

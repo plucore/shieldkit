@@ -37,6 +37,15 @@ redirect_urls = [ "https://shieldkit.vercel.app/auth/callback",
   "https://shieldkit.vercel.app/auth/shopify/callback",
   "https://shieldkit.vercel.app/api/auth/callback" ]
 
+# App Proxy for /apps/llms-txt — serves llms.txt content from
+# /api/proxy/llms-txt. To serve at root /llms.txt instead of under /apps/,
+# the merchant must add a redirect/rewrite in their theme robots.txt.liquid
+# (Block 9 instructions also cover this).
+[app_proxy]
+url = "https://shieldkit.vercel.app/api/proxy/llms-txt"
+prefix = "apps"
+subpath = "llms-txt"
+
 # [product.metafields] and [metaobjects] template boilerplate removed.
 # ShieldKit is a read-only compliance scanner and does not define or mutate
 # product metafields or metaobject definitions.

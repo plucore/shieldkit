@@ -22,6 +22,7 @@ export default function App() {
         <a href="/app" rel="home">Dashboard</a>
         <a href="/app/appeal-letter">Appeal letter</a>
         <a href="/app/pro-settings">Shield Max settings</a>
+        <a href="/app/bots/toggle">AI bot access</a>
         <a href="/app/plan-switcher">Manage plan</a>
       </NavMenu>
 

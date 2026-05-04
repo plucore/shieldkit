@@ -41,3 +41,6 @@ n8n-workflows/
 backups/
 shopify.app.*.toml
 !shopify.app.toml
+
+# Dev-only one-off scripts (kept locally, not shipped)
+scripts/dev-*.ts

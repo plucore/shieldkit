@@ -2,20 +2,12 @@ import "@shopify/shopify-app-react-router/adapters/node";
 import {
   ApiVersion,
   AppDistribution,
-  BillingInterval,
   shopifyApp,
 } from "@shopify/shopify-app-react-router/server";
 import { SupabaseSessionStorage } from "./lib/session-storage.server";
 import { supabase } from "./supabase.server";
 import { encrypt } from "./lib/crypto.server";
-
-// ─── Plan name constant ───────────────────────────────────────────────────────
-// This string literal is used as:
-//   1. The key in the billing config passed to shopifyApp()
-//   2. The argument to billing.request({ plan }) in the upgrade route
-//   3. The `app_subscription.name` field in APP_SUBSCRIPTIONS_UPDATE payloads
-export const PLAN_PRO = "Pro" as const;
-export type PlanName = typeof PLAN_PRO; // "Pro"
+import { SHOPIFY_BILLING_CONFIG } from "./lib/billing/plans";
 
 const sessionStorage = new SupabaseSessionStorage();
 
@@ -33,16 +25,13 @@ const shopify = shopifyApp({
   future: {
     expiringOfflineAccessTokens: true,
   },
-  // ─── Shopify billing plans ────────────────────────────────────────────────
-  // Defining plans here enables billing.require() and billing.request() on
-  // the AdminContext returned by authenticate.admin().
-  billing: {
-    [PLAN_PRO]: {
-      amount: 29.00,
-      currencyCode: "USD",
-      interval: BillingInterval.OneTime,
-    },
-  },
+  // ─── Shopify billing plans (v2 — recurring) ──────────────────────────────
+  // Plan definitions live in app/lib/billing/plans.ts as SHOPIFY_BILLING_CONFIG.
+  // Plan names ("Shield", "Shield Annual", "Shield Pro", "Shield Pro Annual")
+  // are the strings billing.request({ plan }) accepts and that come back in
+  // APP_SUBSCRIPTIONS_UPDATE webhook payloads. Re-run `npm run deploy` after
+  // changing plan names so Shopify re-registers them.
+  billing: SHOPIFY_BILLING_CONFIG,
   ...(process.env.SHOP_CUSTOM_DOMAIN
     ? { customShopDomains: [process.env.SHOP_CUSTOM_DOMAIN] }
     : {}),

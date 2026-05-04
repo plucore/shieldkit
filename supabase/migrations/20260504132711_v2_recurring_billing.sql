@@ -1,6 +1,6 @@
 -- ShieldKit v2 — recurring billing migration
 -- Source: SHIELDKIT-V2-TECHNICAL-PLAN.md (Phase 1)
--- Status: UNAPPLIED. Sections 6 and 7 are intentionally commented; run manually after code deploy.
+-- Status: APPLIED 2026-05-04 to production. Sections 6 and 7 still pending manual run.
 
 -- 1. Migrate merchants table to recurring tiers
 ALTER TABLE merchants DROP CONSTRAINT IF EXISTS merchants_tier_check;

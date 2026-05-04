@@ -30,3 +30,12 @@ database.sqlite
 
 # React Router
 .react-router/.env
+
+# Vercel
+.vercel/
+
+# Local n8n workflows
+n8n-workflows/
+
+# Local DB backups
+backups/

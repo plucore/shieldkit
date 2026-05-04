@@ -44,22 +44,37 @@ export default function App() {
             <h2 className={styles.pricingTitle}>Free</h2>
             <div className={styles.pricingPrice}>$0</div>
             <ul className={styles.pricingFeatures}>
-              <li>1 full 10-point compliance scan</li>
-              <li>JSON-LD structured data theme extension</li>
-              <li>Plain-English fix instructions</li>
-              <li>Compliance score &amp; threat assessment</li>
+              <li>1 compliance scan per month</li>
+              <li>Fix instructions for top 3 findings</li>
+              <li>JSON-LD theme extension</li>
             </ul>
           </div>
-          <div className={`${styles.pricingCard} ${styles.pricingCardPro}`}>
-            <h2 className={styles.pricingTitle}>Pro</h2>
+          <div className={styles.pricingCard}>
+            <h2 className={styles.pricingTitle}>Shield</h2>
             <div className={styles.pricingPrice}>
-              $29<span className={styles.pricingInterval}> one-time</span>
+              $14<span className={styles.pricingInterval}> /month</span>
             </div>
             <ul className={styles.pricingFeatures}>
               <li>Everything in Free, plus:</li>
-              <li>Unlimited compliance re-scans</li>
-              <li>AI-powered policy generation</li>
-              <li>Priority support</li>
+              <li>Unlimited compliance scans</li>
+              <li>Continuous weekly monitoring</li>
+              <li>Weekly health digest email</li>
+              <li>AI-powered policy generator</li>
+              <li>GMC re-review appeal letter</li>
+            </ul>
+          </div>
+          <div className={`${styles.pricingCard} ${styles.pricingCardPro}`}>
+            <h2 className={styles.pricingTitle}>Shield Pro</h2>
+            <div className={styles.pricingPrice}>
+              $39<span className={styles.pricingInterval}> /month</span>
+            </div>
+            <ul className={styles.pricingFeatures}>
+              <li>Everything in Shield, plus:</li>
+              <li>Merchant Listings JSON-LD enricher</li>
+              <li>GTIN / MPN / brand auto-filler</li>
+              <li>Organization &amp; WebSite schema</li>
+              <li>llms.txt at root domain</li>
+              <li>AI bot allow/block toggle</li>
             </ul>
           </div>
         </div>

@@ -39,3 +39,5 @@ n8n-workflows/
 
 # Local DB backups
 backups/
+shopify.app.*.toml
+!shopify.app.toml

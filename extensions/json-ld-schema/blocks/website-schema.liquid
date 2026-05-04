@@ -1,0 +1,56 @@
+{% comment %}
+  ShieldKit WebSite Schema (JSON-LD)
+
+  Site-wide WebSite structured data with optional SearchAction. Helps
+  Google understand the storefront's search functionality and feeds into
+  the sitelinks search box on result pages.
+
+  Pro / Shield Max feature — populate block settings in the Theme editor.
+  By default the SearchAction template is /search?q={search_term_string}
+  which matches the standard Shopify storefront search.
+{% endcomment %}
+
+{% assign search_url = block.settings.search_url_template %}
+{% if search_url == blank %}
+  {% assign search_url = shop.url | append: '/search?q={search_term_string}' %}
+{% endif %}
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": {{ shop.name | json }},
+  "url": {{ shop.url | json }},
+  "potentialAction": {
+    "@type": "SearchAction",
+    "target": {
+      "@type": "EntryPoint",
+      "urlTemplate": {{ search_url | json }}
+    },
+    "query-input": "required name=search_term_string"
+  }
+}
+</script>
+
+{% schema %}
+{
+  "name": "WebSite Schema (JSON-LD)",
+  "target": "head",
+  "settings": [
+    {
+      "type": "header",
+      "content": "ShieldKit Pro feature"
+    },
+    {
+      "type": "paragraph",
+      "content": "Add WebSite structured data with sitelinks search support. Default search URL works for standard Shopify themes."
+    },
+    {
+      "type": "text",
+      "id": "search_url_template",
+      "label": "Search URL template",
+      "info": "Override the default search URL. Use {search_term_string} as the query placeholder. Leave blank to use /search?q={search_term_string}."
+    }
+  ]
+}
+{% endschema %}

@@ -622,12 +622,21 @@ export default function Index() {
     merchant?.scans_remaining !== undefined &&
     merchant.scans_remaining <= 0;
 
+  // ── Top-level navigation for the JSON-LD theme editor link ──────────────
+  // Wrapping <s-button> in an <a target="_top"> doesn't work — the button
+  // intercepts the click before it reaches the anchor.
+  const manageJsonLdHref = `https://${shopDomain}/admin/themes/current/editor?context=apps&activateAppId=071fc51ee1ef7f358cdaed5f95922498/product-schema`;
+  const openJsonLdManager = useCallback(() => {
+    window.open(manageJsonLdHref, "_top");
+  }, [manageJsonLdHref]);
+
   // ── Web component click refs (native DOM events for <s-button>) ───────────
   const rescanRef        = useWebComponentClick<HTMLElement>(runScan);
   const managePlanRef    = useWebComponentClick<HTMLElement>(navigateToPlanSwitcher);
   const upgradeRef2      = useWebComponentClick<HTMLElement>(navigateToUpgrade);
   const upgradeRef3      = useWebComponentClick<HTMLElement>(navigateToUpgrade);
   const upgradeRef4      = useWebComponentClick<HTMLElement>(navigateToUpgrade);
+  const manageJsonLdRef  = useWebComponentClick<HTMLElement>(openJsonLdManager);
   const onboardingScanRef = useWebComponentClick<HTMLElement>(runScan);
 
   return (
@@ -1019,13 +1028,7 @@ export default function Index() {
               <s-paragraph>
                 Product structured data is being added to your product pages.
               </s-paragraph>
-              <a
-                href={`https://${shopDomain}/admin/themes/current/editor?context=apps&activateAppId=071fc51ee1ef7f358cdaed5f95922498/product-schema`}
-                target="_top"
-                style={{ textDecoration: "none" }}
-              >
-                <s-button>Manage</s-button>
-              </a>
+              <s-button ref={manageJsonLdRef}>Manage</s-button>
             </>
           ) : (
             <>

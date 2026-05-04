@@ -1,0 +1,87 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Marketing-only resets. Scoped to the .shieldkit-marketing wrapper so this
+   file never bleeds into the embedded admin app. */
+.shieldkit-marketing {
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  color: #0f1f3d;
+  background: linear-gradient(180deg, #dceaf5 0%, #b8d4e8 100%);
+  background-attachment: fixed;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.shieldkit-marketing a {
+  color: inherit;
+}
+
+.shieldkit-marketing h1,
+.shieldkit-marketing h2,
+.shieldkit-marketing h3,
+.shieldkit-marketing h4 {
+  color: #0f1f3d;
+  letter-spacing: -0.01em;
+}
+
+/* Article body styling for explainer + blog post pages. */
+.shieldkit-prose {
+  color: #2e3a52;
+  font-size: 17px;
+  line-height: 1.75;
+}
+.shieldkit-prose h1 {
+  font-size: 2.25rem;
+  font-weight: 800;
+  margin: 0 0 1.5rem;
+  line-height: 1.15;
+}
+.shieldkit-prose h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 2.5rem 0 1rem;
+  line-height: 1.25;
+}
+.shieldkit-prose h3 {
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin: 1.75rem 0 0.75rem;
+}
+.shieldkit-prose p {
+  margin: 0 0 1.25rem;
+}
+.shieldkit-prose ul,
+.shieldkit-prose ol {
+  margin: 0 0 1.25rem 1.5rem;
+}
+.shieldkit-prose li {
+  margin-bottom: 0.5rem;
+}
+.shieldkit-prose a {
+  color: #0f1f3d;
+  text-decoration: underline;
+  text-decoration-color: #b8d4e8;
+  text-underline-offset: 3px;
+}
+.shieldkit-prose a:hover {
+  text-decoration-color: #0f1f3d;
+}
+.shieldkit-prose code {
+  background: #eef3f9;
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  font-size: 0.92em;
+}
+.shieldkit-prose blockquote {
+  border-left: 3px solid #0f1f3d;
+  padding: 0.5rem 1rem;
+  margin: 1.5rem 0;
+  color: #5b6779;
+  font-style: italic;
+}
+.shieldkit-prose strong {
+  color: #0f1f3d;
+  font-weight: 700;
+}

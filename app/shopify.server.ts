@@ -27,7 +27,7 @@ const shopify = shopifyApp({
   },
   // ─── Shopify billing plans (v2 — recurring) ──────────────────────────────
   // Plan definitions live in app/lib/billing/plans.ts as SHOPIFY_BILLING_CONFIG.
-  // Plan names ("Shield", "Shield Annual", "Shield Pro", "Shield Pro Annual")
+  // Plan names ("Shield Pro", "Shield Pro Annual", "Shield Max", "Shield Max Annual")
   // are the strings billing.request({ plan }) accepts and that come back in
   // APP_SUBSCRIPTIONS_UPDATE webhook payloads. Re-run `npm run deploy` after
   // changing plan names so Shopify re-registers them.

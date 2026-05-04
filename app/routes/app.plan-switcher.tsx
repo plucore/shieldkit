@@ -8,7 +8,7 @@
  *   - Cancel their subscription without contacting support
  *   - Page accessible from the main nav (see app/routes/app.tsx NavMenu)
  *
- * Layout: 2-card (Shield, Shield Pro) with a Monthly | Annual cycle toggle.
+ * Layout: 2-card (Shield Pro, Shield Max) with a Monthly | Annual cycle toggle.
  * The toggle defaults to the merchant's current cycle if they have one.
  * Each card derives its concrete plan name from the toggle state — switching
  * cycles re-targets the "Switch to" button at the same tier's other variant.
@@ -347,8 +347,8 @@ function PlanCard({
   const isCurrent = activePlanName === planName;
 
   // Highlight the merchant's tier even when the toggle is on the other
-  // cycle — e.g. they're on Shield Annual but toggled to Monthly: the
-  // Shield card still gets a "Your tier" badge so the orientation is clear.
+  // cycle — e.g. they're on Shield Pro Annual but toggled to Monthly: the
+  // Shield Pro card still gets a "Your tier" badge so the orientation is clear.
   const isMerchantTier =
     activePlanName !== null && PLAN_NAME_TO_GROUP[activePlanName] === groupKey;
 

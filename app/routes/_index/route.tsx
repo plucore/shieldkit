@@ -50,7 +50,7 @@ export default function App() {
             </ul>
           </div>
           <div className={styles.pricingCard}>
-            <h2 className={styles.pricingTitle}>Shield</h2>
+            <h2 className={styles.pricingTitle}>Shield Pro</h2>
             <div className={styles.pricingPrice}>
               $14<span className={styles.pricingInterval}> /month</span>
             </div>
@@ -64,12 +64,12 @@ export default function App() {
             </ul>
           </div>
           <div className={`${styles.pricingCard} ${styles.pricingCardPro}`}>
-            <h2 className={styles.pricingTitle}>Shield Pro</h2>
+            <h2 className={styles.pricingTitle}>Shield Max</h2>
             <div className={styles.pricingPrice}>
               $39<span className={styles.pricingInterval}> /month</span>
             </div>
             <ul className={styles.pricingFeatures}>
-              <li>Everything in Shield, plus:</li>
+              <li>Everything in Shield Pro, plus:</li>
               <li>Merchant Listings JSON-LD enricher</li>
               <li>GTIN / MPN / brand auto-filler</li>
               <li>Organization &amp; WebSite schema</li>

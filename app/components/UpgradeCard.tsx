@@ -3,9 +3,9 @@
  *
  * Tier-aware sidebar/main upgrade CTA.
  *
- * Free merchants see Shield ($14/mo) upsell with Shield's feature highlights.
- * Shield merchants see Shield Pro ($39/mo) upsell focused on AI search visibility.
- * Pro / Pro Legacy merchants should not render this card — gate at the call site.
+ * Free merchants see Shield Pro ($14/mo) upsell with its feature highlights.
+ * Shield Pro merchants see Shield Max ($39/mo) upsell focused on AI search visibility.
+ * Shield Max merchants should not render this card — gate at the call site.
  *
  * Uses useWebComponentClick for native DOM event handling on <s-button>
  * (synthetic React onClick does not fire on Polaris web components).
@@ -31,7 +31,7 @@ const COPY: Record<
   }
 > = {
   free: {
-    heading: "Upgrade to Shield",
+    heading: "Upgrade to Shield Pro",
     sidebarBlurb:
       "Get unlimited scans, continuous monitoring, and AI policy generation from $14/month.",
     mainBlurb:
@@ -46,7 +46,7 @@ const COPY: Record<
     sidebarCta: "Upgrade — from $14/mo",
   },
   shield: {
-    heading: "Upgrade to Shield Pro",
+    heading: "Upgrade to Shield Max",
     sidebarBlurb:
       "Make your products show up correctly in Google AI Overviews and ChatGPT shopping.",
     mainBlurb:
@@ -57,8 +57,8 @@ const COPY: Record<
       "llms.txt at root domain",
       "AI bot allow/block toggle",
     ],
-    cta: "Upgrade to Pro",
-    sidebarCta: "Upgrade to Pro — $39/mo",
+    cta: "Upgrade to Shield Max",
+    sidebarCta: "Upgrade to Shield Max — $39/mo",
   },
 };
 

@@ -436,7 +436,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           JSON.stringify({
             success: false,
             error_code: "scan_limit_reached",
-            message: "You've used your free scan for this month. Upgrade to Shield ($14/mo) for unlimited re-scans.",
+            message: "You've used your free scan for this month. Upgrade to Shield Pro ($14/mo) for unlimited re-scans.",
           }),
           { status: 402, headers: { "Content-Type": "application/json" } }
         );
@@ -446,7 +446,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         JSON.stringify({
           success: false,
           error_code: "scan_limit_reached",
-          message: "You've used your free scan for this month. Upgrade to Shield ($14/mo) for unlimited re-scans.",
+          message: "You've used your free scan for this month. Upgrade to Shield Pro ($14/mo) for unlimited re-scans.",
         }),
         { status: 402, headers: { "Content-Type": "application/json" } }
       );
@@ -701,7 +701,7 @@ export default function Index() {
         <s-banner
           tone="warning"
         >
-          You're on the Free plan. Upgrade to Shield (from $14/month) for
+          You're on the Free plan. Upgrade to Shield Pro (from $14/month) for
           unlimited re-scans, continuous monitoring, and AI policy generation.
           <s-button slot="actions" ref={upgradeRef3}>
             View upgrade options
@@ -951,7 +951,7 @@ export default function Index() {
           {tier === "free" && sortedChecks.length > 0 && (
             <s-section>
               <s-banner tone="info">
-                Upgrade to Shield (from $14/month) for unlimited re-scans,
+                Upgrade to Shield Pro (from $14/month) for unlimited re-scans,
                 continuous monitoring, and AI policy generation.
                 <s-button slot="actions" ref={upgradeRef4}>
                   See plans
@@ -962,10 +962,10 @@ export default function Index() {
           {isShield && sortedChecks.length > 0 && (
             <s-section>
               <s-banner tone="info">
-                Upgrade to Shield Pro ($39/month) to make your products show up
+                Upgrade to Shield Max ($39/month) to make your products show up
                 correctly in Google AI Overviews and ChatGPT shopping.
                 <s-button slot="actions" ref={upgradeRef4}>
-                  Upgrade to Pro
+                  Upgrade to Shield Max
                 </s-button>
               </s-banner>
             </s-section>
@@ -998,10 +998,11 @@ export default function Index() {
         <UpgradeCard tier={tier} onUpgrade={navigateToUpgrade} sidebar />
       )}
 
-      {/* Policy Generation card (Pro only).
-          Shield-tier policy gen is in PLAN_FEATURES but the action handler
-          and DB still gate on tier='pro'; widening to Shield is a Phase 3
-          change so we don't ship a card that fires 403 on click. */}
+      {/* Policy Generation card (Shield Max only).
+          shield-tier (Shield Pro) policy gen is in PLAN_FEATURES but the
+          action handler and DB still gate on tier='pro' (Shield Max);
+          widening to shield tier is a Phase 3 change so we don't ship a
+          card that fires 403 on click. */}
       {merchant && tier === "pro" && !showOnboarding && (
         <PolicyGenerationCard
           generatedPolicies={localPolicies}

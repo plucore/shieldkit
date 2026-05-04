@@ -10,16 +10,21 @@
  *
  * Changing a `name` here is a breaking change requiring `npm run deploy` to
  * re-register plans with Shopify and risks orphaning existing subscriptions.
+ *
+ * Note on naming: the internal PLAN keys (shield_monthly, pro_monthly, etc.)
+ * are kept as historical labels; the user-facing `name` strings are
+ * "Shield Pro" / "Shield Max" — the keys do not need to follow that.
+ * Likewise the merchants.tier DB values are still 'free' | 'shield' | 'pro'.
  */
 import { BillingInterval } from "@shopify/shopify-app-react-router/server";
 import type { BillingConfigSubscriptionLineItemPlan } from "@shopify/shopify-api";
 
 export const PLANS = {
   free: { name: "Free", monthly: 0, annual: 0 },
-  shield_monthly: { name: "Shield", monthly: 14, interval: "EVERY_30_DAYS" },
-  shield_annual: { name: "Shield Annual", annual: 140, interval: "ANNUAL" },
-  pro_monthly: { name: "Shield Pro", monthly: 39, interval: "EVERY_30_DAYS" },
-  pro_annual: { name: "Shield Pro Annual", annual: 390, interval: "ANNUAL" },
+  shield_monthly: { name: "Shield Pro", monthly: 14, interval: "EVERY_30_DAYS" },
+  shield_annual: { name: "Shield Pro Annual", annual: 140, interval: "ANNUAL" },
+  pro_monthly: { name: "Shield Max", monthly: 39, interval: "EVERY_30_DAYS" },
+  pro_annual: { name: "Shield Max Annual", annual: 390, interval: "ANNUAL" },
 } as const;
 
 export type PlanKey = keyof typeof PLANS;
@@ -37,21 +42,23 @@ export const PAID_PLAN_NAMES: readonly PaidPlanName[] = [
 
 // ─── Derived: plan name → merchants.tier value ───────────────────────────────
 // Used by billing.confirm loader and APP_SUBSCRIPTIONS_UPDATE webhook.
+// Tier values stay 'free' | 'shield' | 'pro' even though the plan names
+// renamed; tier is a DB-level identity, not a marketing label.
 export const PLAN_NAME_TO_TIER: Record<PlanName, "free" | "shield" | "pro"> = {
   Free: "free",
-  Shield: "shield",
-  "Shield Annual": "shield",
-  "Shield Pro": "pro",
-  "Shield Pro Annual": "pro",
+  "Shield Pro": "shield",
+  "Shield Pro Annual": "shield",
+  "Shield Max": "pro",
+  "Shield Max Annual": "pro",
 };
 
 // ─── Derived: plan name → billing_cycle column value ─────────────────────────
 export const PLAN_NAME_TO_CYCLE: Record<PlanName, "monthly" | "annual" | null> = {
   Free: null,
-  Shield: "monthly",
-  "Shield Annual": "annual",
   "Shield Pro": "monthly",
   "Shield Pro Annual": "annual",
+  "Shield Max": "monthly",
+  "Shield Max Annual": "annual",
 };
 
 // ─── Shopify billing config (consumed by app/shopify.server.ts) ──────────────
@@ -109,11 +116,11 @@ export const PLAN_FEATURES: Record<PlanKey, readonly string[]> = {
     "Image hosting audit (dropshipper detection)",
   ],
   shield_annual: [
-    "Everything in Shield monthly",
+    "Everything in Shield Pro monthly",
     "16% off ($140/yr vs $168/yr)",
   ],
   pro_monthly: [
-    "Everything in Shield",
+    "Everything in Shield Pro",
     "Merchant Listings JSON-LD enricher",
     "GTIN / MPN / brand auto-filler",
     "Organization & WebSite schema (site-wide)",
@@ -121,7 +128,7 @@ export const PLAN_FEATURES: Record<PlanKey, readonly string[]> = {
     "AI bot allow/block toggle",
   ],
   pro_annual: [
-    "Everything in Shield Pro monthly",
+    "Everything in Shield Max monthly",
     "16% off ($390/yr vs $468/yr)",
   ],
 };
@@ -143,14 +150,14 @@ export const TIER_GROUPS: Record<
   }
 > = {
   shield: {
-    label: PLANS.shield_monthly.name, // "Shield"
+    label: PLANS.shield_monthly.name, // "Shield Pro"
     monthlyName: PLANS.shield_monthly.name,
     annualName: PLANS.shield_annual.name,
     monthlyPrice: PLANS.shield_monthly.monthly,
     annualPrice: PLANS.shield_annual.annual,
   },
   pro: {
-    label: PLANS.pro_monthly.name, // "Shield Pro"
+    label: PLANS.pro_monthly.name, // "Shield Max"
     monthlyName: PLANS.pro_monthly.name,
     annualName: PLANS.pro_annual.name,
     monthlyPrice: PLANS.pro_monthly.monthly,
@@ -177,7 +184,7 @@ export const TIER_FEATURES: Record<TierGroupKey, readonly string[]> = {
     "Image hosting audit (dropshipper detection)",
   ],
   pro: [
-    "Everything in Shield, plus:",
+    "Everything in Shield Pro, plus:",
     "Merchant Listings JSON-LD enricher",
     "GTIN / MPN / brand auto-filler",
     "Organization & WebSite schema (site-wide)",
@@ -189,10 +196,10 @@ export const TIER_FEATURES: Record<TierGroupKey, readonly string[]> = {
 // Plan name → tier group for "current plan" detection in plan-switcher.
 export const PLAN_NAME_TO_GROUP: Record<PlanName, TierGroupKey | null> = {
   Free: null,
-  Shield: "shield",
-  "Shield Annual": "shield",
-  "Shield Pro": "pro",
-  "Shield Pro Annual": "pro",
+  "Shield Pro": "shield",
+  "Shield Pro Annual": "shield",
+  "Shield Max": "pro",
+  "Shield Max Annual": "pro",
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

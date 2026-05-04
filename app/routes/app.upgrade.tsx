@@ -5,13 +5,13 @@
  *
  * v2 — recurring billing.
  *
- * Picker UI: 2-card layout (Shield, Shield Pro) with a Monthly | Annual
+ * Picker UI: 2-card layout (Shield Pro, Shield Max) with a Monthly | Annual
  * cycle toggle. Default cycle is Monthly. The "Choose" button on each card
  * navigates to /app/upgrade?plan=<concrete plan name> based on the selected
- * cycle, e.g. cycle='annual' on the Shield card → plan="Shield Annual".
+ * cycle, e.g. cycle='annual' on the Shield Pro card → plan="Shield Pro Annual".
  *
- *   - GET /app/upgrade               → renders picker (default monthly)
- *   - GET /app/upgrade?plan=Shield   → loader calls billing.request() and
+ *   - GET /app/upgrade                  → renders picker (default monthly)
+ *   - GET /app/upgrade?plan=Shield Pro  → loader calls billing.request() and
  *                                      throws a redirect to Shopify's hosted
  *                                      approval page. Return URL points at
  *                                      /app/billing/confirm.

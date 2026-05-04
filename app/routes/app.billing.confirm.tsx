@@ -32,6 +32,7 @@ import {
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { billing, session } = await authenticate.admin(request);
+  console.log(`[billing/confirm] loader entered for shop=${session.shop}`);
 
   let billingCheck;
   try {
@@ -40,6 +41,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       isTest: process.env.NODE_ENV !== "production",
       returnObject: true,
     });
+    console.log(
+      `[billing/confirm] billing.check hasActivePayment=${billingCheck.hasActivePayment}`,
+      billingCheck.hasActivePayment
+        ? `activePlan="${billingCheck.appSubscriptions?.[0]?.name}" subId="${(billingCheck.appSubscriptions?.[0] as any)?.id}"`
+        : "",
+    );
   } catch (err) {
     // billing.check() can throw if no subscription exists at all — treat as
     // cancelled / declined and fall through to the free-tier redirect.

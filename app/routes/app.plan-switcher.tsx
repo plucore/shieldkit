@@ -23,8 +23,10 @@
  * to /app/upgrade (which itself shows the legacy banner).
  */
 
+import { useCallback } from "react";
 import {
   redirect,
+  useFetcher,
   useLoaderData,
   useRouteError,
   useSearchParams,
@@ -37,6 +39,7 @@ import type {
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
+import { useWebComponentClick } from "../hooks/useWebComponentClick";
 import {
   PLANS,
   PAID_PLAN_NAMES,
@@ -281,23 +284,33 @@ export default function PlanSwitcher() {
       </div>
 
       {/* ── Cancel subscription (only if on a paid plan) ─────────────────── */}
-      {activePlanName && (
-        <s-section heading="Cancel subscription">
-          <s-paragraph>
-            Cancelling returns your account to the Free plan with 1 scan per month.
-            Pro features stop immediately. Shopify prorates any unused time on
-            your next invoice.
-          </s-paragraph>
-          <form method="post" action="/app/plan-switcher">
-            <input type="hidden" name="intent" value="cancel" />
-            {/* @ts-ignore — s-button supports `submit` at runtime */}
-            <s-button variant="secondary" tone="critical" submit="">
-              Cancel subscription
-            </s-button>
-          </form>
-        </s-section>
-      )}
+      {activePlanName && <CancelSection />}
     </s-page>
+  );
+}
+
+function CancelSection() {
+  const cancelFetcher = useFetcher();
+  const onCancel = useCallback(() => {
+    console.log("[plan-switcher] cancel clicked");
+    cancelFetcher.submit(
+      { intent: "cancel" },
+      { method: "post", action: "/app/plan-switcher" },
+    );
+  }, [cancelFetcher]);
+  const cancelRef = useWebComponentClick<HTMLElement>(onCancel);
+
+  return (
+    <s-section heading="Cancel subscription">
+      <s-paragraph>
+        Cancelling returns your account to the Free plan with 1 scan per month.
+        Pro features stop immediately. Shopify prorates any unused time on
+        your next invoice.
+      </s-paragraph>
+      <s-button variant="secondary" tone="critical" ref={cancelRef}>
+        Cancel subscription
+      </s-button>
+    </s-section>
   );
 }
 
@@ -312,6 +325,15 @@ function PlanCard({
 }) {
   const plan = PLANS[planKey];
   const features = PLAN_FEATURES[planKey];
+  const switchFetcher = useFetcher();
+  const onSwitch = useCallback(() => {
+    console.log(`[plan-switcher] switch clicked plan="${plan.name}"`);
+    switchFetcher.submit(
+      { intent: "switch", plan: plan.name },
+      { method: "post", action: "/app/plan-switcher" },
+    );
+  }, [switchFetcher, plan.name]);
+  const switchRef = useWebComponentClick<HTMLElement>(onSwitch);
 
   return (
     <s-section heading={plan.name}>
@@ -330,14 +352,9 @@ function PlanCard({
         ))}
       </ul>
       {!isCurrent && (
-        <form method="post" action="/app/plan-switcher">
-          <input type="hidden" name="intent" value="switch" />
-          <input type="hidden" name="plan" value={plan.name} />
-          {/* @ts-ignore — s-button supports `submit` at runtime */}
-          <s-button variant="primary" submit="">
-            {hasActivePaid ? `Switch to ${plan.name}` : `Choose ${plan.name}`}
-          </s-button>
-        </form>
+        <s-button variant="primary" ref={switchRef}>
+          {hasActivePaid ? `Switch to ${plan.name}` : `Choose ${plan.name}`}
+        </s-button>
       )}
     </s-section>
   );

@@ -18,11 +18,18 @@
  * isTest mirrors NODE_ENV !== 'production' (test charges in dev).
  */
 
-import { redirect, useLoaderData, useRouteError } from "react-router";
+import { useCallback } from "react";
+import {
+  redirect,
+  useLoaderData,
+  useNavigate,
+  useRouteError,
+} from "react-router";
 import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
+import { useWebComponentClick } from "../hooks/useWebComponentClick";
 import {
   PLANS,
   PAID_PLAN_NAMES,
@@ -55,6 +62,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   }
 
   // ── A specific paid plan was requested → kick off Shopify billing ───────
+  if (planParam) {
+    console.log(`[upgrade] loader received plan param="${planParam}" for shop=${session.shop}`);
+    if (!(PAID_PLAN_NAMES as readonly string[]).includes(planParam)) {
+      console.warn(
+        `[upgrade] plan="${planParam}" not in PAID_PLAN_NAMES=${JSON.stringify(PAID_PLAN_NAMES)} — falling through to picker`,
+      );
+    }
+  }
   if (planParam && (PAID_PLAN_NAMES as readonly string[]).includes(planParam)) {
     const plan = planParam as PaidPlanName;
 
@@ -64,6 +79,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         isTest: process.env.NODE_ENV !== "production",
         returnObject: true,
       });
+      console.log(
+        `[upgrade] billing.check hasActivePayment=${check.hasActivePayment}`,
+        check.hasActivePayment
+          ? `activePlan="${check.appSubscriptions?.[0]?.name}"`
+          : "",
+      );
       if (check.hasActivePayment) {
         const activeName = check.appSubscriptions?.[0]?.name;
         if (activeName === plan) return redirect("/app");
@@ -74,15 +95,30 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       console.warn("[upgrade] billing.check threw (no subscription, expected):", checkErr);
     }
 
+    const returnUrl = `${process.env.SHOPIFY_APP_URL}/app/billing/confirm`;
+    console.log(
+      `[upgrade] calling billing.request plan="${plan}" isTest=${process.env.NODE_ENV !== "production"} returnUrl=${returnUrl}`,
+    );
+    if (!process.env.SHOPIFY_APP_URL) {
+      console.error(
+        "[upgrade] SHOPIFY_APP_URL is undefined — Shopify will reject the returnUrl. Run via `npm run dev` so the CLI injects the tunnel URL.",
+      );
+    }
     try {
       await billing.request({
         plan,
         isTest: process.env.NODE_ENV !== "production",
-        returnUrl: `${process.env.SHOPIFY_APP_URL}/app/billing/confirm`,
+        returnUrl,
       });
+      // billing.request always throws a Response — this line is unreachable.
+      console.error("[upgrade] billing.request returned without throwing redirect — unexpected");
     } catch (err) {
-      // billing.request() throws a Response (redirect) on success — re-throw.
-      if (err instanceof Response) throw err;
+      if (err instanceof Response) {
+        console.log(
+          `[upgrade] billing.request threw redirect status=${err.status} location=${err.headers.get("location")}`,
+        );
+        throw err;
+      }
       console.error("[upgrade] billing.request() failed:", err);
       return redirect("/app?billing=error");
     }
@@ -170,6 +206,12 @@ export default function UpgradePage() {
 function PlanCard({ planKey }: { planKey: PaidPlanKey }) {
   const plan = PLANS[planKey];
   const features = PLAN_FEATURES[planKey];
+  const navigate = useNavigate();
+  const onChoose = useCallback(() => {
+    console.log(`[upgrade] PlanCard clicked plan="${plan.name}"`);
+    navigate(`/app/upgrade?plan=${encodeURIComponent(plan.name)}`);
+  }, [navigate, plan.name]);
+  const buttonRef = useWebComponentClick<HTMLElement>(onChoose);
 
   return (
     <s-section heading={plan.name}>
@@ -181,13 +223,9 @@ function PlanCard({ planKey }: { planKey: PaidPlanKey }) {
           <li key={f}>{f}</li>
         ))}
       </ul>
-      <form method="get" action="/app/upgrade">
-        <input type="hidden" name="plan" value={plan.name} />
-        {/* @ts-ignore — s-button supports `submit` at runtime */}
-        <s-button variant="primary" submit="">
-          Choose {plan.name}
-        </s-button>
-      </form>
+      <s-button variant="primary" ref={buttonRef}>
+        Choose {plan.name}
+      </s-button>
     </s-section>
   );
 }

@@ -74,13 +74,20 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   const { data: merchantRow } = await supabase
     .from("merchants")
-    .select("id, shopify_domain, scans_remaining, tier, json_ld_enabled, generated_policies, policy_regen_used, review_prompted")
+    .select(
+      "id, shopify_domain, scans_remaining, tier, billing_cycle, " +
+      "shopify_subscription_id, json_ld_enabled, generated_policies, " +
+      "policy_regen_used, review_prompted",
+    )
     .eq("shopify_domain", shopDomain)
     .maybeSingle();
 
   let merchant = merchantRow as Merchant | null;
 
-  // ── Billing self-heal: if Shopify says paid but Supabase tier is stale ──
+  // ── Billing self-heal ────────────────────────────────────────────────────
+  // Reconcile DB against Shopify's view of truth. Detects drift on tier,
+  // billing_cycle, AND shopify_subscription_id — not just tier — so a
+  // monthly→annual swap (same tier) still updates the cycle field.
   if (merchant) {
     try {
       const billingCheck = await billing.check({
@@ -93,26 +100,34 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         const activeName = (sub?.name ?? "") as PlanName;
         const expectedTier = PLAN_NAME_TO_TIER[activeName];
         const expectedCycle = PLAN_NAME_TO_CYCLE[activeName];
+        const expectedSubId = (sub as any)?.id ?? null;
+        const expectedStartedAt =
+          (sub as any)?.createdAt ?? new Date().toISOString();
 
-        if (expectedTier && expectedTier !== "free" && merchant.tier !== expectedTier) {
-          const subscriptionId = (sub as any)?.id ?? null;
-          const startedAt = (sub as any)?.createdAt ?? new Date().toISOString();
+        if (expectedTier && expectedTier !== "free") {
+          const drift =
+            merchant.tier !== expectedTier ||
+            (merchant as any).billing_cycle !== expectedCycle ||
+            (merchant as any).shopify_subscription_id !== expectedSubId ||
+            merchant.scans_remaining !== null;
 
-          await supabase
-            .from("merchants")
-            .update({
+          if (drift) {
+            await supabase
+              .from("merchants")
+              .update({
+                tier: expectedTier,
+                billing_cycle: expectedCycle,
+                shopify_subscription_id: expectedSubId,
+                subscription_started_at: expectedStartedAt,
+                scans_remaining: null,
+              })
+              .eq("id", merchant.id);
+            merchant = {
+              ...merchant,
               tier: expectedTier,
-              billing_cycle: expectedCycle,
-              shopify_subscription_id: subscriptionId,
-              subscription_started_at: startedAt,
               scans_remaining: null,
-            })
-            .eq("id", merchant.id);
-          merchant = {
-            ...merchant,
-            tier: expectedTier,
-            scans_remaining: null,
-          };
+            };
+          }
         }
       }
     } catch (_) {

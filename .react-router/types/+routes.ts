@@ -35,8 +35,16 @@ type Pages = {
   "/webhooks/shop/redact": {
     params: {};
   };
+  "/blog": {
+    params: {};
+  };
   "/auth/login": {
     params: {};
+  };
+  "/blog/:slug": {
+    params: {
+      "slug": string;
+    };
   };
   "/explainer": {
     params: {};
@@ -69,7 +77,7 @@ type Pages = {
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/webhooks/app_subscriptions/update" | "/webhooks/customers/data_request" | "/webhooks/app/scopes_update" | "/webhooks/customers/redact" | "/webhooks/app/uninstalled" | "/api/cron/weekly-scan" | "/webhooks/shop/redact" | "/auth/login" | "/explainer" | "/api/scan" | "/auth/*" | "/scan" | "/app" | "/app/billing/confirm" | "/app/dmca-takedowns" | "/app/upgrade";
+    page: "/" | "/webhooks/app_subscriptions/update" | "/webhooks/customers/data_request" | "/webhooks/app/scopes_update" | "/webhooks/customers/redact" | "/webhooks/app/uninstalled" | "/api/cron/weekly-scan" | "/webhooks/shop/redact" | "/blog" | "/auth/login" | "/blog/:slug" | "/explainer" | "/api/scan" | "/auth/*" | "/scan" | "/app" | "/app/billing/confirm" | "/app/dmca-takedowns" | "/app/upgrade";
   };
   "routes/webhooks.app_subscriptions.update.tsx": {
     id: "routes/webhooks.app_subscriptions.update";
@@ -99,9 +107,17 @@ type RouteFiles = {
     id: "routes/webhooks.shop.redact";
     page: "/webhooks/shop/redact";
   };
+  "routes/blog._index.tsx": {
+    id: "routes/blog._index";
+    page: "/blog";
+  };
   "routes/auth.login/route.tsx": {
     id: "routes/auth.login";
     page: "/auth/login";
+  };
+  "routes/blog.$slug.tsx": {
+    id: "routes/blog.$slug";
+    page: "/blog/:slug";
   };
   "routes/explainer.tsx": {
     id: "routes/explainer";
@@ -154,7 +170,9 @@ type RouteModules = {
   "routes/webhooks.app.uninstalled": typeof import("./app/routes/webhooks.app.uninstalled.tsx");
   "routes/api.cron.weekly-scan": typeof import("./app/routes/api.cron.weekly-scan.ts");
   "routes/webhooks.shop.redact": typeof import("./app/routes/webhooks.shop.redact.tsx");
+  "routes/blog._index": typeof import("./app/routes/blog._index.tsx");
   "routes/auth.login": typeof import("./app/routes/auth.login/route.tsx");
+  "routes/blog.$slug": typeof import("./app/routes/blog.$slug.tsx");
   "routes/explainer": typeof import("./app/routes/explainer.tsx");
   "routes/api.scan": typeof import("./app/routes/api.scan.ts");
   "routes/_index": typeof import("./app/routes/_index/route.tsx");

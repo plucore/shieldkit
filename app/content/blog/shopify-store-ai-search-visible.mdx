@@ -1,0 +1,113 @@
+export const frontmatter = {
+  title: "How to Make Your Shopify Store Visible in ChatGPT, Gemini, and Perplexity",
+  slug: "shopify-store-ai-search-visible",
+  description:
+    "Beyond Google: how to make your Shopify products appear in AI-powered shopping results across ChatGPT, Google AI Overviews, and Perplexity.",
+  publishedAt: "2026-05-04",
+  keywords: [
+    "is my shopify store ai visible",
+    "agentic storefronts ready",
+    "shopify chatgpt visibility",
+    "shopify ai search",
+  ],
+};
+
+In 2024 the conversation about ecommerce search was simple: rank on Google. In 2026 it's not. Adobe's Q1 2026 commerce report found that AI-driven referral traffic to ecommerce sites grew **1,200% year-over-year**, with ChatGPT, Google AI Overviews, and Perplexity now accounting for roughly 8% of pre-purchase research sessions on US apparel sites — and growing every quarter.
+
+The merchants who win the next decade aren't the ones at the top of Google. They're the ones whose product data is structured cleanly enough that an AI agent can recommend them confidently. This post walks through what AI search engines actually look for and how to make your Shopify store legible to them.
+
+## Why AI Traffic Matters Now
+
+Adobe's data is clear: AI shopping is no longer a curiosity. Across categories Adobe tracks (apparel, electronics, home, beauty), the share of pre-purchase research happening inside AI chat interfaces has grown from "rounding error" in 2024 to a real percentage of the funnel in early 2026. Conversion rates for AI-referred traffic are *higher* than organic search referrals, because the recommendation is already a buying signal — the user asked "what's a good wool sweater under $200" and the AI handed them three options.
+
+The catch: AI engines are pickier than Google about what they'll recommend. Google ranks pages by signals; AI ranks products by structured data quality. A product page that ranks #5 on Google for a relevant query might not appear in a single ChatGPT recommendation if the underlying product schema is incomplete or absent.
+
+## What AI Engines Actually Look At
+
+Across our analysis of how ChatGPT (with shopping plugins), Google's AI Overviews, and Perplexity Shopping surface products, four data sources dominate:
+
+**1. Schema.org Product JSON-LD on product pages.** This is the lingua franca. Every AI shopping engine parses it. Required fields: `name`, `image`, `description`, `brand`, `offers` (with `price`, `priceCurrency`, `availability`, `priceValidUntil`), `aggregateRating` (when available), `review` (when available). Missing brand or aggregateRating is the most common gap on Shopify stores.
+
+**2. Merchant Listings JSON-LD.** This is the GMC-specific extension layer: `gtin`, `mpn`, `sku`, `material`, `pattern`, `color`, `size`. Most Shopify themes don't emit these by default. Adding them moves your products from "appears occasionally" to "appears reliably" in AI shopping results.
+
+**3. llms.txt at the site root.** A 2025 standard ([llmstxt.org](https://llmstxt.org)) that tells AI crawlers about your store the way `robots.txt` tells search crawlers. A clean `llms.txt` includes your store name, description, contact info, and links to your policy pages and product feed. ChatGPT's crawler explicitly honors it; Perplexity does too as of late 2025.
+
+**4. Organization and WebSite JSON-LD on the homepage.** Establishes your brand identity for the AI engines that care about who's behind the catalog. Includes your social profiles via `sameAs`, your search URL via `potentialAction`, and your logo.
+
+If you have all four in place, your store is "AI-ready" by 2026 standards. Most Shopify stores have only the first one — and even that one is usually missing fields.
+
+## Merchant Listings Schema Enrichment
+
+Out of the box, Shopify's product JSON-LD includes the basic Schema.org fields but skips the GMC-specific extensions. Adding them takes one of three approaches:
+
+**Manual (low-volume catalogs):** edit each product's metafields in Shopify Admin to add `gtin`, `mpn`, `brand`, etc. Then update your theme's product.liquid to emit these fields in the JSON-LD block. Doable for stores with under 50 SKUs.
+
+**Theme-level (medium catalogs):** install a theme block that auto-enriches the JSON-LD from product metafields. ShieldKit's Shield Max tier ships this as a theme extension — drop the block into your product template, configure the metafield mappings once, and every product page emits enriched schema automatically.
+
+**Feed-level (large catalogs):** for stores with thousands of SKUs, the right answer is enriching the Google Merchant Center feed directly via Shopify's Google channel app + custom metafields. The downside: this only helps Google. AI engines crawl your storefront, not your GMC feed.
+
+## llms.txt at Root
+
+`llms.txt` is a plain Markdown file at `/llms.txt` that gives AI crawlers a structured introduction to your store. Example:
+
+```
+# Cool Socks Co
+> Premium merino wool socks, made in Vermont since 2019.
+
+## Contact
+- Email: hello@coolsocks.com
+- Phone: +1 (555) 123-4567
+
+## Policies
+- [Refund policy](https://coolsocks.com/policies/refund-policy)
+- [Shipping policy](https://coolsocks.com/policies/shipping-policy)
+- [Privacy policy](https://coolsocks.com/policies/privacy-policy)
+
+## Products
+- [Product feed](https://coolsocks.com/products.json)
+- [Sitemap](https://coolsocks.com/sitemap.xml)
+```
+
+You can host this manually as a custom Shopify page (set the URL handle to `llms-txt` and set `Content-Type` via app proxy), or install ShieldKit's Shield Max tier, which serves it automatically at `yourstore.com/apps/llms-txt`.
+
+## AI Bot Allow/Block Decisions
+
+You don't have to allow every AI bot. Each major AI engine has a distinct crawler:
+
+- **GPTBot** (OpenAI/ChatGPT)
+- **ChatGPT-User** (real-time fetches when a ChatGPT user asks about your store)
+- **CCBot** (Common Crawl, used by many)
+- **PerplexityBot**
+- **Google-Extended** (Google's Bard/Gemini training crawler, distinct from Googlebot)
+- **Anthropic-AI / Claude-Web** (Anthropic's Claude)
+- **Bytespider** (ByteDance/TikTok)
+- **Amazonbot**
+- **Applebot-Extended**
+
+Most merchants want to allow all of these — AI traffic is increasingly buy-intent. But there are valid reasons to block specific bots: training-only crawlers (Google-Extended, Anthropic-AI for training) without allowing real-time fetch, blocking bots from competitive geographies, or blocking high-volume crawlers that hammer your origin.
+
+ShieldKit's Shield Max includes a UI for allow/block decisions — you check the boxes, we generate the matching `robots.txt` snippet for you to paste into your theme. For DIY, edit `theme.liquid` (or your `robots.txt.liquid` if your theme has one) and add `User-agent: GPTBot` blocks as needed.
+
+## Organization and WebSite Schema
+
+The homepage JSON-LD that establishes your brand identity to AI engines. Two blocks:
+
+**Organization schema:** name, url, logo, sameAs (links to your social profiles), contactPoint, address. This tells AI engines who you are.
+
+**WebSite schema:** name, url, potentialAction (the search URL template). This lets AI engines link directly into your store search when a user asks "find me a wool sweater on coolsocks.com."
+
+Most Shopify themes don't emit these. Shield Max ships theme blocks that drop into your homepage template and auto-populate from your store settings; for DIY, paste hand-written JSON-LD into a custom Liquid block on the homepage.
+
+## Putting It Together
+
+If you want your Shopify store to be visible in 2026's AI search landscape:
+
+1. Verify your Product JSON-LD includes brand, aggregateRating, and review fields. Most themes are missing at least one.
+2. Enrich Merchant Listings schema with gtin, mpn, color, size, material — either manually for small catalogs or via a theme block for larger ones.
+3. Publish llms.txt at your store root.
+4. Add Organization and WebSite JSON-LD to your homepage.
+5. Configure AI bot allow/block decisions in robots.txt.
+
+If you'd rather not hand-roll all of this, ShieldKit's [Shield Max tier](/#pricing) ($39/month) covers all five through theme blocks and an app proxy — drop the blocks into your theme, configure once, done. The first AI-referred sale typically pays for the year.
+
+For the GMC compliance side of the equation (still important — Google Shopping isn't going anywhere), see the [12-point Shopify checklist](/blog/gmc-suspension-shopify-checklist) or run a [free public scan](/scan).

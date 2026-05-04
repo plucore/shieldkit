@@ -1,0 +1,95 @@
+export const frontmatter = {
+  title: "Why Your Google Shopping Account Got Disapproved (and How to Recover Fast)",
+  slug: "google-shopping-disapproved-shopify",
+  description:
+    "Disapprovals vs. suspensions, the difference, and the fastest path back to running ads on Shopify.",
+  publishedAt: "2026-05-04",
+  keywords: [
+    "google shopping disapproved shopify",
+    "google ads disapproved",
+    "shopify google shopping account",
+  ],
+};
+
+If your Google Shopping campaign suddenly stops serving impressions, the issue is almost always one of two things: your **products** got disapproved, or your entire **account** got disapproved or suspended. They look identical from inside Google Ads — campaigns just stop running — but they're fundamentally different problems with different recovery paths.
+
+This post walks through the distinction and the recovery path for each.
+
+## Disapproval vs. Suspension
+
+The terminology Google uses is sloppy and the boundaries are fuzzy, but here's the practical breakdown:
+
+**Product disapproval** is a feed-level problem. Specific items in your Merchant Center feed have been disapproved — Google won't show them in Shopping. Other products in the feed continue to serve. Reasons range from missing GTINs to image quality issues to category mismatches. This is recoverable in hours, not days, once you fix the offending fields.
+
+**Account disapproval** is a Merchant Center-wide problem affecting all products. Most often, "account disapproved" actually means *suspended*, which means your products will not appear in Shopping until Google reinstates the account. This is what happens when misrepresentation flags fire.
+
+**Account suspension** is the most severe — you've explicitly violated policy (misrepresentation, prohibited content, customer service issues) and Google has shut down the account. Reinstatement requires a re-review request and 3–7 business days minimum.
+
+The first thing to do when ad delivery stops: open Merchant Center → Diagnostics. The header at the top of that page tells you which of the three states you're in.
+
+## Product-Level Disapprovals
+
+Product disapprovals are the easier case. Merchant Center → Products → Diagnostics gives you a per-product list of what's wrong. The most common reasons on Shopify stores:
+
+**Missing GTIN.** Google requires GTINs for branded products in most categories. If you're selling someone else's brand (e.g. you're a Nike retailer), you need real GTINs from the manufacturer. If you're a private-label brand selling your own products, you can submit `identifier_exists: false` in the feed — Shopify's Google channel handles this, but you have to enable it.
+
+**Missing or bad image.** Images must be 100x100 minimum (Apparel: 250x250), under 16MB, on a white or transparent background, no text overlays, no watermarks. Shopify's automatic feed sync uses your product's main image — if that image has a "Limited Time!" overlay, it fails.
+
+**Image accessibility.** If the image URL returns a 4xx or redirects through a CDN that requires authentication, Google can't pull it. Re-host on Shopify's CDN.
+
+**Mismatched price/availability.** The price in your Merchant Center feed must match the price on your storefront within tight tolerance. If you change a price in Shopify and your feed sync hasn't pushed yet, products go disapproved until they reconcile. Rule of thumb: don't change prices more than once per day.
+
+**Category misclassification.** Products mapped to the wrong Google Product Category. If you sell t-shirts but your feed says "Electronics > Phone Cases," disapproval.
+
+**Recovery time:** for product-level issues, typically minutes after the next feed sync. Force a re-sync from your Shopify Google channel after fixing.
+
+## Account-Level Disapprovals (a.k.a. Suspensions)
+
+This is the harder case and the one most blog posts conflate with product disapprovals. If Merchant Center diagnostics says "account suspended for misrepresentation," your problem isn't a missing GTIN — it's a trust signal Google computes about your storefront as a whole.
+
+The most common account-level triggers:
+
+1. **Insufficient contact information.** Less than 2 of 3 contact methods publicly visible.
+2. **Missing or incomplete refund policy.** Return window, item condition, or refund method missing.
+3. **Hidden fees not disclosed in policy.** Cart shows handling fee that's absent from shipping policy.
+4. **Storefront password gate enabled.** Crawler can't reach products.
+5. **Drop-shipper-hosted images** combined with thin product descriptions.
+6. **Missing structured data.** No JSON-LD Product schema on product pages.
+
+We cover all of these in detail in our [12-point Shopify checklist](/blog/gmc-suspension-shopify-checklist) and the [GMC explainer](/explainer). The recovery path is the same: audit, fix, document, request review.
+
+## The Recovery Path
+
+### For product-level disapprovals:
+
+1. Open Merchant Center → Products → Diagnostics.
+2. Filter to "disapproved." Group by issue.
+3. Fix the highest-volume issue first (usually image or GTIN).
+4. Force a feed re-sync from Shopify's Google channel app.
+5. Wait for the next sync cycle (every 6–24h depending on store size).
+6. Verify in Diagnostics that the disapproval count dropped.
+
+This loop typically resolves in same-day for an experienced merchant.
+
+### For account-level disapproval/suspension:
+
+1. Run a [free compliance scan](/scan) to surface the likely triggers.
+2. Work through the [12-point checklist](/blog/gmc-suspension-shopify-checklist).
+3. Document each fix with screenshots and dates.
+4. Submit a re-review request through Merchant Center → Diagnostics → "Request review."
+5. Wait 3–7 business days.
+6. If denied or stalled past 14 days, escalate via Twitter (@AskShopping) or hire a recovery service like [KeyCommerce](https://keycommerce.com), [StubGroup](https://stubgroup.com), or [FeedArmy](https://feedarmy.com).
+
+## Common Confusion Points
+
+**"I fixed everything and they still won't reinstate."** Check that your fixes are actually live. We see merchants edit a draft policy in Shopify Admin without saving it. Open your live `/policies/refund-policy` URL in incognito to confirm.
+
+**"They reinstated me but my products still aren't showing."** Reinstatement and product re-approval are separate processes. After account reinstatement, products go back through individual review. Allow 24–48 hours.
+
+**"My competitor has the same setup and isn't suspended."** Possibly true. Misrepresentation review is partly probabilistic and partly historical — accounts with prior violations get scrutinized harder. Focus on your fix, not the comparison.
+
+## Prevention
+
+The merchants who never get hit twice are the ones who treat compliance as continuous monitoring, not one-time recovery. A weekly compliance scan catches regressions introduced by theme updates, new apps, or copy edits — before Google's crawler does. ShieldKit's [Shield Pro tier](/) ($14/month) automates this and emails you a digest. For a deeper dive on prevention discipline, see the [GMC explainer](/explainer).
+
+If you're suspended right now, start with the [free public scan](/scan). Most merchants are surprised by what's flagged.

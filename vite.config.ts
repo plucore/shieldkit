@@ -1,4 +1,8 @@
 import { reactRouter } from "@react-router/dev/vite";
+import mdx from "@mdx-js/rollup";
+import remarkGfm from "remark-gfm";
+import rehypeSlug from "rehype-slug";
+import rehypeAutolinkHeadings from "rehype-autolink-headings";
 import { defineConfig, type UserConfig } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 
@@ -49,6 +53,13 @@ export default defineConfig({
     },
   },
   plugins: [
+    // MDX must run BEFORE the React Router plugin so the .mdx files are
+    // already JS by the time RR's route discovery looks at them.
+    mdx({
+      remarkPlugins: [remarkGfm],
+      rehypePlugins: [rehypeSlug, rehypeAutolinkHeadings],
+      providerImportSource: "@mdx-js/react",
+    }),
     reactRouter(),
     tsconfigPaths(),
   ],

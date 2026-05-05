@@ -1,0 +1,116 @@
+export const frontmatter = {
+  title: "GMC Suspension Fix: The 12-Point Shopify Checklist That Actually Works",
+  slug: "gmc-suspension-shopify-checklist",
+  description:
+    "The exact compliance checklist Shopify merchants use to recover from Google Merchant Center suspension. Runs through every common trigger with fix instructions.",
+  publishedAt: "2026-05-04",
+  keywords: [
+    "gmc suspension shopify fix",
+    "google merchant center checklist",
+    "shopify compliance audit",
+  ],
+};
+
+If your Shopify store is suspended from Google Merchant Center — or you're trying to make sure it never gets suspended in the first place — this is the checklist to work through. Each item describes what Google checks, how to verify it on your store, and the exact fix.
+
+This checklist matches the 12 automated checks in [ShieldKit's compliance scanner](/scan), so if you'd rather have the diagnostic done for you, that's the one-click path. Either way: fix the criticals first.
+
+## 1. Contact Information (Critical)
+
+**What Google checks:** that at least two of three contact methods are publicly visible — phone, email, physical street address.
+
+**How to verify on your store:** open your `/pages/contact-us` and `/pages/about-us` in an incognito window. Both should display the actual contact details, not just a contact form. PO boxes and gmail/outlook addresses don't count toward the threshold.
+
+**Fix:** Shopify Admin → Online Store → Pages → Contact (or About). Edit the page body and add the missing fields. Use a real domain email (`support@yourstore.com`), a real US/CA/UK/EU phone number, and a real street address.
+
+## 2. Refund / Return Policy (Critical)
+
+**What Google checks:** that you have a published refund policy, and that the policy contains three signals — return window, item condition, refund method.
+
+**How to verify on your store:** visit `/policies/refund-policy`. The page should specify (a) how long shoppers have to return ("within 30 days"), (b) what condition the item must be in ("unworn, with tags, in original packaging"), and (c) how the refund is issued ("to the original payment method").
+
+**Fix:** Shopify Admin → Settings → Policies → Refund Policy → "Create from template." Replace the merchant-specific placeholders with your actual return window and conditions. Don't delete sections — Google looks for them.
+
+## 3. Shipping Policy (Critical)
+
+**What Google checks:** that delivery timeframes and shipping costs are explicitly stated.
+
+**How to verify on your store:** visit `/policies/shipping-policy`. The page should mention something like "orders ship within 1–2 business days" and "free shipping over $50, $5.99 flat rate otherwise." Vague language ("we ship most orders quickly") fails.
+
+**Fix:** Shopify Admin → Settings → Policies → Shipping Policy. Add explicit timeframes and a costs table.
+
+## 4. Privacy Policy and Terms of Service (Critical)
+
+**What Google checks:** that both `/policies/privacy-policy` and `/policies/terms-of-service` exist and are non-empty.
+
+**How to verify on your store:** open both URLs in incognito. Privacy is non-negotiable (GDPR/CCPA require it independent of GMC). ToS is technically optional but its absence is a strong negative signal.
+
+**Fix:** Shopify Admin → Settings → Policies → "Create from template" for both. Customize only the merchant-specific fields.
+
+## 5. Product Data Quality (Warning)
+
+**What Google checks:** that your products have non-trivial descriptions, images, sane pricing, and SKUs.
+
+**How to verify on your store:** browse 10 random products. For each, check description length (200+ characters minimum), at least one image, a non-zero non-absurd price, and a SKU.
+
+**Fix:** Shopify Admin → Products. For products with thin descriptions, add 2–3 paragraphs describing materials, care, dimensions. For products with missing images, upload them. For products with placeholder prices, set real ones.
+
+## 6. Checkout Transparency (Warning)
+
+**What Google checks:** that your homepage shows the payment methods you accept.
+
+**How to verify on your store:** scroll to your homepage footer. You should see Visa/Mastercard/PayPal/Apple Pay icons (or whatever you actually accept).
+
+**Fix:** Shopify Admin → Online Store → Themes → Theme settings → Footer. Enable "Show payment icons." If you're on a custom theme that doesn't have this option, add an HTML block to your footer with `<img>` tags for each method.
+
+## 7. Storefront Accessibility (Critical)
+
+**What Google checks:** that your store isn't password-protected and that product pages return HTTP 200.
+
+**How to verify on your store:** open your storefront in an incognito browser. You shouldn't see a password page. Pick three random product URLs from `/products.json` and confirm each loads.
+
+**Fix:** Online Store → Preferences → uncheck "Restrict access to visitors with the password." For 404s on product pages, verify the affected products are published to the Online Store sales channel.
+
+## 8. Structured Data / JSON-LD (Warning)
+
+**What Google checks:** that each product page has valid Product JSON-LD schema with name, image, description, and offers (price, currency, availability).
+
+**How to verify on your store:** view-source on any product page, search for `application/ld+json`. The block should contain `"@type": "Product"` with all five required fields populated.
+
+**Fix:** Most Shopify themes inject Product JSON-LD automatically. If yours doesn't, install [ShieldKit's free JSON-LD theme block](https://apps.shopify.com/shieldkit) — it works on every plan and auto-populates the schema from product fields.
+
+## 9. Page Speed (Warning)
+
+**What Google checks:** that your mobile PageSpeed score is above 50, and that your store doesn't have intrusive interstitials (popups blocking content above the fold).
+
+**How to verify on your store:** run [pagespeed.web.dev](https://pagespeed.web.dev) against your store URL on the Mobile tab.
+
+**Fix:** Compress images to WebP (Shopify does this automatically if you re-upload). Lazy-load offscreen images. Audit installed apps — uninstall anything you're not actively using. Disable email-capture popups that appear on landing.
+
+## 10. Business Identity Consistency (Info)
+
+**What Google checks:** that your shop name, primary domain, and about-page content tell a consistent story. Google's systems compute a similarity score across these signals.
+
+**How to verify on your store:** read your About page out loud. Does it match the brand name on your homepage? Does it match your domain? If your domain is `coolsocks.com` but your About page is about a hat company, Google notices.
+
+**Fix:** Either update your About page to match the rest of your branding, or change your shop name in Shopify Admin → Settings → Store details.
+
+## 11. Hidden Fees Disclosure (Critical)
+
+**What Google checks:** that any fee mentioned anywhere on your store (handling, restocking, processing, convenience, service, surcharge) is also disclosed in your shipping or refund policy.
+
+**How to verify on your store:** search your storefront text (use `Ctrl+F` on each major page) for those keywords. For each match, check whether the same fee appears in your shipping/refund policy.
+
+**Fix:** Either remove the fee, or add disclosure language to the relevant policy. If you charge a $5 handling fee on orders under $25, your shipping policy must say so.
+
+## 12. Image Hosting Audit (Critical)
+
+**What Google checks:** whether product descriptions reference images hosted on known dropshipper/supplier CDNs (`cdn.cjdropshipping.com`, `alicdn.com`, `aliexpress-img.alicdn.com`, etc.).
+
+**How to verify on your store:** view-source on a few product pages and search the description HTML for those domains. Or use the [free public scanner](/scan), which flags this automatically.
+
+**Fix:** Re-upload the affected images to Shopify's CDN. The Shopify image picker handles this in two clicks per product. For high-volume catalogs, [Matrixify](https://matrixify.app) can bulk-rehost via CSV.
+
+---
+
+After working through all twelve, document every fix with before-and-after screenshots. That documentation is the body of your Merchant Center re-review request — and reviewers move much faster when you give them the audit trail. For the deeper "why" behind each trigger, see the [GMC suspension explainer](/explainer).

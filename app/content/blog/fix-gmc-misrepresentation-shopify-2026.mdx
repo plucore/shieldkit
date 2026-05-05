@@ -1,0 +1,116 @@
+export const frontmatter = {
+  title: "How to Fix Google Merchant Center Misrepresentation Suspension on Shopify in 2026",
+  slug: "fix-gmc-misrepresentation-shopify-2026",
+  description:
+    "A step-by-step recovery guide for Shopify merchants hit with GMC misrepresentation suspension. Real triggers, real fixes, real timelines.",
+  publishedAt: "2026-05-04",
+  keywords: [
+    "google merchant center misrepresentation",
+    "gmc suspension shopify",
+    "fix gmc misrepresentation",
+    "shopify google shopping suspended",
+  ],
+};
+
+## The Suspension Email Just Hit. Now What?
+
+You opened your inbox to find an email from Google Merchant Center: *"Your account has been suspended due to a violation of our misrepresentation policy."* No specifics, no trigger list — just a link to a policy page that reads like it was written for someone else's store.
+
+If you depend on Google Shopping for any meaningful share of revenue, this email is a five-alarm fire. Free Shopping listings vanish immediately. Your Performance Max campaigns destabilize. The merchants we work with typically lose 15–35% of their weekly sessions in the first 48 hours.
+
+The good news: misrepresentation suspensions are recoverable, and most are recoverable in 3–7 business days if you handle the next steps cleanly. The bad news: most merchants spend their first 24 hours panicking and submitting incomplete re-review requests, which gets them denied and resets the clock.
+
+This guide walks you through the exact recovery path. Read it once, then act.
+
+## Why Misrepresentation?
+
+Misrepresentation is the catch-all suspension category Google uses when it concludes — algorithmically or after manual review — that your storefront, feed, or business practices misrepresent yourself to shoppers. Per [Swell's 2026 industry analysis](/explainer), about 60% of Shopify GMC suspensions cite misrepresentation, more than every other category combined.
+
+Why so common? Because the bar is high and the signals are subtle. Google isn't catching outright scams — those get filtered earlier. It's catching legitimate stores that *look* untrustworthy because of a missing policy line, a mis-templated contact page, or a copy mismatch between the cart and the shipping policy. The triggers are mundane, but the consequence is total.
+
+## The 5 Triggers Google Actually Flags
+
+After reviewing hundreds of suspended Shopify stores, the same five triggers account for the overwhelming majority of misrepresentation cases.
+
+**1. Inadequate contact information.** Google wants two of three on a publicly-visible page: phone, email (preferably on your store domain), and a physical street address. PO boxes don't count. A contact form alone doesn't count.
+
+**2. Incomplete refund policy.** Three signals must be present: return window (e.g. "within 30 days"), required item condition (e.g. "unworn, with tags"), and the refund method (original payment, store credit, etc.). Shopify's auto-generated policy covers all three; customizations often strip one out.
+
+**3. Hidden fees not disclosed in policy.** This is the silent killer. If your storefront mentions handling fees, restocking fees, processing fees, or surcharges anywhere — product page, FAQ, cart copy — those fees must also appear in your shipping or refund policy. Google's crawler reads both and flags the mismatch.
+
+**4. Storefront password gate still on.** Easy mistake during soft launches. Google's crawler hits the password page, can't reach your products, and concludes that you're hiding something.
+
+**5. Dropshipper-hosted product images.** Products whose descriptions reference images on `cdn.cjdropshipping.com`, `alicdn.com`, or similar dropshipper CDNs telegraph that you're a reseller without value-add. Combined with thin descriptions, this becomes the deciding factor.
+
+## Step-by-Step Fix
+
+### 1. Run a complete compliance audit before changing anything.
+
+Don't start fixing what you *think* is wrong. Run our [free public scanner](/scan) against your store URL — it surfaces 8 of the most common triggers in under a minute. Document every flagged check in a Google Doc. This list is your fix queue and the foundation of your re-review request.
+
+### 2. Fix contact information first.
+
+In Shopify Admin → Online Store → Pages, edit your Contact and About pages. Add a phone number, an email address (use `support@yourstore.com` rather than a generic gmail address), and a physical street address. If you're a one-person operation working from home, use a registered business address (Shopify Bench, a UPS Store, etc.) — but make it real.
+
+### 3. Regenerate every legal policy.
+
+In Shopify Admin → Settings → Policies, delete your existing Refund Policy, Shipping Policy, Privacy Policy, and Terms of Service. Use Shopify's "Create from template" buttons to regenerate each one. Then customize *only* the merchant-specific fields (return window, shipping costs). Don't strip default sections — Google looks for them.
+
+### 4. Audit hidden-fee disclosures.
+
+Search your storefront for the words: handling, restocking, surcharge, processing, convenience, service fee. Wherever you find them, make sure the same language exists in your shipping or refund policy. If your cart page shows a handling fee that's not in your shipping policy, you have a misrepresentation flag waiting to fire.
+
+### 5. Disable the password gate.
+
+Online Store → Preferences → uncheck "Restrict access to visitors with the password." Verify by opening your store in an incognito window without being signed in.
+
+### 6. Self-host product images.
+
+Re-upload any product images currently hosted on dropshipper CDNs to Shopify's CDN. The Shopify image picker handles this in two clicks per product. For stores with hundreds of products, [Matrixify](https://matrixify.app/) can bulk-rehost via CSV.
+
+### 7. Verify storefront accessibility.
+
+Open three random product pages in incognito. Confirm they load (HTTP 200), display all required schema fields, and don't redirect to a password gate.
+
+### 8. Document every change with screenshots.
+
+Before-and-after screenshots of each fix, dated. Paste these into a single Google Doc. This becomes your re-review request body.
+
+### 9. Submit the re-review request.
+
+Merchant Center → Diagnostics → "Request review." Be specific: *"On 2026-05-12 we (1) added a US phone number and a Wyoming registered street address to /pages/contact, (2) regenerated all four policies from Shopify's template and customized return-window language, (3) added handling-fee disclosure to our shipping policy to match the cart-page copy, (4) disabled the storefront password, (5) re-uploaded 47 product images from cdn.cjdropshipping.com to Shopify CDN. Audit trail attached."*
+
+### 10. Stop touching the store.
+
+The biggest mistake merchants make post-submission is fiddling. Don't change product titles, don't add apps, don't update the theme. Wait. Reviewers see a snapshot — make sure it's the snapshot you submitted.
+
+## The Re-Review Submission: What to Write
+
+Reviewers process hundreds of requests a week. Vague requests lose. Specific, dated, evidenced requests win.
+
+A clean request:
+
+- Opens with a one-line policy acknowledgment ("We've reviewed Google's misrepresentation policy and identified the gaps below")
+- Lists each fix as a numbered item with the date applied
+- Links to the live page where the reviewer can verify the fix
+- Closes with a request to reinstate
+
+That's it. No apologies, no explanations, no narrative. Just the audit trail.
+
+## Recovery Timeline
+
+**Days 1–3:** Most reinstatements happen here.
+
+**Days 4–7:** A second tier of cases requiring deeper review. Don't submit a second request — it resets queue position.
+
+**Days 7–14:** Stalled. Time to escalate. Twitter/X works (tag @AskShopping), and active Google Ads advertisers can sometimes get help via paid support.
+
+**Day 14+:** Hire a recovery service. [KeyCommerce](https://keycommerce.com), [StubGroup](https://stubgroup.com), and [FeedArmy](https://feedarmy.com) all have direct Google reseller channels and can move stalled cases that DIY can't.
+
+## Prevention: Don't Get Hit Again
+
+The post-recovery question is always "how do we make sure this doesn't happen again." The answer is continuous monitoring. Run a compliance scan on a weekly cadence so any regression — a theme update that strips a JSON-LD block, a copy edit that introduces an undisclosed fee, an app that injects a password gate — gets caught before Google's crawler does.
+
+ShieldKit's Shield Pro tier ($14/month) runs an automated weekly scan and emails you a digest of changes. For most merchants, the cost-of-time savings on the first regression caught pays for years of subscription. [Read the full GMC explainer](/explainer) for the longer prevention playbook, or [run a free scan](/scan) to see where your store currently stands.
+
+The merchants who never get suspended a second time are the ones who treat compliance as a continuous-monitoring problem, not a one-time recovery project.

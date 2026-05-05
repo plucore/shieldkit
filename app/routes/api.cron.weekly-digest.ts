@@ -70,6 +70,8 @@ interface MerchantRow {
   shopify_domain: string;
   shop_name: string | null;
   tier: string;
+  llms_txt_last_served_at: string | null;
+  pro_settings: { bot_preferences?: Record<string, unknown> } | null;
 }
 
 interface ScanRow {
@@ -121,7 +123,7 @@ export async function action({ request }: ActionFunctionArgs) {
   // ── 3. Fetch active paid merchants ─────────────────────────────────────────
   const { data: merchants, error: merchantsErr } = await supabase
     .from("merchants")
-    .select("id, shopify_domain, shop_name, tier")
+    .select("id, shopify_domain, shop_name, tier, llms_txt_last_served_at, pro_settings")
     .in("tier", ["shield", "pro"])
     .is("uninstalled_at", null);
 
@@ -280,9 +282,17 @@ export async function action({ request }: ActionFunctionArgs) {
           totalProducts > 0
             ? Math.min(1, (totalEnrichedCount ?? 0) / totalProducts)
             : 0;
-        const llmsTxtRefreshedAt: string | null = null; // wired when llms.txt cache surfaces refresh timestamps
-        const llmsFreshShare = 0; // placeholder until cache table is queryable
-        const botConfigShare = 0; // placeholder until Phase 5 Pro Settings audit lands
+        const llmsTxtRefreshedAt: string | null = merchant.llms_txt_last_served_at;
+        const llmsFreshShare =
+          llmsTxtRefreshedAt &&
+          Date.now() - new Date(llmsTxtRefreshedAt).getTime() <=
+            7 * 24 * 60 * 60 * 1000
+            ? 1
+            : 0;
+        const botPrefs = merchant.pro_settings?.bot_preferences;
+        const botConfigShare = botPrefs
+          ? Object.values(botPrefs).filter((v) => v === true).length / 11
+          : 0;
         const aiReadinessScore = Math.round(
           schemaShare * 60 + llmsFreshShare * 30 + botConfigShare * 10,
         );

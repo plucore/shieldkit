@@ -17,6 +17,7 @@ import {
   type PublicScanError,
   type PublicCheckResult,
 } from "../lib/checks/public-scanner.server";
+import { computeRiskScore } from "../lib/checks/public-risk-score";
 import { supabase } from "../supabase.server";
 import marketingStyles from "../marketing.css?url";
 
@@ -65,6 +66,7 @@ interface ScanActionData {
   storeUrl?: string;
   email?: string;
   result?: PublicScanResult;
+  riskScore?: number;
   error?: string;
   unlocked?: boolean;
 }
@@ -93,11 +95,27 @@ export async function action({
     // for authenticated merchants only) so the UI can label this scan
     // and the leads-row can reference it for analytics later.
     const scanId = crypto.randomUUID();
+    const riskScore = computeRiskScore(ok.results);
+
+    // Fire-and-forget: persist the public risk score so we can later analyse
+    // typical pre-install GMC-risk distribution. We update an existing leads
+    // row if one exists; otherwise we wait for the unlock step to insert one
+    // (don't insert here — leads.email is NOT NULL and we have no email yet).
+    try {
+      await supabase
+        .from("leads")
+        .update({ public_risk_score: riskScore })
+        .eq("shop_domain", ok.store_url);
+    } catch {
+      // Don't block on log failure.
+    }
+
     return {
       intent: "scan",
       scanId,
       storeUrl: ok.store_url,
       result: ok,
+      riskScore,
       unlocked: false,
     };
   }
@@ -106,6 +124,9 @@ export async function action({
     const email = String(form.get("email") ?? "").trim().toLowerCase();
     const storeUrl = String(form.get("storeUrl") ?? "").trim();
     const scanId = String(form.get("scanId") ?? "");
+    const riskScoreRaw = form.get("riskScore");
+    const riskScore =
+      riskScoreRaw != null && riskScoreRaw !== "" ? Number(riskScoreRaw) : null;
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return {
         intent: "error",
@@ -125,6 +146,9 @@ export async function action({
           {
             shop_domain: storeUrl || "unknown",
             email,
+            ...(riskScore != null && Number.isFinite(riskScore)
+              ? { public_risk_score: Math.round(riskScore) }
+              : {}),
           },
           { onConflict: "shop_domain" }
         );
@@ -302,6 +326,9 @@ function ResultsView({ data }: { data: ScanActionData }) {
         </MarketingButton>
       </div>
 
+      {/* Phase 7 — Public GMC suspension risk score */}
+      <RiskScoreBanner checks={result.results} />
+
       {/* Gated detail */}
       <div className="mt-10">
         <h2 className="text-2xl font-extrabold text-brand-navy">
@@ -335,6 +362,11 @@ function ResultsView({ data }: { data: ScanActionData }) {
               <input type="hidden" name="intent" value="unlock" />
               <input type="hidden" name="storeUrl" value={result.store_url} />
               <input type="hidden" name="scanId" value={data.scanId ?? ""} />
+              <input
+                type="hidden"
+                name="riskScore"
+                value={String(data.riskScore ?? "")}
+              />
               <div className="flex flex-col sm:flex-row gap-2">
                 <input
                   type="email"
@@ -470,6 +502,43 @@ function FindingCard({
       {/* hidden hidden hint for crawlers — no-op for users */}
       <span className="sr-only">{storeUrl}</span>
     </details>
+  );
+}
+
+/* ─────────────────────────────────────────── Risk score banner ── */
+
+function RiskScoreBanner({ checks }: { checks: PublicCheckResult[] }) {
+  const score = computeRiskScore(checks);
+  let band: { bg: string; text: string; label: string };
+  if (score >= 80) {
+    band = {
+      bg: "bg-brand-green/10 border-brand-green/40",
+      text: "text-brand-green",
+      label: "Low risk — your store is in good shape.",
+    };
+  } else if (score >= 50) {
+    band = {
+      bg: "bg-brand-amber/15 border-brand-amber/40",
+      text: "text-brand-amber",
+      label: "Moderate risk — fix the issues below.",
+    };
+  } else {
+    band = {
+      bg: "bg-brand-red/10 border-brand-red/40",
+      text: "text-brand-red",
+      label: "High risk — multiple issues that commonly trigger GMC suspension.",
+    };
+  }
+  return (
+    <div className={`mt-8 rounded-2xl border ${band.bg} px-6 py-6 text-center`}>
+      <div className="text-xs font-bold uppercase tracking-wider text-brand-gray-text">
+        GMC suspension risk score
+      </div>
+      <div className={`mt-2 text-6xl font-extrabold leading-none ${band.text}`}>
+        {score}
+      </div>
+      <p className={`mt-3 text-sm font-semibold ${band.text}`}>{band.label}</p>
+    </div>
   );
 }
 

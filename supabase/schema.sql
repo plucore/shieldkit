@@ -183,3 +183,73 @@ $$ LANGUAGE sql;
 -- ============================================================
 ALTER TABLE merchants
   ALTER COLUMN scans_remaining DROP NOT NULL;
+
+-- ============================================================
+-- PHASE 7 — Quick Win 1: track llms.txt freshness
+-- Updated by api.proxy.llms-txt on every successful response,
+-- read by api.cron.weekly-digest to compute the AI Readiness Score.
+-- ============================================================
+ALTER TABLE merchants ADD COLUMN IF NOT EXISTS llms_txt_last_served_at TIMESTAMPTZ;
+
+-- ============================================================
+-- PHASE 7 — Quick Win 2: persist public scan risk score on leads
+-- Updated by /scan action on every successful public scan.
+-- ============================================================
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS public_risk_score INT;
+
+-- ============================================================
+-- PHASE 7.1 — Continuous GTIN enrichment audit log
+-- One row per webhook delivery. outcome ∈ enriched | noop | skip_tier
+-- | skip_scope | skip_dedup | skip_no_merchant | skip_no_product_id
+-- | skip_no_admin | error.
+-- merchant_id is UUID (matches merchants.id) — earlier draft schema
+-- mistakenly typed it as BIGINT.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS enrichment_webhook_log (
+  id              BIGSERIAL PRIMARY KEY,
+  merchant_id     UUID REFERENCES merchants(id),
+  product_id      TEXT,
+  topic           TEXT,
+  outcome         TEXT,
+  written_keys    TEXT[],
+  error_message   TEXT,
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_enrichment_log_merchant_created
+  ON enrichment_webhook_log(merchant_id, created_at DESC);
+
+-- ============================================================
+-- PHASE 7.2 — AI visibility tracking
+-- One row per llms.txt request served. crawler_name is normalised
+-- via identifyCrawler(); ip_hash is a sha256 of the IP with the
+-- last octet stripped before hashing for privacy.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS llms_txt_requests (
+  id              BIGSERIAL PRIMARY KEY,
+  shop_domain     TEXT NOT NULL,
+  merchant_id     UUID REFERENCES merchants(id),
+  user_agent      TEXT,
+  crawler_name    TEXT,
+  ip_hash         TEXT,
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_llms_requests_shop_created
+  ON llms_txt_requests(shop_domain, created_at DESC);
+
+-- ============================================================
+-- PHASE 7.3 — Storefront monitoring scan-on-change queue
+-- Inserted by webhooks.themes.update + webhooks.products.update.
+-- Drained by api.cron.process-scan-triggers (daily, hobby plan
+-- cron min frequency). One scan per merchant per cron tick.
+-- merchant_id is UUID (matches merchants.id).
+-- ============================================================
+CREATE TABLE IF NOT EXISTS pending_scan_triggers (
+  id              BIGSERIAL PRIMARY KEY,
+  merchant_id     UUID REFERENCES merchants(id),
+  trigger_type    TEXT,
+  trigger_at      TIMESTAMPTZ DEFAULT NOW(),
+  processed_at    TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_pending_scans_unprocessed
+  ON pending_scan_triggers(merchant_id, processed_at)
+  WHERE processed_at IS NULL;

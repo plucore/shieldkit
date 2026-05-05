@@ -4,6 +4,24 @@
  * Checks for the presence of a Privacy Policy (critical if absent — legally
  * required in most jurisdictions and by GMC) and Terms of Service (warning
  * if absent). Both must be present for the check to pass.
+ *
+ * TODO (researched 2026-05-05): extend with Customer Privacy / cookie-banner
+ * status. Shopify Admin GraphQL exposes a stable surface:
+ *
+ *   query { privacySettings { banner { enabled autoManaged } } }
+ *   query ConsentPolicy { consentPolicy { consentRequired countryCode } }
+ *
+ * Required scope: `read_privacy_settings` (NOT currently in shopify.app.toml
+ * — would need a separate scope re-review cycle, similar to write_products).
+ *
+ * Docs:
+ *   https://shopify.dev/docs/api/admin-graphql/latest/queries/privacySettings
+ *   https://shopify.dev/docs/api/admin-graphql/latest/objects/CookieBanner
+ *   https://shopify.dev/docs/api/admin-graphql/latest/queries/consentPolicy
+ *
+ * Once the scope lands, surface `banner.enabled` and the per-region
+ * consentRequired matrix as a new sub-check. The weekly digest already has a
+ * placeholder field (`customerPrivacyApiWired: null`) waiting to be populated.
  */
 
 import type { ShopPoliciesResult } from "../shopify-api.server";

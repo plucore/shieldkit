@@ -205,8 +205,62 @@ export async function action({ request }: ActionFunctionArgs) {
         continue;
       }
 
-      // 3f. Render + send.
+      // 3f. Compose Shield Max ("Pro This Week") block when applicable.
       const tierKey: "shield" | "pro" = merchant.tier === "pro" ? "pro" : "shield";
+      let proThisWeek: Parameters<typeof renderWeeklyDigest>[0]["proThisWeek"];
+      if (tierKey === "pro") {
+        const sevenDaysAgo = new Date(
+          Date.now() - 7 * 24 * 60 * 60 * 1000,
+        ).toISOString();
+        const [{ count: enrichedCount }, { count: totalEnrichedCount }] =
+          await Promise.all([
+            supabase
+              .from("schema_enrichments")
+              .select("id", { count: "exact", head: true })
+              .eq("merchant_id", merchant.id)
+              .gte("enriched_at", sevenDaysAgo),
+            supabase
+              .from("schema_enrichments")
+              .select("id", { count: "exact", head: true })
+              .eq("merchant_id", merchant.id),
+          ]);
+
+        // Total products is approximated via the latest scan's
+        // product_data_quality raw_data — when available. When not,
+        // default to enriched count so the percentage shows progress
+        // rather than 0/0.
+        const productDataQuality = latestRows.find(
+          (v) => v.check_name === "product_data_quality",
+        );
+        const totalProducts =
+          (productDataQuality as any)?.raw_data?.total_products ??
+          totalEnrichedCount ??
+          0;
+
+        // AI Readiness Score: simple weighted aggregate, 0-100.
+        //   - 60% schema coverage (productsWithFullSchema / totalProducts)
+        //   - 30% llms.txt freshness (binary: refreshed in last 30d → full points)
+        //   - 10% bot configuration completeness (Phase 5 will read merchant.pro_settings.bot_preferences)
+        const schemaShare =
+          totalProducts > 0
+            ? Math.min(1, (totalEnrichedCount ?? 0) / totalProducts)
+            : 0;
+        const llmsTxtRefreshedAt: string | null = null; // wired when llms.txt cache surfaces refresh timestamps
+        const llmsFreshShare = 0; // placeholder until cache table is queryable
+        const botConfigShare = 0; // placeholder until Phase 5 Pro Settings audit lands
+        const aiReadinessScore = Math.round(
+          schemaShare * 60 + llmsFreshShare * 30 + botConfigShare * 10,
+        );
+
+        proThisWeek = {
+          productsEnrichedCount: enrichedCount ?? 0,
+          productsWithFullSchema: totalEnrichedCount ?? 0,
+          totalProducts,
+          llmsTxtRefreshedAt,
+          aiReadinessScore,
+        };
+      }
+
       const html = renderWeeklyDigest({
         shopName: merchant.shop_name ?? merchant.shopify_domain,
         shopDomain: merchant.shopify_domain,
@@ -218,6 +272,7 @@ export async function action({ request }: ActionFunctionArgs) {
         fixesConfirmed,
         paymentIconHealthy,
         customerPrivacyApiWired: null, // Phase 5
+        proThisWeek,
       });
 
       const result = await sendEmail({

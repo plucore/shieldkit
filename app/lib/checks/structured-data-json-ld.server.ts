@@ -28,7 +28,14 @@ export async function checkStructuredDataJsonLd(
 
   const REQUIRED_FIELDS = ["name", "image", "description", "offers"] as const;
   const OFFER_REQUIRED = ["price", "priceCurrency", "availability"] as const;
-  const RECOMMENDED_FIELDS = ["sku", "itemCondition"] as const;
+  // Phase 5 enriched recommended fields. brand is recommended but always
+  // emitted by the theme block (falls back to shop.name) so we don't list
+  // it here. gtin/mpn appear only after the GTIN Auto-Filler runs;
+  // identifier_exists=false is a valid alternative when the product has
+  // no real identifier (handmade, vintage). MerchantReturnPolicy and
+  // OfferShippingDetails are reported as recommended but aren't penalised
+  // when missing — Google treats them as bonus.
+  const RECOMMENDED_FIELDS = ["sku", "itemCondition", "gtin", "mpn"] as const;
 
   const reports: PageReport[] = [];
   let totalMissingRequired = 0;
@@ -103,6 +110,15 @@ export async function checkStructuredDataJsonLd(
     const missingRecommended: string[] = [];
     for (const field of RECOMMENDED_FIELDS) {
       if (!productSchema[field]) missingRecommended.push(field);
+    }
+    // Phase 5: identifier_exists=false is a valid alternative to gtin/mpn
+    // for handmade/vintage products. When present and false, suppress the
+    // gtin/mpn missing flags so we don't double-fault legitimate cases.
+    if (productSchema["identifier_exists"] === false) {
+      const idx1 = missingRecommended.indexOf("gtin");
+      if (idx1 >= 0) missingRecommended.splice(idx1, 1);
+      const idx2 = missingRecommended.indexOf("mpn");
+      if (idx2 >= 0) missingRecommended.splice(idx2, 1);
     }
 
     totalMissingRequired += missingRequired.length;

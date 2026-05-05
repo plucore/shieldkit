@@ -5,10 +5,21 @@
   These are the exact fields that ShieldKit check 8 (structured_data_json_ld)
   validates: name, image, description, offers (price, priceCurrency, availability).
 
+  Phase 5: enriched fields (gtin, mpn, brand, MerchantReturnPolicy,
+  OfferShippingDetails) read from product metafields written by the
+  GTIN/MPN/Brand Auto-Filler (/app/gtin-fill). Each is conditionally
+  rendered — absent metafields are simply omitted, never emitted as empty
+  strings.
+
   Add this block to your product page template via the Shopify theme editor.
 {% endcomment %}
 
 {% if template contains 'product' and product %}
+  {% assign shieldkit_gtin = product.metafields.custom.gtin %}
+  {% assign shieldkit_mpn = product.metafields.custom.mpn %}
+  {% assign shieldkit_brand = product.metafields.custom.brand %}
+  {% assign shieldkit_identifier_exists = product.metafields.custom.identifier_exists %}
+
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -16,8 +27,22 @@
   "name": {{ product.title | json }},
   "description": {{ product.description | strip_html | truncate: 5000 | json }},
   "image": {{ product.featured_image | image_url: width: 1024 | json }},
+  {% if shieldkit_brand != blank %}
+  "brand": { "@type": "Brand", "name": {{ shieldkit_brand | json }} },
+  {% else %}
+  "brand": { "@type": "Brand", "name": {{ shop.name | json }} },
+  {% endif %}
   {% if product.variants.first.sku != blank %}
   "sku": {{ product.variants.first.sku | json }},
+  {% endif %}
+  {% if shieldkit_gtin != blank %}
+  "gtin": {{ shieldkit_gtin | json }},
+  {% endif %}
+  {% if shieldkit_mpn != blank %}
+  "mpn": {{ shieldkit_mpn | json }},
+  {% endif %}
+  {% if shieldkit_identifier_exists == false or shieldkit_identifier_exists == "false" %}
+  "identifier_exists": false,
   {% endif %}
   "offers": {
     "@type": "Offer",

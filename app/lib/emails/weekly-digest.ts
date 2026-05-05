@@ -40,6 +40,17 @@ export interface WeeklyDigestData {
   fixesConfirmed: IssueChange[];
   paymentIconHealthy: boolean;
   customerPrivacyApiWired: boolean | null; // null = not yet measured
+  /**
+   * Phase 5 "Shield Max — This Week" payload. Optional — when undefined the
+   * Pro section falls back to the Phase 3.3 placeholder copy.
+   */
+  proThisWeek?: {
+    productsEnrichedCount: number;
+    productsWithFullSchema: number;
+    totalProducts: number;
+    llmsTxtRefreshedAt: string | null; // ISO
+    aiReadinessScore: number; // 0-100
+  };
 }
 
 export function renderWeeklyDigest(data: WeeklyDigestData): string {
@@ -90,16 +101,37 @@ export function renderWeeklyDigest(data: WeeklyDigestData): string {
         ? `<li style="margin:6px 0;">✓ Customer Privacy API wired</li>`
         : `<li style="margin:6px 0;color:#e51c00;">✗ Customer Privacy API not detected</li>`;
 
-  const proSection =
-    tier !== "pro"
-      ? ""
-      : `<div style="margin-top:24px;padding:16px;background:#f6f6f7;border-radius:8px;">
+  let proSection = "";
+  if (tier === "pro") {
+    if (data.proThisWeek) {
+      const p = data.proThisWeek;
+      const refreshedLabel = p.llmsTxtRefreshedAt
+        ? new Date(p.llmsTxtRefreshedAt).toISOString().slice(0, 10)
+        : "not yet generated";
+      const schemaPct =
+        p.totalProducts > 0
+          ? Math.round((p.productsWithFullSchema / p.totalProducts) * 100)
+          : 0;
+      proSection = `<div style="margin-top:24px;padding:16px;background:#f6f6f7;border-radius:8px;">
+           <p style="margin:0 0 12px;font-weight:700;color:#0f172a;">Shield Max — This Week</p>
+           <ul style="margin:0;padding:0 0 0 20px;line-height:1.7;color:#303030;">
+             <li><strong>${esc(p.productsEnrichedCount)}</strong> product${p.productsEnrichedCount === 1 ? "" : "s"} auto-enriched this week</li>
+             <li>Full Merchant Listings schema on <strong>${esc(p.productsWithFullSchema)}</strong> of <strong>${esc(p.totalProducts)}</strong> products (${esc(schemaPct)}%)</li>
+             <li>llms.txt last refreshed: <strong>${esc(refreshedLabel)}</strong></li>
+             <li>AI Readiness Score: <strong>${esc(p.aiReadinessScore)} / 100</strong></li>
+           </ul>
+         </div>`;
+    } else {
+      proSection = `<div style="margin-top:24px;padding:16px;background:#f6f6f7;border-radius:8px;">
            <p style="margin:0 0 8px;font-weight:700;color:#0f172a;">Shield Max — This Week</p>
            <p style="margin:0;color:#303030;line-height:1.6;">
              Detailed AI-readiness reporting (auto-enriched products, schema status,
-             llms.txt freshness, AI Readiness Score) ships in the next phase.
+             llms.txt freshness, AI Readiness Score) is preparing — first numbers
+             will appear here once the Auto-Filler has run.
            </p>
          </div>`;
+    }
+  }
 
   return `<!doctype html>
 <html lang="en">

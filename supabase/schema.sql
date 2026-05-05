@@ -217,3 +217,21 @@ CREATE TABLE IF NOT EXISTS enrichment_webhook_log (
 );
 CREATE INDEX IF NOT EXISTS idx_enrichment_log_merchant_created
   ON enrichment_webhook_log(merchant_id, created_at DESC);
+
+-- ============================================================
+-- PHASE 7.2 — AI visibility tracking
+-- One row per llms.txt request served. crawler_name is normalised
+-- via identifyCrawler(); ip_hash is a sha256 of the IP with the
+-- last octet stripped before hashing for privacy.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS llms_txt_requests (
+  id              BIGSERIAL PRIMARY KEY,
+  shop_domain     TEXT NOT NULL,
+  merchant_id     UUID REFERENCES merchants(id),
+  user_agent      TEXT,
+  crawler_name    TEXT,
+  ip_hash         TEXT,
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_llms_requests_shop_created
+  ON llms_txt_requests(shop_domain, created_at DESC);

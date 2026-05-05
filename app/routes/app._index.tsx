@@ -59,6 +59,7 @@ import UpgradeCard from "../components/UpgradeCard";
 import PolicyGenerationCard from "../components/PolicyGenerationCard";
 import AuditChecklist from "../components/AuditChecklist";
 import SecurityStatusAside from "../components/SecurityStatusAside";
+import AIVisibilityCard from "../components/AIVisibilityCard";
 
 // ─── Asset preloading ─────────────────────────────────────────────────────────
 
@@ -146,6 +147,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       checkResults:      [] as CheckResult[],
       newAutoIssueCount: 0,
       trendScans:        [] as Scan[],
+      aiVisibility:      null as null | { thisWeekHits: number; priorWeekHits: number; topCrawlers: string[] },
     };
   }
 
@@ -251,6 +253,50 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     trendScans = (trendRows ?? []) as Scan[];
   }
 
+  // Phase 7.2 — AI visibility (Shield Max only)
+  let aiVisibility: { thisWeekHits: number; priorWeekHits: number; topCrawlers: string[] } | null = null;
+  if (merchant.tier === "pro") {
+    const now = Date.now();
+    const sevenDaysAgo = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const fourteenDaysAgo = new Date(now - 14 * 24 * 60 * 60 * 1000).toISOString();
+    const [{ count: thisWeek }, { count: priorWeek }, { data: recentRows }] =
+      await Promise.all([
+        supabase
+          .from("llms_txt_requests")
+          .select("id", { count: "exact", head: true })
+          .eq("shop_domain", shopDomain)
+          .gte("created_at", sevenDaysAgo),
+        supabase
+          .from("llms_txt_requests")
+          .select("id", { count: "exact", head: true })
+          .eq("shop_domain", shopDomain)
+          .gte("created_at", fourteenDaysAgo)
+          .lt("created_at", sevenDaysAgo),
+        supabase
+          .from("llms_txt_requests")
+          .select("crawler_name")
+          .eq("shop_domain", shopDomain)
+          .gte("created_at", sevenDaysAgo),
+      ]);
+
+    const counts: Record<string, number> = {};
+    for (const r of (recentRows ?? []) as Array<{ crawler_name: string | null }>) {
+      const name = r.crawler_name ?? "other";
+      counts[name] = (counts[name] ?? 0) + 1;
+    }
+    const topCrawlers = Object.entries(counts)
+      .filter(([n]) => n !== "other")
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([n]) => n);
+
+    aiVisibility = {
+      thisWeekHits: thisWeek ?? 0,
+      priorWeekHits: priorWeek ?? 0,
+      topCrawlers,
+    };
+  }
+
   let checkResults: CheckResult[] = [];
   if (latestScan) {
     const { data: violationRows } = await supabase
@@ -272,6 +318,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     checkResults,
     newAutoIssueCount,
     trendScans,
+    aiVisibility,
   };
 };
 
@@ -539,6 +586,7 @@ export default function Index() {
     checkResults,
     newAutoIssueCount,
     trendScans,
+    aiVisibility,
   } = useLoaderData<typeof loader>();
 
   const fetcher        = useFetcher<ApiScanResponse>();
@@ -1038,6 +1086,17 @@ export default function Index() {
             shopify.toast.show("Policy copied to clipboard");
           }}
         />
+      )}
+
+      {/* Phase 7.2 — AI visibility (Shield Max only) */}
+      {merchant && tier === "pro" && aiVisibility && !showOnboarding && (
+        <s-section slot="aside">
+          <AIVisibilityCard
+            thisWeekHits={aiVisibility.thisWeekHits}
+            priorWeekHits={aiVisibility.priorWeekHits}
+            topCrawlers={aiVisibility.topCrawlers}
+          />
+        </s-section>
       )}
 
       {/* Free JSON-LD Extension */}

@@ -14,8 +14,10 @@
  */
 
 import type { LoaderFunctionArgs } from "react-router";
+import { createHash } from "node:crypto";
 import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
+import { identifyCrawler } from "../lib/ai-visibility/identify-crawler.server";
 
 const CACHE: Map<string, { body: string; expires: number }> = new Map();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -31,6 +33,51 @@ async function recordLlmsTxtServe(shop: string): Promise<void> {
   } catch (err) {
     console.warn(
       "[proxy/llms-txt] failed to update llms_txt_last_served_at:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+}
+
+// Phase 7.2 — privacy-respecting IP hash. We strip the last octet (IPv4)
+// or the last 64 bits (IPv6) before hashing so the hash can't be linked
+// back to a specific household but still de-dupes within a /24 or /64.
+function hashIp(ipRaw: string | null): string | null {
+  if (!ipRaw) return null;
+  // Take only the first IP if X-Forwarded-For provided a list.
+  const ip = ipRaw.split(",")[0].trim();
+  let canonical = ip;
+  if (ip.includes(".")) {
+    const parts = ip.split(".");
+    if (parts.length === 4) canonical = `${parts[0]}.${parts[1]}.${parts[2]}.0`;
+  } else if (ip.includes(":")) {
+    const parts = ip.split(":");
+    canonical = `${parts.slice(0, 4).join(":")}::`;
+  }
+  return createHash("sha256").update(canonical).digest("hex");
+}
+
+async function logLlmsTxtRequest(opts: {
+  shop: string;
+  userAgent: string | null;
+  ipHash: string | null;
+}): Promise<void> {
+  try {
+    const { data: merchant } = await supabase
+      .from("merchants")
+      .select("id")
+      .eq("shopify_domain", opts.shop)
+      .maybeSingle();
+
+    await supabase.from("llms_txt_requests").insert({
+      shop_domain: opts.shop,
+      merchant_id: merchant?.id ?? null,
+      user_agent: opts.userAgent,
+      crawler_name: identifyCrawler(opts.userAgent),
+      ip_hash: opts.ipHash,
+    });
+  } catch (err) {
+    console.warn(
+      "[proxy/llms-txt] failed to log crawler hit:",
       err instanceof Error ? err.message : err,
     );
   }
@@ -132,6 +179,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
   }
 
   const shop = session.shop;
+  const userAgent = request.headers.get("user-agent");
+  const forwardedFor =
+    request.headers.get("x-forwarded-for") ??
+    request.headers.get("x-real-ip");
+  const ipHash = hashIp(forwardedFor);
 
   // ── Tier gate: Shield Max only ─────────────────────────────────────────────
   const { data: merchant } = await supabase
@@ -158,6 +210,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const cached = CACHE.get(shop);
   if (cached && cached.expires > Date.now()) {
     void recordLlmsTxtServe(shop);
+    void logLlmsTxtRequest({ shop, userAgent, ipHash });
     return new Response(cached.body, {
       status: 200,
       headers: {
@@ -197,6 +250,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   CACHE.set(shop, { body, expires: Date.now() + CACHE_TTL_MS });
   void recordLlmsTxtServe(shop);
+  void logLlmsTxtRequest({ shop, userAgent, ipHash });
 
   return new Response(body, {
     status: 200,

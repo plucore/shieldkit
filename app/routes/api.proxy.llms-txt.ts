@@ -20,6 +20,22 @@ import { supabase } from "../supabase.server";
 const CACHE: Map<string, { body: string; expires: number }> = new Map();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
+// Fire-and-forget: stamp merchants.llms_txt_last_served_at so the weekly
+// digest can compute the AI Readiness Score's freshness component.
+async function recordLlmsTxtServe(shop: string): Promise<void> {
+  try {
+    await supabase
+      .from("merchants")
+      .update({ llms_txt_last_served_at: new Date().toISOString() })
+      .eq("shopify_domain", shop);
+  } catch (err) {
+    console.warn(
+      "[proxy/llms-txt] failed to update llms_txt_last_served_at:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+}
+
 interface ShopFields {
   name: string;
   description: string | null;
@@ -141,6 +157,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   // ── Cache ──────────────────────────────────────────────────────────────────
   const cached = CACHE.get(shop);
   if (cached && cached.expires > Date.now()) {
+    void recordLlmsTxtServe(shop);
     return new Response(cached.body, {
       status: 200,
       headers: {
@@ -179,6 +196,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   }
 
   CACHE.set(shop, { body, expires: Date.now() + CACHE_TTL_MS });
+  void recordLlmsTxtServe(shop);
 
   return new Response(body, {
     status: 200,

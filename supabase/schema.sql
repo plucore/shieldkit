@@ -183,3 +183,10 @@ $$ LANGUAGE sql;
 -- ============================================================
 ALTER TABLE merchants
   ALTER COLUMN scans_remaining DROP NOT NULL;
+
+-- ============================================================
+-- PHASE 7 — Quick Win 1: track llms.txt freshness
+-- Updated by api.proxy.llms-txt on every successful response,
+-- read by api.cron.weekly-digest to compute the AI Readiness Score.
+-- ============================================================
+ALTER TABLE merchants ADD COLUMN IF NOT EXISTS llms_txt_last_served_at TIMESTAMPTZ;

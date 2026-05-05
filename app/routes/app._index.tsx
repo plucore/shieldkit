@@ -53,6 +53,7 @@ import { useWebComponentClick } from "../hooks/useWebComponentClick";
 
 import ScoreBanner from "../components/ScoreBanner";
 import KpiCards from "../components/KpiCards";
+import ScoreTrend from "../components/ScoreTrend";
 import ScanProgressIndicator from "../components/ScanProgressIndicator";
 import UpgradeCard from "../components/UpgradeCard";
 import PolicyGenerationCard from "../components/PolicyGenerationCard";
@@ -144,6 +145,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       lastAutomatedScan: null as Scan | null,
       checkResults:      [] as CheckResult[],
       newAutoIssueCount: 0,
+      trendScans:        [] as Scan[],
     };
   }
 
@@ -233,6 +235,22 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     }
   }
 
+  // Phase 7 — pull last 30 days of scans for the dashboard score trend.
+  let trendScans: Scan[] = [];
+  {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: trendRows } = await supabase
+      .from("scans")
+      .select(
+        "id, scan_type, compliance_score, total_checks, passed_checks, " +
+        "critical_count, warning_count, info_count, created_at"
+      )
+      .eq("merchant_id", merchant.id)
+      .gte("created_at", thirtyDaysAgo)
+      .order("created_at", { ascending: true });
+    trendScans = (trendRows ?? []) as Scan[];
+  }
+
   let checkResults: CheckResult[] = [];
   if (latestScan) {
     const { data: violationRows } = await supabase
@@ -253,6 +271,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     lastAutomatedScan,
     checkResults,
     newAutoIssueCount,
+    trendScans,
   };
 };
 
@@ -519,6 +538,7 @@ export default function Index() {
     lastAutomatedScan,
     checkResults,
     newAutoIssueCount,
+    trendScans,
   } = useLoaderData<typeof loader>();
 
   const fetcher        = useFetcher<ApiScanResponse>();
@@ -888,6 +908,9 @@ export default function Index() {
             newAutoIssueCount={newAutoIssueCount}
             isScanning={isScanning}
           />
+
+          {/* ── Score trend (last 30 days) ── */}
+          <ScoreTrend scans={trendScans} currentScore={score} />
 
           {/* ── KPI metric cards ── */}
           <KpiCards

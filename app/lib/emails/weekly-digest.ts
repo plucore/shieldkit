@@ -8,9 +8,8 @@
  * it so adding content later doesn't require touching the digest pipeline.
  */
 
-import { escape as escapeHtml } from "node:querystring";
-
-// Use a small util because escape from querystring url-escapes; we want HTML escape.
+// HTML-escape helper. We intentionally don't use querystring.escape — it
+// URL-escapes, not HTML-escapes.
 function esc(s: string | number | null | undefined): string {
   if (s === null || s === undefined) return "";
   return String(s)
@@ -20,9 +19,6 @@ function esc(s: string | number | null | undefined): string {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
-
-// `escape` import retained as a no-op reference so tree-shake doesn't gripe.
-void escapeHtml;
 
 export interface IssueChange {
   check_name: string;

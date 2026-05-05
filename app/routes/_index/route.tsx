@@ -81,7 +81,7 @@ export default function App() {
 
         <ul className={styles.list}>
           <li>
-            <strong>10-Point GMC Audit</strong>: Instantly scan your store for
+            <strong>12-Point GMC Audit</strong>: Instantly scan your store for
             the exact reasons Google suspends accounts.
           </li>
           <li>

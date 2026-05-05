@@ -29,6 +29,8 @@
   "image": {{ product.featured_image | image_url: width: 1024 | json }},
   {% if shieldkit_brand != blank %}
   "brand": { "@type": "Brand", "name": {{ shieldkit_brand | json }} },
+  {% elsif product.vendor != blank %}
+  "brand": { "@type": "Brand", "name": {{ product.vendor | json }} },
   {% else %}
   "brand": { "@type": "Brand", "name": {{ shop.name | json }} },
   {% endif %}

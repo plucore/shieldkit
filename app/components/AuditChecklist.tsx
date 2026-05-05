@@ -62,7 +62,7 @@ export default function AuditChecklist({
             color: "#0f172a",
           }}
         >
-          10-Point GMC Compliance Audit — {truePassedCount} / {totalChecks} passed
+          12-Point GMC Compliance Audit — {truePassedCount} / {totalChecks} passed
         </div>
         <button
           onClick={onToggleExpand}

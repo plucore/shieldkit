@@ -10,3 +10,13 @@ type = "theme"
   name = "Product Schema (JSON-LD)"
   template = "blocks/product-schema.liquid"
   target = "body"
+
+  [[extensions.blocks]]
+  name = "Organization JSON-LD"
+  template = "blocks/organization-schema.liquid"
+  target = "head"
+
+  [[extensions.blocks]]
+  name = "WebSite JSON-LD"
+  template = "blocks/website-schema.liquid"
+  target = "head"

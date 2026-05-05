@@ -34,6 +34,8 @@ import { checkStorefrontAccessibility } from "./storefront-accessibility.server"
 import { checkStructuredDataJsonLd } from "./structured-data-json-ld.server";
 import { checkPageSpeed } from "./page-speed.server";
 import { checkBusinessIdentityConsistency } from "./business-identity-consistency.server";
+import { checkHiddenFeeDetection } from "./hidden-fee-detection.server";
+import { checkImageHostingAudit } from "./image-hosting-audit.server";
 
 // Re-export types
 export type {
@@ -116,7 +118,10 @@ export async function runComplianceScan(
   // Both batches run concurrently with each other (Promise.all is not awaited
   // until after both are submitted).
 
-  const [fatalFiveResults, [check6, check7, check8, check9, check10]] =
+  const [
+    fatalFiveResults,
+    [check6, check7, check8, check9, check10, check11, check12],
+  ] =
     await Promise.all([
       Promise.all([
         safeCheck("contact_information", () =>
@@ -154,6 +159,17 @@ export async function runComplianceScan(
         safeCheck("business_identity_consistency", () =>
           checkBusinessIdentityConsistency(shopInfo, pages, storeUrl)
         ),
+        safeCheck("hidden_fee_detection", () =>
+          checkHiddenFeeDetection(
+            storeUrl,
+            homepageFetch ?? null,
+            productPageResults,
+            shopPolicies,
+          ),
+        ),
+        safeCheck("image_hosting_audit", () =>
+          checkImageHostingAudit(products),
+        ),
       ]),
     ]);
 
@@ -164,10 +180,12 @@ export async function runComplianceScan(
     check8,
     check9,
     check10,
+    check11,
+    check12,
   ];
 
   // ── 5. Aggregate scores and counts ──────────────────────────────────────────
-  const totalChecks = checkResults.length; // always 10
+  const totalChecks = checkResults.length; // 11+ as new checks are added in v2
   const passedChecks = checkResults.filter((r) => r.passed).length;
   const failedChecks = checkResults.filter((r) => !r.passed);
 

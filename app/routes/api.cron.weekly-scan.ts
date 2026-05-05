@@ -3,18 +3,28 @@
  *
  * POST /api/cron/weekly-scan
  *
- * Automated weekly compliance scan for all active Pro merchants.
- * Triggered by Vercel Cron every Monday at 8am UTC.
+ * Automated weekly compliance scan for all active Shield Pro / Shield Max
+ * merchants (DB tier IN ('shield', 'pro')). Triggered by Vercel Cron every
+ * Monday at 8am UTC.
  *
  * Flow:
  *   1. Verify CRON_SECRET bearer token.
- *   2. Fetch all active Pro merchants.
+ *   2. Fetch all active paid merchants.
  *   3. Run compliance scans sequentially (2s delay between each).
  *   4. Persist results to DB (scans + violations tables).
  *   5. Return summary JSON.
  *
  * Scan results surface on the merchant dashboard via the loader in
- * app._index.tsx (lastAutomatedScan, newAutoIssueCount).
+ * app._index.tsx (lastAutomatedScan, newAutoIssueCount). Diff vs the prior
+ * scan is computed at digest time by api.cron.weekly-digest.ts so we don't
+ * need to persist diff fields on the scans table here.
+ *
+ * TODO(Phase 5): re-introduce a Customer Privacy API status signal once a
+ * reliable detection path exists. Shopify Admin GraphQL has no surface for
+ * verifying that a merchant's storefront correctly initialises the JS
+ * Customer Privacy API; the synthetic EU-IP cookie probe was explicitly
+ * cut from v2 in the technical plan. The payment-icon health signal is
+ * already produced by check #6 (checkout_transparency) on every scan.
  */
 
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
@@ -55,11 +65,11 @@ export async function action({ request }: ActionFunctionArgs) {
     return json({ error: "unauthorized", message: "Invalid or missing authorization." }, 401);
   }
 
-  // ── 2. Fetch all active Pro merchants ────────────────────────────────────────
+  // ── 2. Fetch all active paid merchants (Shield Pro + Shield Max) ─────────────
   const { data: merchants, error: fetchError } = await supabase
     .from("merchants")
     .select("id, shopify_domain")
-    .eq("tier", "pro")
+    .in("tier", ["shield", "pro"])
     .is("uninstalled_at", null);
 
   if (fetchError) {

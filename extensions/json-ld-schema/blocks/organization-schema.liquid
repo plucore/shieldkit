@@ -1,0 +1,112 @@
+{% comment %}
+  ShieldKit Organization Schema (JSON-LD)
+
+  Site-wide Organization structured data. Renders on every storefront page
+  if the block is enabled in the theme. Helps Google understand who the
+  business is, which feeds Google AI Overviews and the "About this seller"
+  card in Shopping results.
+
+  Pro / Shield Max feature — populate the block settings in the Theme
+  editor. Phase 5 will replace these manual settings with metafield reads
+  once write_metafields scope is approved; until then, paste the same
+  values you entered in the ShieldKit app's "Pro settings" form.
+{% endcomment %}
+
+{% assign social_urls = '' | split: ',' %}
+{% if block.settings.twitter_url != blank %}
+  {% assign social_urls = social_urls | concat: block.settings.twitter_url | split: '|' %}
+{% endif %}
+{% if block.settings.facebook_url != blank %}
+  {% assign social_urls = social_urls | concat: block.settings.facebook_url | split: '|' %}
+{% endif %}
+{% if block.settings.instagram_url != blank %}
+  {% assign social_urls = social_urls | concat: block.settings.instagram_url | split: '|' %}
+{% endif %}
+{% if block.settings.tiktok_url != blank %}
+  {% assign social_urls = social_urls | concat: block.settings.tiktok_url | split: '|' %}
+{% endif %}
+{% if block.settings.linkedin_url != blank %}
+  {% assign social_urls = social_urls | concat: block.settings.linkedin_url | split: '|' %}
+{% endif %}
+{% if block.settings.youtube_url != blank %}
+  {% assign social_urls = social_urls | concat: block.settings.youtube_url | split: '|' %}
+{% endif %}
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": {{ shop.name | json }},
+  "url": {{ shop.url | json }},
+  {% if block.settings.logo_url != blank %}
+  "logo": {{ block.settings.logo_url | json }},
+  {% endif %}
+  {% if social_urls.size > 0 %}
+  "sameAs": {{ social_urls | json }},
+  {% endif %}
+  "contactPoint": {
+    "@type": "ContactPoint",
+    "contactType": "customer service",
+    "email": {% if block.settings.support_email != blank %}{{ block.settings.support_email | json }}{% else %}{{ shop.email | json }}{% endif %}
+  }
+}
+</script>
+
+{% schema %}
+{
+  "name": "Organization JSON-LD",
+  "target": "head",
+  "settings": [
+    {
+      "type": "header",
+      "content": "ShieldKit Pro feature"
+    },
+    {
+      "type": "paragraph",
+      "content": "Add Organization structured data to every page. Mirrors the values you entered in the ShieldKit app's Pro Settings form."
+    },
+    {
+      "type": "url",
+      "id": "logo_url",
+      "label": "Logo URL",
+      "info": "Absolute URL to your logo image (PNG/JPG, ideally 600x60+)."
+    },
+    {
+      "type": "text",
+      "id": "support_email",
+      "label": "Support email",
+      "info": "Used as contactPoint email. Defaults to your shop email if blank."
+    },
+    {
+      "type": "url",
+      "id": "twitter_url",
+      "label": "Twitter / X URL"
+    },
+    {
+      "type": "url",
+      "id": "facebook_url",
+      "label": "Facebook URL"
+    },
+    {
+      "type": "url",
+      "id": "instagram_url",
+      "label": "Instagram URL"
+    },
+    {
+      "type": "url",
+      "id": "tiktok_url",
+      "label": "TikTok URL"
+    },
+    {
+      "type": "url",
+      "id": "linkedin_url",
+      "label": "LinkedIn URL"
+    },
+    {
+      "type": "url",
+      "id": "youtube_url",
+      "label": "YouTube URL"
+    }
+  ]
+}
+{% endschema %}

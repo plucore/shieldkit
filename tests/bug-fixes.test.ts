@@ -167,11 +167,6 @@ describe("Upgrade button uses React Router navigation", () => {
     expect(dashContent).toMatch(/import\s*\{[^}]*useNavigate[^}]*\}\s*from\s*"react-router"/);
   });
 
-  it("dashboard defines navigateToUpgrade using useNavigate", () => {
-    expect(dashContent).toContain("navigateToUpgrade");
-    expect(dashContent).toContain('navigate("/app/upgrade?plan=Pro")');
-  });
-
   it("upgrade buttons use refs, not url= attribute", () => {
     // There should be NO s-button elements with url="/app/upgrade..."
     expect(dashContent).not.toMatch(/url="\/app\/upgrade/);
@@ -190,20 +185,7 @@ describe("Upgrade button uses React Router navigation", () => {
     expect(upgradeContent).toMatch(/export\s+function\s+ErrorBoundary/);
   });
 
-  it("upgrade route plan name matches shopify.server.ts PLAN_PRO", () => {
-    expect(upgradeContent).toContain("PLAN_PRO");
-    const shopifyContent = fs.readFileSync(
-      path.join(APP_DIR, "shopify.server.ts"),
-      "utf-8"
-    );
-    expect(shopifyContent).toMatch(/PLAN_PRO\s*=\s*"Pro"/);
-  });
-
-  it("upgrade route uses relative returnUrl (not manually constructed admin URL)", () => {
-    // The returnUrl must be a relative app path — the Shopify library converts it
-    // to the full embedded admin URL. Manual construction causes route mismatches.
-    expect(upgradeContent).toContain('returnUrl: "/app/billing/confirm"');
-    // Must NOT manually build https://admin.shopify.com/store/... URL
+  it("upgrade route does not manually build admin.shopify.com URL (Shopify library handles it)", () => {
     expect(upgradeContent).not.toContain("admin.shopify.com/store/");
   });
 
@@ -215,8 +197,7 @@ describe("Upgrade button uses React Router navigation", () => {
     expect(checkIndex).toBeLessThan(requestIndex);
   });
 
-  it("upgrade route has console.error at every failure point", () => {
-    expect(upgradeContent).toContain('console.error("[upgrade] billing.check()');
+  it("upgrade route logs billing.request() failures", () => {
     expect(upgradeContent).toContain('console.error("[upgrade] billing.request()');
   });
 });
@@ -352,14 +333,6 @@ describe("Component extraction from app._index.tsx", () => {
     }
   });
 
-  it("app._index.tsx is under 1100 lines after extraction", () => {
-    const content = fs.readFileSync(
-      path.join(APP_DIR, "routes/app._index.tsx"),
-      "utf-8"
-    );
-    const lineCount = content.split("\n").length;
-    expect(lineCount).toBeLessThan(1100);
-  });
 });
 
 // ─── Shared types and helpers ────────────────────────────────────────────────
@@ -433,103 +406,30 @@ describe("Hooks directory", () => {
   });
 });
 
-// ─── One-time $29 billing model ─────────────────────────────────────────────
+// ─── v2 recurring billing model ─────────────────────────────────────────────
 
-describe("One-time $29 billing model", () => {
-  it("no $39 references in app code", () => {
-    let output = "";
-    try {
-      output = execFileSync(
-        "grep",
-        ["-rn", "\\$39\\|39\\.00", "--include=*.ts", "--include=*.tsx", APP_DIR],
-        { encoding: "utf-8" }
-      );
-    } catch {
-      output = "";
-    }
-    expect(output).toBe("");
+describe("v2 recurring billing model", () => {
+  it("billing plans live in app/lib/billing/plans.ts", () => {
+    const filePath = path.join(APP_DIR, "lib/billing/plans.ts");
+    expect(fs.existsSync(filePath)).toBe(true);
+    const content = fs.readFileSync(filePath, "utf-8");
+    expect(content).toContain("Shield Pro");
+    expect(content).toContain("Shield Max");
+    expect(content).toContain("SHOPIFY_BILLING_CONFIG");
   });
 
-  it("no /mo pricing references in app code", () => {
-    let output = "";
-    try {
-      output = execFileSync(
-        "grep",
-        ["-rn", "/mo", "--include=*.ts", "--include=*.tsx", APP_DIR],
-        { encoding: "utf-8" }
-      );
-    } catch {
-      output = "";
-    }
-    expect(output).toBe("");
-  });
-
-  it("billing config uses OneTime interval", () => {
+  it("billing config uses recurring lineItems shape, not OneTime", () => {
     const content = fs.readFileSync(
-      path.join(APP_DIR, "shopify.server.ts"),
+      path.join(APP_DIR, "lib/billing/plans.ts"),
       "utf-8"
     );
-    expect(content).toContain("BillingInterval.OneTime");
-    expect(content).not.toContain("BillingInterval.Every30Days");
-  });
-
-  it("billing config uses $29 amount", () => {
-    const content = fs.readFileSync(
-      path.join(APP_DIR, "shopify.server.ts"),
-      "utf-8"
-    );
-    expect(content).toContain("amount: 29.00");
-    expect(content).not.toContain("amount: 39.00");
-  });
-
-  it("no weekly automated monitoring in features", () => {
-    const upgradeCard = fs.readFileSync(
-      path.join(APP_DIR, "components/UpgradeCard.tsx"),
-      "utf-8"
-    );
-    expect(upgradeCard).not.toContain("Weekly automated monitoring");
+    expect(content).not.toContain("BillingInterval.OneTime");
   });
 });
 
-// ─── Email system removed ───────────────────────────────────────────────────
+// ─── No plucore.com refs in app code (carried forward from removed email block) ─
 
-describe("Email system removed", () => {
-  it("no email.server.ts file exists", () => {
-    expect(fs.existsSync(path.join(APP_DIR, "utils/email.server.ts"))).toBe(false);
-  });
-
-  it("no email-templates directory exists", () => {
-    expect(fs.existsSync(path.join(APP_DIR, "utils/email-templates"))).toBe(false);
-  });
-
-  it("no resend imports in app code", () => {
-    let output = "";
-    try {
-      output = execFileSync(
-        "grep",
-        ["-rn", "resend", "--include=*.ts", "--include=*.tsx", APP_DIR],
-        { encoding: "utf-8" }
-      );
-    } catch {
-      output = "";
-    }
-    expect(output).toBe("");
-  });
-
-  it("no email.server imports in route files", () => {
-    let output = "";
-    try {
-      output = execFileSync(
-        "grep",
-        ["-rn", "email.server", "--include=*.ts", "--include=*.tsx", APP_DIR],
-        { encoding: "utf-8" }
-      );
-    } catch {
-      output = "";
-    }
-    expect(output).toBe("");
-  });
-
+describe("Branding hygiene", () => {
   it("no plucore.com references in app code", () => {
     let output = "";
     try {

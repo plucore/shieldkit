@@ -93,6 +93,27 @@ export default function App() {
             account from suspension.
           </li>
         </ul>
+
+        <footer
+          style={{
+            marginTop: "48px",
+            paddingTop: "24px",
+            borderTop: "1px solid #e1e3e5",
+            fontSize: "13px",
+            color: "#6d7175",
+            display: "flex",
+            gap: "16px",
+            justifyContent: "center",
+          }}
+        >
+          <a href="/privacy" style={{ color: "#6d7175", textDecoration: "underline" }}>
+            Privacy
+          </a>
+          <a href="/terms" style={{ color: "#6d7175", textDecoration: "underline" }}>
+            Terms
+          </a>
+          <span>© ShieldKit</span>
+        </footer>
       </div>
     </div>
   );

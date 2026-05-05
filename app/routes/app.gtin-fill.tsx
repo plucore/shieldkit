@@ -37,11 +37,94 @@ import { wrapAdminClient, getProducts } from "../lib/shopify-api.server";
 const WRITE_METAFIELDS_SCOPE_ENABLED =
   (process.env.SCOPES ?? "").includes("write_products");
 
+const ENRICHMENT_CANDIDATES_QUERY = `#graphql
+  query EnrichmentCandidates($first: Int!, $after: String) {
+    products(first: $first, after: $after) {
+      pageInfo { hasNextPage endCursor }
+      edges {
+        node {
+          id
+          title
+          vendor
+          variants(first: 1) {
+            edges { node { sku barcode } }
+          }
+          metafields(namespace: "custom", first: 10) {
+            edges { node { key value } }
+          }
+        }
+      }
+    }
+  }
+`;
+
+const METAFIELDS_SET_MUTATION = `#graphql
+  mutation MetafieldsSet($metafields: [MetafieldsSetInput!]!) {
+    metafieldsSet(metafields: $metafields) {
+      metafields { id key namespace }
+      userErrors { field message }
+    }
+  }
+`;
+
 interface MissingIdentifierProduct {
   id: string;
   title: string;
   handle: string;
   hasSku: boolean;
+}
+
+interface CandidateProduct {
+  id: string; // gid e.g. "gid://shopify/Product/12345"
+  title: string;
+  vendor: string | null;
+  sku: string | null;
+  barcode: string | null;
+  metafields: Record<string, string>;
+}
+
+// Extracts the numeric portion of a Shopify gid for the BIGINT column.
+function gidToNumericId(gid: string): string | null {
+  const m = gid.match(/\/(\d+)$/);
+  return m ? m[1] : null;
+}
+
+// Pull up to 500 products with the fields needed to decide what to write.
+// Stops early once Shopify reports no further pages.
+async function fetchEnrichmentCandidates(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  adminGraphql: (q: string, opts?: { variables?: Record<string, unknown> }) => Promise<any>,
+): Promise<CandidateProduct[]> {
+  const out: CandidateProduct[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < 10; page++) {
+    const res = await adminGraphql(ENRICHMENT_CANDIDATES_QUERY, {
+      variables: { first: 50, after: cursor },
+    });
+    const json = await res.json();
+    const conn = json?.data?.products;
+    if (!conn) break;
+    for (const { node } of conn.edges as Array<{ node: {
+      id: string; title: string; vendor: string | null;
+      variants: { edges: Array<{ node: { sku: string | null; barcode: string | null } }> };
+      metafields: { edges: Array<{ node: { key: string; value: string } }> };
+    } }>) {
+      const v = node.variants.edges[0]?.node;
+      const mf: Record<string, string> = {};
+      for (const { node: m } of node.metafields.edges) mf[m.key] = m.value;
+      out.push({
+        id: node.id,
+        title: node.title,
+        vendor: node.vendor,
+        sku: v?.sku ?? null,
+        barcode: v?.barcode ?? null,
+        metafields: mf,
+      });
+    }
+    if (!conn.pageInfo?.hasNextPage) break;
+    cursor = conn.pageInfo.endCursor;
+  }
+  return out;
 }
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -108,67 +191,198 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
 // ─── Action ────────────────────────────────────────────────────────────────────
 
+interface ActionResult {
+  ok: boolean;
+  error?: string;
+  processed: number;
+  succeeded: number;
+  failed: number;
+  errors: Array<{ productId: string; message: string }>;
+}
+
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { session, admin } = await authenticate.admin(request);
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
 
+  const fail = (status: number, error: string) =>
+    data<ActionResult>(
+      { ok: false, error, processed: 0, succeeded: 0, failed: 0, errors: [] },
+      { status },
+    );
+
+  // Tier gate
+  const { data: merchant } = await supabase
+    .from("merchants")
+    .select("id, tier")
+    .eq("shopify_domain", session.shop)
+    .maybeSingle();
+  if (!merchant || merchant.tier !== "pro") return fail(403, "Shield Max only.");
+
+  // Scope gate
   if (!WRITE_METAFIELDS_SCOPE_ENABLED) {
-    return data(
-      {
-        ok: false,
-        error:
-          "write_products scope is pending Shopify review. The Auto-Filler will activate the moment scope approval lands — no further code changes required.",
-        enriched: 0,
-      },
-      { status: 403 },
+    return fail(
+      501,
+      "write_products scope is pending Shopify review. The Auto-Filler will activate the moment scope approval lands — no further code changes required.",
     );
   }
 
-  if (intent === "enrich") {
-    // ── Phase 5.2 mutation path (skeleton) ─────────────────────────────────
-    // For each selected product:
-    //   const res = await admin.graphql(`#graphql
-    //     mutation MetafieldsSet($metafields: [MetafieldsSetInput!]!) {
-    //       metafieldsSet(metafields: $metafields) {
-    //         userErrors { field message }
-    //       }
-    //     }
-    //   `, { variables: { metafields: [
-    //     { ownerId: productGid, namespace: "custom", key: "gtin",
-    //       type: "single_line_text_field", value: "<lookup result>" },
-    //     ...
-    //   ]}});
-    //
-    // After each successful write:
-    //   await supabase.from("schema_enrichments").upsert({
-    //     merchant_id, product_id, enriched_fields: ["gtin","mpn","brand"],
-    //     metafield_values: { ... },
-    //     enriched_at: new Date().toISOString(),
-    //   }, { onConflict: "merchant_id,product_id" });
-    //
-    // Identifier source: this skeleton does NOT auto-derive GTINs (they
-    // require an external product database). The intended UX is:
-    //   1. User enters identifiers manually for high-value SKUs, OR
-    //   2. User toggles "Identifier doesn't exist" for handmade/vintage,
-    //      which writes custom.identifier_exists = "false" so Google stops
-    //      flagging the SKU.
-    return data(
-      { ok: false, error: "Phase 5 enrich path not yet implemented.", enriched: 0 },
-      { status: 501 },
-    );
+  if (intent !== "enrich" && intent !== "mark_no_identifier") {
+    return fail(400, "Unknown intent.");
   }
 
-  if (intent === "mark_no_identifier") {
-    // Bulk-toggle: write custom.identifier_exists = "false" for selected
-    // products. Useful for handmade / vintage / custom-made categories.
-    return data(
-      { ok: false, error: "Phase 5 mark-no-identifier path not yet implemented.", enriched: 0 },
-      { status: 501 },
-    );
+  // Brand fallback: shop.name is the last-resort brand value.
+  let shopName = "";
+  try {
+    const r = await admin.graphql(`#graphql
+      query { shop { name } }
+    `);
+    const j = await r.json();
+    shopName = j?.data?.shop?.name ?? "";
+  } catch {
+    /* shop name fallback only — non-fatal */
   }
 
-  return data({ ok: false, error: "Unknown intent.", enriched: 0 }, { status: 400 });
+  const candidates = await fetchEnrichmentCandidates(admin.graphql);
+
+  // Filter to products this intent actually has work for. Skip anything the
+  // merchant has already opted out of via custom.identifier_exists=false.
+  const filtered = candidates.filter((p) => {
+    if (p.metafields["identifier_exists"] === "false") return false;
+    if (intent === "enrich") {
+      const wantGtin = !p.metafields["gtin"] && !!p.barcode;
+      const wantMpn = !p.metafields["mpn"] && !!p.sku;
+      const wantBrand =
+        !p.metafields["brand"] &&
+        ((p.vendor && p.vendor.length > 0) || shopName.length > 0);
+      return wantGtin || wantMpn || wantBrand;
+    }
+    // mark_no_identifier targets products without any identifier signal
+    return !p.barcode && !p.sku;
+  });
+
+  // Optional caller-supplied filter — restrict to a subset of product gids.
+  const requestedIds = formData.getAll("productId").map(String).filter(Boolean);
+  const target =
+    requestedIds.length > 0
+      ? filtered.filter((p) => requestedIds.includes(p.id))
+      : filtered;
+
+  type MetafieldInput = {
+    ownerId: string;
+    namespace: string;
+    key: string;
+    type: string;
+    value: string;
+  };
+
+  const BATCH = 25;
+  let succeeded = 0;
+  let failed = 0;
+  const errors: ActionResult["errors"] = [];
+
+  for (let i = 0; i < target.length; i += BATCH) {
+    const chunk = target.slice(i, i + BATCH);
+    const inputs: MetafieldInput[] = [];
+    const writtenByProduct = new Map<string, Record<string, string>>();
+
+    for (const p of chunk) {
+      const written: Record<string, string> = {};
+      const push = (key: string, type: string, value: string) => {
+        inputs.push({ ownerId: p.id, namespace: "custom", key, type, value });
+        written[key] = value;
+      };
+      if (intent === "enrich") {
+        if (!p.metafields["gtin"] && p.barcode) {
+          push("gtin", "single_line_text_field", p.barcode);
+        }
+        if (!p.metafields["mpn"] && p.sku) {
+          push("mpn", "single_line_text_field", p.sku);
+        }
+        if (!p.metafields["brand"]) {
+          const brand = p.vendor && p.vendor.length > 0 ? p.vendor : shopName;
+          if (brand) push("brand", "single_line_text_field", brand);
+        }
+      } else {
+        push("identifier_exists", "boolean", "false");
+      }
+      writtenByProduct.set(p.id, written);
+    }
+
+    if (inputs.length === 0) continue;
+
+    let chunkErrored = false;
+    try {
+      const res = await admin.graphql(METAFIELDS_SET_MUTATION, {
+        variables: { metafields: inputs },
+      });
+      const json = await res.json();
+      const userErrors: Array<{ field: string[] | null; message: string }> =
+        json?.data?.metafieldsSet?.userErrors ?? [];
+      if (userErrors.length > 0) {
+        chunkErrored = true;
+        for (const ue of userErrors) {
+          // userError.field looks like ["metafields", "<index>", "<field>"]
+          const idx = Number(ue.field?.[1]);
+          const owner = Number.isFinite(idx)
+            ? inputs[idx]?.ownerId ?? "unknown"
+            : "unknown";
+          errors.push({ productId: owner, message: ue.message });
+        }
+      }
+    } catch (err) {
+      chunkErrored = true;
+      const msg = err instanceof Error ? err.message : String(err);
+      for (const p of chunk) errors.push({ productId: p.id, message: msg });
+    }
+
+    if (chunkErrored) {
+      failed += chunk.length;
+      continue;
+    }
+
+    succeeded += chunk.length;
+
+    const rows = chunk
+      .map((p) => {
+        const numericId = gidToNumericId(p.id);
+        const written = writtenByProduct.get(p.id) ?? {};
+        const fields = Object.keys(written);
+        if (!numericId || fields.length === 0) return null;
+        return {
+          merchant_id: merchant.id,
+          product_id: numericId,
+          enriched_fields: fields,
+          metafield_values: written,
+          enriched_at: new Date().toISOString(),
+        };
+      })
+      .filter((r): r is NonNullable<typeof r> => r !== null);
+
+    if (rows.length > 0) {
+      const { error: upsertErr } = await supabase
+        .from("schema_enrichments")
+        .upsert(rows, { onConflict: "merchant_id,product_id" });
+      if (upsertErr) {
+        console.error(
+          "[gtin-fill] schema_enrichments upsert failed:",
+          upsertErr.message,
+        );
+      }
+    }
+  }
+
+  const result: ActionResult = {
+    ok: failed === 0,
+    processed: target.length,
+    succeeded,
+    failed,
+    errors,
+  };
+  if (failed > 0) {
+    result.error = `${failed} product${failed === 1 ? "" : "s"} failed to enrich. See details below.`;
+  }
+  return data(result);
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -243,6 +457,15 @@ export default function GtinFillPage() {
         <s-section>
           <s-banner tone="critical" heading="Action failed">
             {actionData.error}
+          </s-banner>
+        </s-section>
+      )}
+
+      {actionData?.ok && actionData.succeeded > 0 && (
+        <s-section>
+          <s-banner tone="success" heading="Enrichment complete">
+            Wrote metafields for {actionData.succeeded} product
+            {actionData.succeeded === 1 ? "" : "s"}.
           </s-banner>
         </s-section>
       )}

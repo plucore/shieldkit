@@ -491,45 +491,9 @@ describe("One-time $29 billing model", () => {
   });
 });
 
-// ─── Email system removed ───────────────────────────────────────────────────
+// ─── No plucore.com refs in app code (carried forward from removed email block) ─
 
-describe("Email system removed", () => {
-  it("no email.server.ts file exists", () => {
-    expect(fs.existsSync(path.join(APP_DIR, "utils/email.server.ts"))).toBe(false);
-  });
-
-  it("no email-templates directory exists", () => {
-    expect(fs.existsSync(path.join(APP_DIR, "utils/email-templates"))).toBe(false);
-  });
-
-  it("no resend imports in app code", () => {
-    let output = "";
-    try {
-      output = execFileSync(
-        "grep",
-        ["-rn", "resend", "--include=*.ts", "--include=*.tsx", APP_DIR],
-        { encoding: "utf-8" }
-      );
-    } catch {
-      output = "";
-    }
-    expect(output).toBe("");
-  });
-
-  it("no email.server imports in route files", () => {
-    let output = "";
-    try {
-      output = execFileSync(
-        "grep",
-        ["-rn", "email.server", "--include=*.ts", "--include=*.tsx", APP_DIR],
-        { encoding: "utf-8" }
-      );
-    } catch {
-      output = "";
-    }
-    expect(output).toBe("");
-  });
-
+describe("Branding hygiene", () => {
   it("no plucore.com references in app code", () => {
     let output = "";
     try {

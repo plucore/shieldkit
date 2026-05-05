@@ -196,3 +196,24 @@ ALTER TABLE merchants ADD COLUMN IF NOT EXISTS llms_txt_last_served_at TIMESTAMP
 -- Updated by /scan action on every successful public scan.
 -- ============================================================
 ALTER TABLE leads ADD COLUMN IF NOT EXISTS public_risk_score INT;
+
+-- ============================================================
+-- PHASE 7.1 — Continuous GTIN enrichment audit log
+-- One row per webhook delivery. outcome ∈ enriched | noop | skip_tier
+-- | skip_scope | skip_dedup | skip_no_merchant | skip_no_product_id
+-- | skip_no_admin | error.
+-- merchant_id is UUID (matches merchants.id) — earlier draft schema
+-- mistakenly typed it as BIGINT.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS enrichment_webhook_log (
+  id              BIGSERIAL PRIMARY KEY,
+  merchant_id     UUID REFERENCES merchants(id),
+  product_id      TEXT,
+  topic           TEXT,
+  outcome         TEXT,
+  written_keys    TEXT[],
+  error_message   TEXT,
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_enrichment_log_merchant_created
+  ON enrichment_webhook_log(merchant_id, created_at DESC);

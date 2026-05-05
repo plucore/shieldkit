@@ -28,6 +28,11 @@ api_version = "2026-04"
   uri = "/webhooks/products/update"
   compliance_topics = []
 
+  [[webhooks.subscriptions]]
+  topics = [ "themes/update", "themes/publish" ]
+  uri = "/webhooks/themes/update"
+  compliance_topics = []
+
 [webhooks.privacy_compliance]
 customer_data_request_url = "/webhooks/customers/data_request"
 customer_deletion_url = "/webhooks/customers/redact"

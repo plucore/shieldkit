@@ -235,3 +235,21 @@ CREATE TABLE IF NOT EXISTS llms_txt_requests (
 );
 CREATE INDEX IF NOT EXISTS idx_llms_requests_shop_created
   ON llms_txt_requests(shop_domain, created_at DESC);
+
+-- ============================================================
+-- PHASE 7.3 — Storefront monitoring scan-on-change queue
+-- Inserted by webhooks.themes.update + webhooks.products.update.
+-- Drained by api.cron.process-scan-triggers (daily, hobby plan
+-- cron min frequency). One scan per merchant per cron tick.
+-- merchant_id is UUID (matches merchants.id).
+-- ============================================================
+CREATE TABLE IF NOT EXISTS pending_scan_triggers (
+  id              BIGSERIAL PRIMARY KEY,
+  merchant_id     UUID REFERENCES merchants(id),
+  trigger_type    TEXT,
+  trigger_at      TIMESTAMPTZ DEFAULT NOW(),
+  processed_at    TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_pending_scans_unprocessed
+  ON pending_scan_triggers(merchant_id, processed_at)
+  WHERE processed_at IS NULL;

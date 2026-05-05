@@ -458,7 +458,7 @@ On first scan, the merchant's email is collected via GraphQL (`shop { email }`) 
 
 | Route File | URL Path | Type | Behavior |
 |-----------|----------|------|----------|
-| `app.tsx` | `/app` (layout) | Layout | Wraps all `/app/*` routes. NavMenu links: Dashboard, Appeal letter, Shield Max settings, AI bot access, Manage plan. |
+| `app.tsx` | `/app` (layout) | Layout | Wraps all `/app/*` routes. NavMenu links: Dashboard, Appeal letter, Manage plan always; Shield Max settings, GTIN auto-filler, AI bot access only when `tier='pro'`. Loader fetches `merchants.tier` so free/shield merchants don't see Pro-only links they can't use. |
 | `app._index.tsx` | `/app` | Loader + Action + Component | **Onboarding:** Logo + 3-step wizard + "Run Free Scan" CTA. **Dashboard:** Score banner, 4 KPI cards, 12-point checklist, aside with threat level + policy gen + JSON-LD. **Actions:** `runScan`, `generatePolicy`, `dismissReview`, `enableJsonLd`. Loader self-heals tier/billing_cycle/sub_id drift on every render. |
 | `app.upgrade.tsx` | `/app/upgrade` | Loader + Component | Picker UI (2 cards, Monthly/Annual toggle). `?plan=<name>` triggers `billing.request()` and throws redirect. |
 | `app.billing.confirm.tsx` | `/app/billing/confirm` | Loader only | Confirms billing, syncs full set of billing fields, redirects to `/app`. |
@@ -466,6 +466,7 @@ On first scan, the merchant's email is collected via GraphQL (`shop { email }`) 
 | `app.appeal-letter.tsx` | `/app/appeal-letter` | Loader + Action + Component | GMC re-review letter generator. 3 generations per scan cap. Calls Claude Sonnet via `app/lib/llm/appeal-letter.server.ts`. |
 | `app.pro-settings.tsx` | `/app/pro-settings` | Loader + Action + Component | Shield Max only. Logo URL, support email, social URLs, search URL template — persisted to `merchants.pro_settings`. Mirror values in theme editor for the Liquid blocks. |
 | `app.bots.toggle.tsx` | `/app/bots/toggle` | Loader + Action + Component | Shield Max only. 11 AI crawler allow/block toggles. Renders live `robots.txt` snippet for the merchant to paste into theme. |
+| `app.gtin-fill.tsx` | `/app/gtin-fill` | Loader + Action + Component | Shield Max (`tier='pro'`) only. Server action and loader both gated by `WRITE_METAFIELDS_SCOPE_ENABLED` env flag (currently `false` in dev + prod). Stubs return HTTP 501 until the `write_metafields` scope grant lands via App Store re-review. |
 | `app.dmca-takedowns.tsx` | `/app/dmca-takedowns` | Loader only | Redirects to `/app`. DMCA deferred. |
 
 ### API routes
@@ -478,6 +479,10 @@ On first scan, the merchant's email is collected via GraphQL (`shop { email }`) 
 | `api.cron.monthly-reset.ts` | `/api/cron/monthly-reset` | POST | Bearer token auth. Refills `scans_remaining=1` and `scans_reset_at=now()` for free-tier merchants whose last reset is >30 days old. Vercel Cron 1st of month 00:00 UTC. |
 | `api.proxy.llms-txt.ts` | `/api/proxy/llms-txt` | GET | App Proxy endpoint. HMAC verified by `authenticate.public.appProxy`. Tier='pro' (Shield Max) only. Generates llms.txt from shop name/description/email + policies + first 50 published products. 24h in-memory per-shop cache. |
 
+#### Weekly digest — aiReadinessScore caps at 60/100 (TODO)
+
+The digest renderer formula is `60% schema coverage + 30% llms.txt freshness + 10% bot config completeness`. Two of the three inputs are hardcoded to `0` in `api.cron.weekly-digest.ts` (around lines 248-250) — llms.txt freshness and bot config completeness aren't wired up yet. Real ceiling for any Pro merchant today is **60/100**. Decision pending: ship capped + caveat copy, re-weight to 100% schema coverage temporarily, or hold the Pro section render until all three signals land. **Do not change the formula or remove the score without explicit founder approval.**
+
 ### Public routes
 
 | Route File | URL Path | Behavior |
@@ -485,6 +490,8 @@ On first scan, the merchant's email is collected via GraphQL (`shop { email }`) 
 | `_index/route.tsx` | `/` | Landing page with 3 pricing cards (Free, Shield Pro $14/mo, Shield Max $39/mo). If `?shop` param present, redirects to `/app`. Login form submits to `/auth/login`. |
 | `auth.login/route.tsx` | `/auth/login` | Shop domain form. Uses `login()` from shopify.server. Submit button uses `useWebComponentClick` + `form.requestSubmit()`. |
 | `auth.$.tsx` | `/auth/*` | Catch-all OAuth callback. |
+| `privacy.tsx` | `/privacy` | Public, no auth. Privacy policy required for App Store listing. Last-updated date is hardcoded ("May 5, 2026"); bump on any material change. |
+| `terms.tsx` | `/terms` | Public, no auth. Terms of service required for App Store listing. Last-updated date is hardcoded ("May 5, 2026"); bump on any material change. |
 
 ### Webhook routes (all use `authenticate.webhook` for HMAC verification)
 See Section 3 for full details.
@@ -575,6 +582,9 @@ One-off utility to delete orphaned webhook subscriptions from old `shopify app d
 * **SSRF protection** -- `fetchPublicPage()` in `helpers.server.ts` validates DNS records against private IP ranges before fetching. Both in-app and outbound scanners have this protection.
 * **Streaming SSR** -- `entry.server.tsx` uses `renderToPipeableStream`. Bots get `onAllReady` (full render), humans get `onShellReady` (early streaming). 5s timeout.
 * **DOMPurify sanitization** -- AI-generated policy HTML is sanitized with `isomorphic-dompurify` before rendering as defense-in-depth.
+* **Theme block name 25-char limit** -- Shopify validation rejects theme block `name` strings longer than 25 characters. When adding or renaming `extensions/*/blocks/*.liquid` schema blocks, count the chars before deploy. See commit `f3bd7bd` for the rename pass that brought the v2 blocks under the limit.
+* **Brand fallback chain (JSON-LD)** -- Resolution order for the Product schema `brand.name` field is: `product.metafields.custom.brand` -> `product.vendor` -> `shop.name`. Implemented in `extensions/json-ld-schema/blocks/product-schema.liquid`. The same chain is enforced server-side in `app/lib/schema/merchant-listings-enricher.server.ts`; keep both call sites in sync when changing the order.
+* **Pro nav links tier-gated** -- `app/routes/app.tsx` loader reads `merchants.tier` and the layout conditionally renders `/app/pro-settings`, `/app/gtin-fill`, and `/app/bots/toggle` only when `tier='pro'`. Free and Shield Pro merchants don't see Shield Max-only entries they can't use; route-level guards in those files remain the source of truth on enforcement.
 
 ---
 
@@ -611,6 +621,10 @@ One-off utility to delete orphaned webhook subscriptions from old `shopify app d
 | `SHOP_CUSTOM_DOMAIN` | `shopify.server.ts` | Custom Shopify domain support |
 | `PORT` | `vite.config.ts` | Server port (default 3000) |
 | `NODE_ENV` | Various | Controls billing `isTest` flag, Supabase singleton caching |
+
+### Feature flags
+
+* **`WRITE_METAFIELDS_SCOPE_ENABLED`** -- Derived at module load from `process.env.SCOPES.includes("write_metafields")`. Currently `false` in dev and prod; the `write_metafields` scope is not in `shopify.app.toml` access_scopes pending App Store re-review. Consumers: `app/routes/app.gtin-fill.tsx` (loader visibility + server action gates — stubs return HTTP 501 while disabled). Activation flow: edit `shopify.app.toml` access_scopes -> `shopify app deploy` -> flag flips on next merchant reinstall or scope grant prompt.
 
 ### External Services
 | Service | Purpose | Endpoint |

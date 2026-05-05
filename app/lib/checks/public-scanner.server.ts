@@ -682,6 +682,14 @@ async function checkPageSpeed(storeUrl: string): Promise<PublicCheckResult> {
   }
 }
 
+/* ─────────────────────────────────────────── Public risk score ── */
+
+// computeRiskScore lives in a non-server sibling so the public /scan UI
+// component can import it without dragging server-only deps into the
+// client bundle. See app/lib/checks/public-risk-score.ts for the
+// weighting rationale.
+export { computeRiskScore } from "./public-risk-score";
+
 /* ───────────────────────────────────────────────── Threat level ── */
 
 function deriveThreatLevel(score: number, criticals: number): PublicScanResult["threat_level"] {

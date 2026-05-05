@@ -190,3 +190,9 @@ ALTER TABLE merchants
 -- read by api.cron.weekly-digest to compute the AI Readiness Score.
 -- ============================================================
 ALTER TABLE merchants ADD COLUMN IF NOT EXISTS llms_txt_last_served_at TIMESTAMPTZ;
+
+-- ============================================================
+-- PHASE 7 — Quick Win 2: persist public scan risk score on leads
+-- Updated by /scan action on every successful public scan.
+-- ============================================================
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS public_risk_score INT;

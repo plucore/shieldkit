@@ -28,6 +28,31 @@ import {
   digestSubject,
   type IssueChange,
 } from "../lib/emails/weekly-digest";
+import { createAdminClient, executeWithRetry } from "../lib/shopify-api.server";
+
+// Fallback recipient when leads.email is missing — fetch the shop owner email
+// from Shopify Admin GraphQL using the merchant's stored offline session token.
+// Returns null on any failure so the caller can record a no-email skip.
+async function fetchShopOwnerEmail(shopifyDomain: string): Promise<string | null> {
+  try {
+    const executor = await createAdminClient(shopifyDomain);
+    const result = await executeWithRetry<{ shop: { email: string | null } }>(
+      executor,
+      "shopOwnerEmailFallback",
+      `#graphql
+        query { shop { email } }
+      `,
+    );
+    const email = result.data?.shop?.email;
+    return email && email.length > 0 ? email : null;
+  } catch (err) {
+    console.warn(
+      `[cron/weekly-digest] shop-owner email fallback failed for ${shopifyDomain}:`,
+      err instanceof Error ? err.message : err,
+    );
+    return null;
+  }
+}
 
 function json<T>(body: T, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -184,14 +209,24 @@ export async function action({ request }: ActionFunctionArgs) {
       const checkout = latestRows.find((v) => v.check_name === "checkout_transparency");
       const paymentIconHealthy = checkout?.passed === true;
 
-      // 3e. Recipient email from leads table (collected at first scan).
+      // 3e. Recipient email — leads table first (captured on first scan),
+      //     then fall back to Shopify shop-owner email via Admin GraphQL.
       const { data: lead } = await supabase
         .from("leads")
         .select("email")
         .eq("shop_domain", merchant.shopify_domain)
         .maybeSingle();
 
-      const to = lead?.email;
+      let to = lead?.email ?? null;
+      let recipientSource: "lead" | "shopify_owner" = "lead";
+      if (!to) {
+        const ownerEmail = await fetchShopOwnerEmail(merchant.shopify_domain);
+        if (ownerEmail) {
+          to = ownerEmail;
+          recipientSource = "shopify_owner";
+        }
+      }
+
       if (!to) {
         skippedNoEmail++;
         // Still record an audit row so we know we tried.
@@ -281,9 +316,12 @@ export async function action({ request }: ActionFunctionArgs) {
         html,
       });
 
+      // Tag the audit row with the recipient source when fallback was used,
+      // so we can spot shops still missing a captured lead.
+      const sourceTag = recipientSource === "shopify_owner" ? "|src=shopify_owner" : "";
       const providerId = result.ok
-        ? result.messageId ?? "OK:no_id"
-        : `FAILED:${(result.error ?? "unknown").slice(0, 64)}`;
+        ? `${result.messageId ?? "OK:no_id"}${sourceTag}`
+        : `FAILED:${(result.error ?? "unknown").slice(0, 64)}${sourceTag}`;
 
       await supabase.from("digest_emails").insert({
         merchant_id: merchant.id,

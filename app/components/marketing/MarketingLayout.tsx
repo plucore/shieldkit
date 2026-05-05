@@ -43,7 +43,7 @@ function MarketingNav() {
           <Link to="/explainer" className="hover:opacity-70">Explainer</Link>
           <a
             href={SITE.installUrl}
-            className="rounded-full bg-brand-navy text-white px-5 py-2 hover:opacity-90 transition"
+            className="rounded-full bg-brand-navy !text-white px-5 py-2 hover:opacity-90 transition"
           >
             Install
           </a>
@@ -51,7 +51,7 @@ function MarketingNav() {
         {/* Mobile: just the install CTA */}
         <a
           href={SITE.installUrl}
-          className="md:hidden rounded-full bg-brand-navy text-white px-4 py-2 text-sm"
+          className="md:hidden rounded-full bg-brand-navy !text-white px-4 py-2 text-sm"
         >
           Install
         </a>

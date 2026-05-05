@@ -27,7 +27,7 @@ const baseClasses =
   "inline-flex items-center justify-center rounded-full font-semibold transition focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-navy whitespace-nowrap";
 
 const variantClasses: Record<Variant, string> = {
-  primary: "bg-brand-navy text-white hover:opacity-90 shadow-card",
+  primary: "bg-brand-navy !text-white hover:opacity-90 shadow-card",
   secondary:
     "bg-white text-brand-navy border border-brand-card-border hover:bg-white/80",
 };

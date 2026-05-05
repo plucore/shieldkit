@@ -8,7 +8,7 @@
  *
  * For now (Phase 4) the values feed the Liquid block settings: the merchant
  * has to copy them into the theme editor manually. Phase 5 will sync them
- * via metafields once write_metafields scope is approved.
+ * via metafields once write_products scope is approved.
  *
  * Tier gate: tier='pro' (Shield Max) only. Lower tiers see an upgrade nudge.
  */

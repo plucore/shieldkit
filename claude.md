@@ -312,7 +312,7 @@ GMC re-review appeal letter generations.
 | `created_at` | TIMESTAMPTZ DEFAULT now() | |
 
 ### Table: `schema_enrichments`
-Phase 5 — Merchant Listings JSON-LD enrichment audit log. Currently unused; created in Phase 1 for the upcoming write_metafields scope rollout.
+Phase 5 — Merchant Listings JSON-LD enrichment audit log. Currently unused; created in Phase 1 for the upcoming write_products scope rollout.
 
 | Column | Type | Notes |
 |--------|------|-------|
@@ -466,7 +466,7 @@ On first scan, the merchant's email is collected via GraphQL (`shop { email }`) 
 | `app.appeal-letter.tsx` | `/app/appeal-letter` | Loader + Action + Component | GMC re-review letter generator. 3 generations per scan cap. Calls Claude Sonnet via `app/lib/llm/appeal-letter.server.ts`. |
 | `app.pro-settings.tsx` | `/app/pro-settings` | Loader + Action + Component | Shield Max only. Logo URL, support email, social URLs, search URL template — persisted to `merchants.pro_settings`. Mirror values in theme editor for the Liquid blocks. |
 | `app.bots.toggle.tsx` | `/app/bots/toggle` | Loader + Action + Component | Shield Max only. 11 AI crawler allow/block toggles. Renders live `robots.txt` snippet for the merchant to paste into theme. |
-| `app.gtin-fill.tsx` | `/app/gtin-fill` | Loader + Action + Component | Shield Max (`tier='pro'`) only. Server action and loader both gated by `WRITE_METAFIELDS_SCOPE_ENABLED` env flag (currently `false` in dev + prod). Stubs return HTTP 501 until the `write_metafields` scope grant lands via App Store re-review. |
+| `app.gtin-fill.tsx` | `/app/gtin-fill` | Loader + Action + Component | Shield Max (`tier='pro'`) only. Server action and loader both gated by `WRITE_METAFIELDS_SCOPE_ENABLED` env flag (currently `false` in dev + prod). Stubs return HTTP 501 until the `write_products` scope grant lands via App Store re-review. |
 | `app.dmca-takedowns.tsx` | `/app/dmca-takedowns` | Loader only | Redirects to `/app`. DMCA deferred. |
 
 ### API routes
@@ -624,7 +624,7 @@ One-off utility to delete orphaned webhook subscriptions from old `shopify app d
 
 ### Feature flags
 
-* **`WRITE_METAFIELDS_SCOPE_ENABLED`** -- Derived at module load from `process.env.SCOPES.includes("write_metafields")`. Currently `false` in dev and prod; the `write_metafields` scope is not in `shopify.app.toml` access_scopes pending App Store re-review. Consumers: `app/routes/app.gtin-fill.tsx` (loader visibility + server action gates — stubs return HTTP 501 while disabled). Activation flow: edit `shopify.app.toml` access_scopes -> `shopify app deploy` -> flag flips on next merchant reinstall or scope grant prompt.
+* **`WRITE_METAFIELDS_SCOPE_ENABLED`** -- Derived at module load from `process.env.SCOPES.includes("write_products")`. Currently `false` in dev and prod; the `write_products` scope is not in `shopify.app.toml` access_scopes pending App Store re-review. Consumers: `app/routes/app.gtin-fill.tsx` (loader visibility + server action gates — stubs return HTTP 501 while disabled). Activation flow: edit `shopify.app.toml` access_scopes -> `shopify app deploy` -> flag flips on next merchant reinstall or scope grant prompt.
 
 ### External Services
 | Service | Purpose | Endpoint |

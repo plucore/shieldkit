@@ -14,7 +14,7 @@
  * for products that already have raw fields populated, but the read paths
  * for metafields, return policy, and shipping zones require:
  *   - read_themes scope (for the theme JSON-LD injection — Phase 5.1 deploy)
- *   - write_metafields scope (for Auto-Filler writes — Phase 5.2)
+ *   - write_products scope (for Auto-Filler writes — Phase 5.2)
  *   - read_shipping + read_locations scopes (for OfferShippingDetails)
  *
  * Until those scopes ship, callers should fall back to the existing

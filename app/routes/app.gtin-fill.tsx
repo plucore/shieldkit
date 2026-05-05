@@ -6,7 +6,7 @@
  * identifiers and lets the merchant bulk-write them via Shopify metafields
  * (custom.gtin, custom.mpn, custom.brand, custom.identifier_exists).
  *
- * Status: SKELETON. The `metafieldsSet` mutation requires write_metafields
+ * Status: SKELETON. The `metafieldsSet` mutation requires write_products
  * scope, which is in Shopify scope-review queue. Until approved, the form
  * loads + previews but the action returns a "scope pending" error rather
  * than attempting a write that would fail.
@@ -35,7 +35,7 @@ import { useWebComponentClick } from "../hooks/useWebComponentClick";
 import { wrapAdminClient, getProducts } from "../lib/shopify-api.server";
 
 const WRITE_METAFIELDS_SCOPE_ENABLED =
-  (process.env.SCOPES ?? "").includes("write_metafields");
+  (process.env.SCOPES ?? "").includes("write_products");
 
 interface MissingIdentifierProduct {
   id: string;
@@ -68,7 +68,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   }
 
   // Fetch up to 250 products and filter for missing identifiers via raw fields.
-  // Once write_metafields is approved we'll also read the custom.* metafields
+  // Once write_products is approved we'll also read the custom.* metafields
   // here to confirm whether the Auto-Filler has already enriched them.
   const executor = wrapAdminClient(admin.graphql);
   const products = await getProducts(executor, 250);
@@ -118,7 +118,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       {
         ok: false,
         error:
-          "write_metafields scope is pending Shopify review. The Auto-Filler will activate the moment scope approval lands — no further code changes required.",
+          "write_products scope is pending Shopify review. The Auto-Filler will activate the moment scope approval lands — no further code changes required.",
         enriched: 0,
       },
       { status: 403 },
@@ -215,7 +215,7 @@ export default function GtinFillPage() {
     <s-page heading="GTIN / MPN / Brand Auto-Filler">
       {!loaderData.scopeReady && (
         <s-section>
-          <s-banner tone="warning" heading="write_metafields scope pending">
+          <s-banner tone="warning" heading="write_products scope pending">
             The Auto-Filler is wired and ready to run. Shopify is reviewing the
             scope expansion request — actions will activate as soon as
             approval lands. No code change required on your side.

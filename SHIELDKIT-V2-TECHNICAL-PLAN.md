@@ -263,12 +263,12 @@ Configure App Proxy in Shopify Partner Dashboard:
 
 ---
 
-## Phase 5 — Pro features, requires `write_metafields` scope (4 hours after scope approval)
+## Phase 5 — Pro features, requires `write_products` scope (4 hours after scope approval)
 
 **Submit scope re-review BEFORE starting Phase 5 dev work.** Update `shopify.app.toml`:
 ```toml
 [access_scopes]
-scopes = "read_products,read_content,read_legal_policies,read_themes,read_shipping,read_locations,write_metafields"
+scopes = "read_products,read_content,read_legal_policies,read_themes,read_shipping,read_locations,write_products"
 ```
 
 Wait 5–10 business days for approval. During that time, ship Phases 1–4 to production.
@@ -339,7 +339,7 @@ Partner Dashboard → app listing → submit changes. Listing review SLA 5–14 
 ## Cutover sequence
 
 1. **Phase 0–4 dev complete on `v2-rebuild`** (days 1–2)
-2. **Submit scope re-review** for `write_metafields`
+2. **Submit scope re-review** for `write_products`
 3. **Take Supabase backup**, confirm rollback path works
 4. **Merge `v2-rebuild` → `main`**, Vercel auto-deploys
 5. **Run grandfathering SQL** (Phase 1, lines 6–7) against production with actual domains

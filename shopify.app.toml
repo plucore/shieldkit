@@ -30,7 +30,7 @@ shop_deletion_url = "/webhooks/shop/redact"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_products,read_content,read_legal_policies,write_metafields,read_shipping,read_locations,read_themes"
+scopes = "read_products,read_content,read_legal_policies,write_products,read_shipping,read_locations,read_themes"
 
 [auth]
 redirect_urls = [ "https://shieldkit.vercel.app/auth/callback",

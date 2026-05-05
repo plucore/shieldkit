@@ -29,10 +29,19 @@ type Pages = {
   "/webhooks/app/uninstalled": {
     params: {};
   };
+  "/api/cron/monthly-reset": {
+    params: {};
+  };
+  "/api/cron/weekly-digest": {
+    params: {};
+  };
   "/api/cron/weekly-scan": {
     params: {};
   };
   "/webhooks/shop/redact": {
+    params: {};
+  };
+  "/api/proxy/llms-txt": {
     params: {};
   };
   "/auth/login": {
@@ -41,10 +50,16 @@ type Pages = {
   "/api/scan": {
     params: {};
   };
+  "/privacy": {
+    params: {};
+  };
   "/auth/*": {
     params: {
       "*": string;
     };
+  };
+  "/terms": {
+    params: {};
   };
   "/app": {
     params: {};
@@ -55,7 +70,19 @@ type Pages = {
   "/app/dmca-takedowns": {
     params: {};
   };
+  "/app/appeal-letter": {
+    params: {};
+  };
   "/app/plan-switcher": {
+    params: {};
+  };
+  "/app/pro-settings": {
+    params: {};
+  };
+  "/app/bots/toggle": {
+    params: {};
+  };
+  "/app/gtin-fill": {
     params: {};
   };
   "/app/upgrade": {
@@ -66,7 +93,7 @@ type Pages = {
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/webhooks/app_subscriptions/update" | "/webhooks/customers/data_request" | "/webhooks/app/scopes_update" | "/webhooks/customers/redact" | "/webhooks/app/uninstalled" | "/api/cron/weekly-scan" | "/webhooks/shop/redact" | "/auth/login" | "/api/scan" | "/auth/*" | "/app" | "/app/billing/confirm" | "/app/dmca-takedowns" | "/app/plan-switcher" | "/app/upgrade";
+    page: "/" | "/webhooks/app_subscriptions/update" | "/webhooks/customers/data_request" | "/webhooks/app/scopes_update" | "/webhooks/customers/redact" | "/webhooks/app/uninstalled" | "/api/cron/monthly-reset" | "/api/cron/weekly-digest" | "/api/cron/weekly-scan" | "/webhooks/shop/redact" | "/api/proxy/llms-txt" | "/auth/login" | "/api/scan" | "/privacy" | "/auth/*" | "/terms" | "/app" | "/app/billing/confirm" | "/app/dmca-takedowns" | "/app/appeal-letter" | "/app/plan-switcher" | "/app/pro-settings" | "/app/bots/toggle" | "/app/gtin-fill" | "/app/upgrade";
   };
   "routes/webhooks.app_subscriptions.update.tsx": {
     id: "routes/webhooks.app_subscriptions.update";
@@ -88,6 +115,14 @@ type RouteFiles = {
     id: "routes/webhooks.app.uninstalled";
     page: "/webhooks/app/uninstalled";
   };
+  "routes/api.cron.monthly-reset.ts": {
+    id: "routes/api.cron.monthly-reset";
+    page: "/api/cron/monthly-reset";
+  };
+  "routes/api.cron.weekly-digest.ts": {
+    id: "routes/api.cron.weekly-digest";
+    page: "/api/cron/weekly-digest";
+  };
   "routes/api.cron.weekly-scan.ts": {
     id: "routes/api.cron.weekly-scan";
     page: "/api/cron/weekly-scan";
@@ -95,6 +130,10 @@ type RouteFiles = {
   "routes/webhooks.shop.redact.tsx": {
     id: "routes/webhooks.shop.redact";
     page: "/webhooks/shop/redact";
+  };
+  "routes/api.proxy.llms-txt.ts": {
+    id: "routes/api.proxy.llms-txt";
+    page: "/api/proxy/llms-txt";
   };
   "routes/auth.login/route.tsx": {
     id: "routes/auth.login";
@@ -104,6 +143,10 @@ type RouteFiles = {
     id: "routes/api.scan";
     page: "/api/scan";
   };
+  "routes/privacy.tsx": {
+    id: "routes/privacy";
+    page: "/privacy";
+  };
   "routes/_index/route.tsx": {
     id: "routes/_index";
     page: "/";
@@ -112,9 +155,13 @@ type RouteFiles = {
     id: "routes/auth.$";
     page: "/auth/*";
   };
+  "routes/terms.tsx": {
+    id: "routes/terms";
+    page: "/terms";
+  };
   "routes/app.tsx": {
     id: "routes/app";
-    page: "/app" | "/app/billing/confirm" | "/app/dmca-takedowns" | "/app/plan-switcher" | "/app/upgrade";
+    page: "/app" | "/app/billing/confirm" | "/app/dmca-takedowns" | "/app/appeal-letter" | "/app/plan-switcher" | "/app/pro-settings" | "/app/bots/toggle" | "/app/gtin-fill" | "/app/upgrade";
   };
   "routes/app.billing.confirm.tsx": {
     id: "routes/app.billing.confirm";
@@ -124,9 +171,25 @@ type RouteFiles = {
     id: "routes/app.dmca-takedowns";
     page: "/app/dmca-takedowns";
   };
+  "routes/app.appeal-letter.tsx": {
+    id: "routes/app.appeal-letter";
+    page: "/app/appeal-letter";
+  };
   "routes/app.plan-switcher.tsx": {
     id: "routes/app.plan-switcher";
     page: "/app/plan-switcher";
+  };
+  "routes/app.pro-settings.tsx": {
+    id: "routes/app.pro-settings";
+    page: "/app/pro-settings";
+  };
+  "routes/app.bots.toggle.tsx": {
+    id: "routes/app.bots.toggle";
+    page: "/app/bots/toggle";
+  };
+  "routes/app.gtin-fill.tsx": {
+    id: "routes/app.gtin-fill";
+    page: "/app/gtin-fill";
   };
   "routes/app.upgrade.tsx": {
     id: "routes/app.upgrade";
@@ -145,16 +208,25 @@ type RouteModules = {
   "routes/webhooks.app.scopes_update": typeof import("./app/routes/webhooks.app.scopes_update.tsx");
   "routes/webhooks.customers.redact": typeof import("./app/routes/webhooks.customers.redact.tsx");
   "routes/webhooks.app.uninstalled": typeof import("./app/routes/webhooks.app.uninstalled.tsx");
+  "routes/api.cron.monthly-reset": typeof import("./app/routes/api.cron.monthly-reset.ts");
+  "routes/api.cron.weekly-digest": typeof import("./app/routes/api.cron.weekly-digest.ts");
   "routes/api.cron.weekly-scan": typeof import("./app/routes/api.cron.weekly-scan.ts");
   "routes/webhooks.shop.redact": typeof import("./app/routes/webhooks.shop.redact.tsx");
+  "routes/api.proxy.llms-txt": typeof import("./app/routes/api.proxy.llms-txt.ts");
   "routes/auth.login": typeof import("./app/routes/auth.login/route.tsx");
   "routes/api.scan": typeof import("./app/routes/api.scan.ts");
+  "routes/privacy": typeof import("./app/routes/privacy.tsx");
   "routes/_index": typeof import("./app/routes/_index/route.tsx");
   "routes/auth.$": typeof import("./app/routes/auth.$.tsx");
+  "routes/terms": typeof import("./app/routes/terms.tsx");
   "routes/app": typeof import("./app/routes/app.tsx");
   "routes/app.billing.confirm": typeof import("./app/routes/app.billing.confirm.tsx");
   "routes/app.dmca-takedowns": typeof import("./app/routes/app.dmca-takedowns.tsx");
+  "routes/app.appeal-letter": typeof import("./app/routes/app.appeal-letter.tsx");
   "routes/app.plan-switcher": typeof import("./app/routes/app.plan-switcher.tsx");
+  "routes/app.pro-settings": typeof import("./app/routes/app.pro-settings.tsx");
+  "routes/app.bots.toggle": typeof import("./app/routes/app.bots.toggle.tsx");
+  "routes/app.gtin-fill": typeof import("./app/routes/app.gtin-fill.tsx");
   "routes/app.upgrade": typeof import("./app/routes/app.upgrade.tsx");
   "routes/app._index": typeof import("./app/routes/app._index.tsx");
 };

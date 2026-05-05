@@ -9,7 +9,7 @@
  * State persists to merchants.pro_settings.bot_preferences (JSONB column —
  * same column as Block 7's pro-settings).
  *
- * No write_metafields scope is required because the merchant copies the
+ * No write_products scope is required because the merchant copies the
  * snippet into their theme manually. Phase 5 may automate this once
  * write_themes scope is granted.
  */

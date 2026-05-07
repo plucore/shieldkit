@@ -83,8 +83,8 @@ function MarketingFooter() {
           <Link to="/explainer" className="hover:underline">GMC explainer</Link>
         </FooterCol>
         <FooterCol title="Legal">
-          <a href="#" className="hover:underline">Privacy policy</a>
-          <a href="#" className="hover:underline">Terms of service</a>
+          <Link to="/privacy" className="hover:underline">Privacy policy</Link>
+          <Link to="/terms" className="hover:underline">Terms of service</Link>
         </FooterCol>
       </div>
       <div className="mx-auto max-w-6xl px-4 sm:px-6 pb-8 text-xs text-brand-gray-text">

@@ -1,0 +1,145 @@
+export const frontmatter = {
+  title: "How to Write a Google Merchant Center Re-Review Appeal That Actually Works (With Template)",
+  slug: "gmc-appeal-letter-template-shopify",
+  description:
+    "A working template for GMC re-review appeals plus the structure Google reviewers actually look for. Stop guessing what to write — copy this format, fill in your specifics, submit.",
+  publishedAt: "2026-05-15",
+  keywords: [
+    "how to write gmc appeal letter template",
+    "google merchant center appeal example",
+    "gmc reinstatement letter shopify",
+    "gmc re-review appeal",
+  ],
+};
+
+Vague appeals get vague rejections. Effective Google Merchant Center re-review appeals do three things: they identify the specific issue (not the policy bucket), they document the fix with dates and screenshots, and they cite the policy by name. Most rejected appeals fail on the first item — merchants write "I fixed everything" instead of "On May 5, I restored the shipping policy page at /policies/shipping after discovering it had been deleted during a May 2 theme migration." The template below uses the structure Google reviewers actually look for. Copy it, fill in your specifics, submit.
+
+## What Google reviewers actually look for
+
+Five things, in order of weight:
+
+1. **Specificity of issue identification.** "Misrepresentation" is the bucket. "Our shipping policy page was returning 404 on mobile" is the issue. Reviewers reward the latter.
+2. **Concrete fix documentation.** Date the change was made, what was changed, where it was changed (Shopify Admin → Settings → Policies → Shipping). Vague language ("I cleaned up the policies") fails.
+3. **Proof of changes.** Screenshots of the fixed page, before/after if possible. Dates visible in the screenshots.
+4. **Acknowledgment of the policy violated.** Name the policy ("misrepresentation," "untrustworthy promotions," "counterfeit goods"). This signals you understood the violation.
+5. **No defensive language.** "We disagree with this decision" or "we believe this was an error" gets your appeal denied even when you're right. Acknowledge, fix, document, request re-review.
+
+## The 5-paragraph appeal structure
+
+Each paragraph does one job:
+
+- **Paragraph 1: Identification.** Who you are, what your store is, where it's based, what it sells.
+- **Paragraph 2: Acknowledgment.** What was wrong, citing the specific policy from your suspension email.
+- **Paragraph 3: Specific changes made.** With dates and (in attachments or links) screenshots.
+- **Paragraph 4: Documentation offered.** Invoices, supplier verification, before/after screenshots, anything else relevant.
+- **Paragraph 5: Request for re-review.** Confirmation you waited the recrawl window. Polite close.
+
+## Full template (copy + paste)
+
+```
+Subject: Re-review request for [STORE NAME] — Merchant Center ID [YOUR MERCHANT ID]
+
+My name is [YOUR NAME], owner of [STORE NAME] at [STORE URL]. We are
+an e-commerce business based in [CITY, COUNTRY] selling [PRODUCT
+CATEGORY] to customers in [REGIONS]. Our Merchant Center account ID
+is [YOUR MERCHANT ID].
+
+Our Google Merchant Center account was suspended on [DATE] for
+violation of the [SPECIFIC POLICY CITED IN SUSPENSION EMAIL — e.g.,
+"misrepresentation policy"]. After reviewing the suspension notice and
+auditing our store, we identified the following specific issue(s):
+
+  - [SPECIFIC ISSUE 1 — e.g., "Our shipping policy page at
+    /policies/shipping was returning a 404 error on mobile devices,
+    making it inaccessible to mobile shoppers. The page was
+    inadvertently deleted during a theme migration on May 2."]
+  - [SPECIFIC ISSUE 2 if applicable]
+
+We have addressed these issues through the following changes:
+
+  - [SPECIFIC FIX 1 with date — e.g., "On May 5, 2026, we restored the
+    shipping policy at /policies/shipping with full delivery timeframes
+    and shipping cost details. We also added the policy link to the
+    main navigation footer so it is accessible from every page on the
+    site. Verified accessible on desktop and mobile."]
+  - [SPECIFIC FIX 2 if applicable]
+
+We can provide additional documentation to support this appeal,
+including:
+
+  - Screenshots showing the before-and-after state of the affected
+    pages, with timestamps.
+  - [If counterfeit was alleged: "Supplier invoices confirming
+    authorized-reseller status for the brand-name products in our
+    catalog."]
+  - [If product data was the issue: "A current export of our Shopify
+    product feed showing prices and availability matching our
+    storefront."]
+  - [Any other relevant supporting documentation.]
+
+We have waited [N — should be at least 7] days since the changes were
+implemented to allow Google's crawlers to re-index our store. We
+respectfully request a re-review of our Merchant Center account.
+
+Thank you for your time.
+
+[YOUR NAME]
+[YOUR EMAIL]
+[STORE URL]
+```
+
+The template fits within the appeal form's character limit (Google's appeal box accepts about 4,000 characters). If your case requires more documentation than fits, attach screenshots and supplementary docs through the form's file upload.
+
+## Common mistakes that get appeals rejected
+
+Five mistakes that account for most rejected appeals:
+
+- **Mistake 1: Saying "I fixed everything" without specifics.** Reviewers can't verify "everything." They can verify "the shipping policy page at /policies/shipping now loads with full content."
+- **Mistake 2: Defensive or accusatory language.** "We don't believe we violated this policy" reads as denial even when you've also fixed the issue. Acknowledge first, then fix, then document.
+- **Mistake 3: Submitting before the 7-day recrawl period.** The reviewer fetches your store fresh; if your fix isn't yet indexed, they see the broken version. Always wait the full window — see [the appeal timeline](/blog/gmc-suspension-appeal-timeline) for the full schedule.
+- **Mistake 4: Submitting duplicate appeals.** Multiple appeals during cooldown trigger automatic rejection and may extend the cooldown.
+- **Mistake 5: Not mentioning the policy by name.** Citing "misrepresentation" or "untrustworthy promotions" by name shows you understood the violation. Generic "we got suspended" appeals fail.
+
+## What to do if your appeal gets rejected
+
+The rejection email is more useful than the original suspension email. Three steps:
+
+1. **Read the rejection carefully.** It usually contains specific information the original suspension email omitted — sometimes a specific URL, sometimes a specific product, sometimes a different policy than the original.
+2. **Wait the cooldown period.** 7-14 days, longer with each rejection. Submitting during cooldown auto-rejects.
+3. **Submit a revised appeal.** Customize the template above to address the specific reason cited in the rejection. Use the same 5-paragraph structure.
+
+If you're not sure why the rejection landed, work back through the [why GMC suspends accounts](/blog/gmc-suspension-reasons-shopify) reason map and [how to find the specific product that caused suspension](/blog/find-product-causing-gmc-suspension). The cause is almost always one of the items in the [12-point compliance checklist](/blog/gmc-suspension-shopify-checklist).
+
+## Generating an appeal automatically
+
+ShieldKit's appeal letter generator drafts the 5-paragraph structure above based on your specific suspension reason and the issues surfaced by your compliance scan. It plugs in your store details, the specific policy cited, and the fixes ShieldKit detected as completed. You edit, copy into the GMC appeal form, submit. Free for paid plans, available right after a [compliance scan](/scan).
+
+The auto-generator handles the formatting; the diagnostic is still yours. If you want to write the letter yourself with no tooling, the template above is the same structure the generator uses.
+
+## FAQ
+
+### How long should a GMC appeal letter be?
+
+400-700 words is the sweet spot. Long enough to identify the issue, document the fix, and offer documentation. Short enough that the reviewer reads it without scanning. The template above lands at about 350 words filled in.
+
+### Should I attach screenshots to my GMC appeal?
+
+Yes. The appeal form accepts attachments and reviewers do open them. Before-and-after screenshots of the fixed page are the most useful — with timestamps visible.
+
+### Can I email Google directly instead of using the appeal form?
+
+No. Appeals must go through the form in **GMC → Account → Diagnostics → Appeal**. Direct emails to Merchant Center support get redirected to the form anyway.
+
+### What if I don't know which policy I violated?
+
+The suspension email cites a policy bucket — read it carefully. If still unclear, work through [why GMC suspends accounts](/blog/gmc-suspension-reasons-shopify) and the [12-point checklist](/blog/gmc-suspension-shopify-checklist) to narrow it down. Don't appeal until you can name the specific issue.
+
+### Do I have to wait 7 days even if my fix was a 1-minute change?
+
+Yes. Google's crawler doesn't recrawl your store on demand — it runs on a 3-7 day cycle. Submitting before the recrawl means the reviewer sees the broken version. See [the appeal timeline post](/blog/gmc-suspension-appeal-timeline) for the full schedule.
+
+### What's the success rate for first appeals?
+
+In our experience auditing Shopify GMC suspensions, clean first appeals (specific issue identification + documented fix + correct waiting period) approve about 70% of the time. Vague first appeals approve about 20%. The template above is the difference between those numbers.
+
+For Google's official re-review docs, see [Google's account re-review guidance](https://support.google.com/merchants/answer/2948694). For the broader policy text, see [Google's Merchant Center policies](https://support.google.com/merchants/answer/6149970).

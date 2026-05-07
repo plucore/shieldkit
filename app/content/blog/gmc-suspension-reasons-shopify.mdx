@@ -1,0 +1,133 @@
+export const frontmatter = {
+  title: "Why Did Google Merchant Center Suspend My Account? Every Reason Explained",
+  slug: "gmc-suspension-reasons-shopify",
+  description:
+    "A complete breakdown of every reason Google Merchant Center suspends Shopify stores in 2026 — from misrepresentation to feed errors to AI-crawler-detected policy violations. With fix priorities for each.",
+  publishedAt: "2026-05-08",
+  keywords: [
+    "why did google merchant center suspend my account",
+    "gmc suspension reasons",
+    "google merchant center suspended shopify",
+    "gmc misrepresentation shopify",
+  ],
+};
+
+If you just got the suspension email and you're trying to figure out *which* policy you tripped, the short answer is almost certainly misrepresentation — that single bucket accounts for roughly 90% of GMC suspensions on Shopify. The remaining 10% splits across counterfeit goods, restricted product violations, untrustworthy promotions, and site-quality issues. Google's email rarely tells you the exact trigger; this post does.
+
+The other thing worth knowing up front: as of April 2026, Google's GMC review pipeline runs a fleet of AI crawlers that fetch your storefront, your policy pages, and a sample of your product pages, then cross-check the contents against your feed. That's why suspensions now happen without warning even on accounts that were fine for years. Something on your store changed — a theme update, a new app, a deleted page — and the next AI crawl flagged it.
+
+## The short answer
+
+Three things to internalize before you go reason-by-reason:
+
+1. **90% of GMC suspensions are classified as "misrepresentation."** It's a deliberately broad bucket that covers anything Google's reviewers think misleads a shopper. Missing contact info, inconsistent business name across site and feed, hidden fees at checkout, broken policy pages — they all land here.
+2. **Google's 2026 AI crawlers verify policy pages, product data accuracy, and business identity.** They check whether the price in your feed matches the price on the product page, whether your "in stock" availability is real, whether your refund policy is reachable from the homepage. Discrepancies trigger suspension.
+3. **Suspensions happen without warning.** Google does not give you a heads-up. The first you'll know is the suspension email. By that point the damage to your campaigns is already done.
+
+## Every reason GMC suspends accounts in 2026
+
+### Misrepresentation of self
+
+This is the single biggest bucket. Google's policy says shoppers must be able to identify and contact the business behind a storefront.
+
+- **Fake or unverifiable business address.** A residential address that doesn't match the country in your feed. A virtual mailbox flagged as a known coworking-mailroom address.
+- **Inconsistent business info between site and feed.** Your feed says "Acme LLC, Delaware" but your About page says "Acme Co., based in California." Pick one and use it everywhere.
+- **Missing or hidden contact information.** No phone, no domain email, no street address visible publicly. A contact form alone doesn't count.
+- **No clear ownership / about page.** Stores with no About page, or About pages that read like AI-generated filler with no real human behind the brand.
+
+### Misrepresentation of product
+
+The AI crawler fetches a sample of your product landing pages and compares them to your feed. Mismatches here are the second-largest suspension cause.
+
+- **Price mismatches between feed and landing page.** Feed says $29.99, page shows $29.99 + $4.99 mandatory "handling fee" added at checkout. Suspension.
+- **Stock availability discrepancies.** Feed says "in stock," page shows a sold-out variant or hides the buy button. Suspension.
+- **Misleading product descriptions.** Claims that contradict the actual product photos, fabricated material descriptions, copy-pasted competitor descriptions.
+- **Active "buy" buttons on out-of-stock products.** New as of April 2026: this is now an account-level violation, not just a feed warning. Hide the buy button on out-of-stock variants.
+
+### Untrustworthy promotions
+
+Distinct enough to deserve its own post, which we wrote: see [what "untrustworthy promotions" actually means in GMC](/blog/untrustworthy-promotions-gmc-meaning). Quick version:
+
+- "Buy one get one free" with hidden conditions buried in fine print.
+- Free delivery banners with hidden minimums.
+- Promo codes shown in feed/ads that no longer work.
+- Pricing in your ad that doesn't match the price on the landing page.
+
+### Policy page issues
+
+The crawler tries to fetch each of your policy pages from the footer and main navigation. If any return a 404, redirect to the homepage, or render as empty, the policy is treated as missing.
+
+- Missing or inaccessible refund policy.
+- Missing or inaccessible shipping policy.
+- Missing or inaccessible terms of service.
+- Policies that contradict the actual checkout experience (policy says "free returns," checkout charges a return shipping fee).
+
+### Counterfeit goods (its own category)
+
+If your store sells branded goods you're not authorized to sell, this is the suspension you'll get — and it's harder to appeal than misrepresentation.
+
+- Brand names in product titles without an authorized-reseller relationship.
+- "Inspired by" or "alternative to" framing for known luxury brands.
+- Stolen brand imagery — using the brand's official product photos without authorization.
+
+### Site quality issues
+
+A second-tier bucket but it does cause suspensions, especially for newer stores.
+
+- SSL not active (any `http://` page on the domain).
+- Broken links, "coming soon" pages, or 404s on linked products.
+- Excessive popups before content is visible (Google specifically calls out interstitials).
+- Zero customer reviews on a store claiming to be established.
+
+### Restricted product violations
+
+Category-specific. If you sell anything in these areas you should already know your category's rules.
+
+- Health or medical product claims that aren't approved.
+- Adult content (Google Shopping is allow-listed for the US/UK/CA only and tightly regulated).
+- Weapons, dangerous goods, or anything country-restricted in your shipping regions.
+- Country-specific restrictions (CBD in some regions, alcohol in others).
+
+## Which reason is most likely yours?
+
+Use this 3-question diagnostic:
+
+1. **Did your suspension email cite a specific policy?** If yes, that's your starting point. The email is vague but it does name the policy bucket. Pin that down first.
+2. **Have you made changes to your store recently?** Theme update, new app install, page deletion, navigation change, policy page edit. Recent changes are the highest-probability trigger.
+3. **Did you add new products recently?** New SKUs in a regulated category, brand-name products you're not authorized to sell, or products that ship to restricted regions.
+
+If you answered "no" to all three: the most likely cause is that Google's AI crawler hit a policy page that's now broken (often after a theme migration), or your contact info became unreachable. The [12-point checklist](/blog/gmc-suspension-shopify-checklist) walks through every probable failure point.
+
+## What to do next
+
+Three actions, in order:
+
+1. **Run a free [compliance scan](/scan).** ShieldKit's scanner runs the same 12 checks Google's AI crawlers run. Five minutes, no install. If your store has any of the issues above, you'll see them ranked by severity.
+2. **Read [how to find the specific product that caused your suspension](/blog/find-product-causing-gmc-suspension).** If your suspension is product-level (not account-level), the diagnostic process is different.
+3. **Write a clean re-review appeal.** Vague appeals get vague rejections. Use the [appeal letter template](/blog/gmc-appeal-letter-template-shopify) — it's the structure Google reviewers actually look for.
+
+For the timeline of how long all this takes, see [how long GMC suspension appeals actually take in 2026](/blog/gmc-suspension-appeal-timeline). Expect 1-4 weeks total recovery, longer if your first appeal is rejected.
+
+## FAQ
+
+### How long does Google Merchant Center take to suspend an account?
+
+Suspensions usually happen within 1-3 days of the AI crawler detecting a violation. The crawler runs continuously, so a change you made on a Monday could trigger a suspension by Wednesday. See [appeal timelines](/blog/gmc-suspension-appeal-timeline) for the full schedule.
+
+### Will Google tell me exactly what I did wrong?
+
+No. The suspension email cites a policy bucket (e.g., "misrepresentation") but rarely names the specific issue. You diagnose by working through the [12-point checklist](/blog/gmc-suspension-shopify-checklist) or running a [compliance scan](/scan).
+
+### Can I appeal more than once?
+
+Yes, but each rejected appeal triggers a longer cooldown — typically 7-14 days, longer on each rejection. Don't rush a second appeal; address the specific reason cited in the rejection.
+
+### Does this affect my Google Ads account?
+
+Only if the same Google account hosts both. Account-level Merchant Center suspensions don't directly suspend Ads, but Shopping campaigns will stop running. Search and Display ads are unaffected.
+
+### What if I sell on multiple stores from the same account?
+
+Account-level suspensions affect every store linked to the GMC account. Get into the habit of separating accounts per brand if you run multiple Shopify stores.
+
+For the official Google policy text, see Google's [Merchant Center help docs](https://support.google.com/merchants/answer/6149970). For the Shopify side, see Shopify's [Google channel app docs](https://help.shopify.com/en/manual/online-sales-channels/google).

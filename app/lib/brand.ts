@@ -23,7 +23,7 @@ export const BRAND = {
 } as const;
 
 export const SITE = {
-  url: "https://shieldkit.vercel.app",
+  url: "https://shieldkit.app",
   name: "ShieldKit",
   tagline: "GMC compliance for Shopify",
   ogImage: "/og-default.png",

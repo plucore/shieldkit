@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 
-type Variant = "primary" | "secondary";
+type Variant = "primary" | "secondary" | "onLight";
 type Size = "md" | "lg";
 
 interface BaseProps {
@@ -30,6 +30,8 @@ const variantClasses: Record<Variant, string> = {
   primary: "bg-brand-navy !text-white hover:opacity-90 shadow-card",
   secondary:
     "bg-white text-brand-navy border border-brand-card-border hover:bg-white/80",
+  onLight:
+    "bg-white text-brand-navy hover:bg-white/90 shadow-card",
 };
 
 const sizeClasses: Record<Size, string> = {

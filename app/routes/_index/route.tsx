@@ -615,11 +615,7 @@ function FinalCta({ isV2 }: { isV2: boolean }) {
           to see your score.
         </p>
         <div className="mt-7 flex justify-center gap-3 flex-wrap">
-          <MarketingButton
-            to="/scan"
-            size="lg"
-            className="bg-white !text-brand-navy hover:bg-white/90"
-          >
+          <MarketingButton to="/scan" variant="onLight" size="lg">
             Run Free Scan
           </MarketingButton>
           <MarketingButton

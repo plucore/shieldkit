@@ -74,11 +74,7 @@ function DefaultCta() {
         Run a free 8-point compliance scan in under 60 seconds.
       </p>
       <div className="mt-5 flex justify-center">
-        <MarketingButton
-          to="/scan"
-          size="md"
-          className="bg-white !text-brand-navy hover:bg-white/90"
-        >
+        <MarketingButton to="/scan" variant="onLight" size="md">
           Run a free scan
         </MarketingButton>
       </div>

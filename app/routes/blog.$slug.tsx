@@ -77,7 +77,7 @@ export default function BlogPost() {
   const fm = frontmatter as PostFrontmatter;
   const articleJsonLd = {
     "@context": "https://schema.org",
-    "@type": "Article",
+    "@type": "BlogPosting",
     headline: fm.title,
     description: fm.description,
     keywords: (fm.keywords ?? []).join(", "),

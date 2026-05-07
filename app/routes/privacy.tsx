@@ -7,16 +7,29 @@
  * merchants.
  */
 
+import { SITE } from "../lib/brand";
+
 const LAST_UPDATED = "May 5, 2026";
 
-export const meta = () => [
-  { title: "Privacy Policy — ShieldKit" },
-  {
-    name: "description",
-    content:
-      "How ShieldKit collects, stores, and handles data from connected Shopify stores.",
-  },
-];
+export const meta = () => {
+  const title = "Privacy Policy — ShieldKit";
+  const description =
+    "How ShieldKit collects, stores, and handles data from connected Shopify stores.";
+  const url = SITE.url + "/privacy";
+  return [
+    { title },
+    { name: "description", content: description },
+    { property: "og:title", content: title },
+    { property: "og:description", content: description },
+    { property: "og:type", content: "website" },
+    { property: "og:url", content: url },
+    { property: "og:image", content: SITE.url + SITE.ogImage },
+    { name: "twitter:card", content: "summary_large_image" },
+    { name: "twitter:title", content: title },
+    { name: "twitter:description", content: description },
+    { tagName: "link", rel: "canonical", href: url },
+  ];
+};
 
 export default function Privacy() {
   return (

@@ -5,16 +5,29 @@
  * ShieldKit terms of service.
  */
 
+import { SITE } from "../lib/brand";
+
 const LAST_UPDATED = "May 5, 2026";
 
-export const meta = () => [
-  { title: "Terms of Service — ShieldKit" },
-  {
-    name: "description",
-    content:
-      "Terms of service for the ShieldKit Shopify app — eligibility, billing, acceptable use, and warranties.",
-  },
-];
+export const meta = () => {
+  const title = "Terms of Service — ShieldKit";
+  const description =
+    "Terms of service for the ShieldKit Shopify app — eligibility, billing, acceptable use, and warranties.";
+  const url = SITE.url + "/terms";
+  return [
+    { title },
+    { name: "description", content: description },
+    { property: "og:title", content: title },
+    { property: "og:description", content: description },
+    { property: "og:type", content: "website" },
+    { property: "og:url", content: url },
+    { property: "og:image", content: SITE.url + SITE.ogImage },
+    { name: "twitter:card", content: "summary_large_image" },
+    { name: "twitter:title", content: title },
+    { name: "twitter:description", content: description },
+    { tagName: "link", rel: "canonical", href: url },
+  ];
+};
 
 export default function Terms() {
   return (

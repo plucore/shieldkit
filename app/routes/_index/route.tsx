@@ -605,7 +605,7 @@ function FinalCta({ isV2 }: { isV2: boolean }) {
   return (
     <section className="mx-auto max-w-6xl px-4 sm:px-6 py-16 sm:py-20">
       <div className="rounded-3xl bg-brand-navy text-white p-10 sm:p-14 text-center shadow-card">
-        <h2 className="text-3xl sm:text-4xl font-extrabold">
+        <h2 className="text-3xl sm:text-4xl font-extrabold !text-white">
           {isV2
             ? "Ready to get found by Google and AI?"
             : "Ready to fix your suspension?"}

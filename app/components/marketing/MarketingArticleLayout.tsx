@@ -67,7 +67,7 @@ export function MarketingArticleLayout({
 function DefaultCta() {
   return (
     <div className="rounded-2xl bg-brand-navy text-white p-8 text-center shadow-card">
-      <h3 className="text-2xl font-extrabold">
+      <h3 className="text-2xl font-extrabold !text-white">
         Find out what's flagged on your store
       </h3>
       <p className="mt-2 text-white/80">

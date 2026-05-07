@@ -31,7 +31,7 @@ const variantClasses: Record<Variant, string> = {
   secondary:
     "bg-white text-brand-navy border border-brand-card-border hover:bg-white/80",
   onLight:
-    "bg-white text-brand-navy hover:bg-white/90 shadow-card",
+    "bg-white !text-brand-navy hover:bg-white/90 shadow-card",
 };
 
 const sizeClasses: Record<Size, string> = {

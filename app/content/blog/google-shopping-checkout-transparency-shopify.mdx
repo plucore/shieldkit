@@ -1,0 +1,144 @@
+export const frontmatter = {
+  title: "Google Shopping Checkout Transparency on Shopify — Payment Methods, Returns, and Account Suspensions",
+  slug: "google-shopping-checkout-transparency-shopify",
+  description:
+    "Google's checkout transparency policy gets Shopify stores suspended for missing payment method disclosure, unclear refund windows, or contact info gaps. Here's the full policy and the fixes per trigger.",
+  publishedAt: "2026-05-08",
+  keywords: [
+    "google shopping checkout transparency shopify payment methods",
+    "shopify checkout transparency policy",
+    "google merchant center contact information",
+    "shopify return window disclosure",
+  ],
+};
+
+Google's checkout transparency policy requires merchants to disclose four things before a customer reaches checkout: accepted payment methods, return/refund windows, contact methods, and shipping costs. Most Shopify themes meet two of the four out of the box (payment logos in the footer, basic shipping info on the cart page) but miss the others. The gaps cause silent disapprovals — products keep running but with reduced visibility, and the issues only surface in GMC Diagnostics under vague categories like "missing information." The fix is theme-level edits plus policy-page additions; an hour of work clears most stores.
+
+This post is the full disclosure list, where each disclosure has to live, and what Shopify themes typically get right and wrong.
+
+## What "checkout transparency" means
+
+Google's policy: the customer must be able to find out, before entering checkout, **what they're paying, how they pay it, what happens if they want to return it, and how to reach you if they have questions.** The "before checkout" requirement is the part most stores miss — disclosure on the policy pages alone doesn't satisfy the rule. Each disclosure has to be visible in the standard purchase flow before the customer commits to checkout.
+
+The penalty for failing the policy lands in misrepresentation. It's usually a soft suppression (Shopping impressions drop) rather than a hard suspension, but repeat or severe failures escalate to account-level. See [why GMC suspends accounts in 2026](/blog/gmc-suspension-reasons-shopify) for where this lands in the broader reason map.
+
+## The 4 things you must disclose
+
+In rough order of frequency on the failure list.
+
+### Disclosure 1: Accepted payment methods (with logos visible)
+
+Google wants visible payment-method logos somewhere visible before checkout. Most Shopify themes show these in the footer; some legacy themes don't.
+
+**Where to display:** footer (every page) is the standard pattern. Cart page is acceptable. Pre-checkout banner is acceptable.
+
+**Fix if missing:** edit your theme's `footer.liquid` to include `{% include 'payment-icons' %}` or paste the appropriate Liquid block. Most modern Shopify themes (Dawn, etc.) have this built in as a section setting.
+
+### Disclosure 2: Return/refund window (specific number of days)
+
+Vague return language ("we accept returns" without a number) fails the disclosure. Google requires a specific window — "30 days," "14 days," "free returns within 60 days."
+
+**Where to display:** ideally on the product page (next to the price or shipping info), and on the cart page. At minimum, in the footer with a link to the full refund policy. Disclosure on the policy page alone doesn't satisfy the rule.
+
+**Fix if missing:** add a "30-day returns" badge or text near the product price. Most themes support this via a Section settings or a custom announcement bar. For policy page completeness, see [the 12-point compliance checklist](/blog/gmc-suspension-shopify-checklist) — refund policy depth is one of the 12 checks.
+
+### Disclosure 3: Contact methods (email, phone, or physical address)
+
+At least two of three: email, phone number, physical address. Visible publicly, in the footer or on a contact page that's reachable from every page.
+
+**Where to display:** footer (every page) is the cleanest. Contact page linked from main navigation is required even when footer has the info.
+
+**Fix if missing:** add to the footer. For email, use a real domain email (`support@yourstore.com`) — Gmail addresses don't count toward the threshold. For phone, use a real phone number. For address, a real street address; PO boxes are accepted in some categories but flagged in others.
+
+### Disclosure 4: Shipping costs (or pre-checkout shipping calculator)
+
+Customers should be able to estimate shipping cost without entering checkout. Two acceptable patterns: flat-rate shipping displayed visibly ("$5.99 flat US shipping," "Free over $50"), or a shipping calculator widget on the cart or product page.
+
+**Where to display:** product page or cart page. Footer-only disclosure is insufficient because it doesn't connect to the specific item being purchased.
+
+**Fix if missing:** for flat-rate stores, add a shipping notice next to the price. For carrier-calculated rates, install a shipping calculator widget. Some themes have one built in via section settings; others require an app.
+
+## Where these need to appear
+
+Summary table:
+
+| Disclosure | Footer | Cart Page | Product Page | Policy Page |
+|---|---|---|---|---|
+| Payment methods | Required | Optional | Optional | N/A |
+| Return window | Optional | Recommended | Recommended | Required (depth) |
+| Contact info | Required | Optional | Optional | Required (page) |
+| Shipping costs | Optional | Required* | Recommended* | Required (depth) |
+
+*Either cart page or product page is required for shipping cost disclosure.
+
+The footer is the workhorse. Most stores can clear three of four disclosures by adding to the footer alone. The fourth (shipping cost connected to specific item) requires either a product/cart-page widget or visible flat-rate language.
+
+## How Shopify themes handle this by default
+
+What Shopify generally gets right:
+
+- **Payment icons in footer.** Most themes (Dawn especially) include this section by default.
+- **Footer links to policy pages.** Most themes auto-link to refund, shipping, privacy, terms.
+
+What Shopify generally misses:
+
+- **Returns window in pre-checkout.** Most themes don't display a "30-day returns" badge on product pages by default. Manual addition required.
+- **Shipping cost on product pages.** Most themes show shipping only at checkout (after address entry). Calculator widgets or flat-rate notices need to be added.
+- **Contact email in footer.** Many themes show a "Contact us" link but not the actual email/phone in the footer text. The link is fine; the text is better.
+
+## Theme-level fixes
+
+Three edits that close most gaps:
+
+**Add return window to footer or product page.** Edit `theme.liquid` or `product.liquid` to display "30-day returns" near the price area. Or use Shopify's section settings to add an announcement bar with the policy summary.
+
+**Add shipping calculator widget.** For carrier-calculated rates, install a shipping calculator app (free options exist). For flat-rate, add a static text notice ("$5.99 flat US shipping, free over $50") in the product page area.
+
+**Add contact email to footer.** Edit `footer.liquid` to display the actual email address (mailto link) in addition to the "Contact us" page link. Same for phone if you have a customer service number.
+
+For Shopify-specific theme editing guidance, see [Shopify's theme structure documentation](https://help.shopify.com/en/manual/online-store/themes/theme-structure). For section settings on Dawn and other modern themes, the "Footer" section in the theme editor handles most of this without code edits.
+
+## Policy page checklist
+
+Even with checkout-page disclosure, your policy pages must be complete and accessible. The 12-point compliance scan covers this in detail; the summary:
+
+- **Refund policy:** specific window in days, item condition requirements, refund process steps, refund timeline (when does the customer's money come back).
+- **Shipping policy:** specific rates, regions served, delivery timing, international policy if applicable.
+- **Contact info on a dedicated `/pages/contact-us` page:** email, phone, address, business hours if applicable.
+- **Privacy and terms:** required regardless of GMC and beyond the scope of this post; see [the GMC compliance checklist](/blog/gmc-suspension-shopify-checklist).
+
+ShieldKit's [free compliance scan](/scan) automates the verification of all four policy pages plus the checkout-disclosure pattern. Quickest way to find what's missing.
+
+## How long after fixes until GMC re-reviews
+
+Standard 7-day recrawl window. Then if products were disapproved, submit an appeal — see [how to write a GMC re-review appeal](/blog/gmc-appeal-letter-template-shopify) for the template.
+
+For the closely related hidden-fees policy that often surfaces alongside checkout-transparency violations, see [hidden fees and Google Shopping disapprovals on Shopify](/blog/hidden-fees-google-shopping-shopify). For the broader pattern of subtle GMC issues, see [the hidden GMC triggers most Shopify stores miss](/blog/hidden-gmc-triggers-shopify).
+
+## FAQ
+
+### Where do I need to show payment methods?
+
+Footer (every page) is standard. Cart page is acceptable. Some merchants also include a pre-checkout payment-method confirmation banner. The minimum is footer visibility on every page.
+
+### Can I just link to my refund policy page instead of disclosing the return window pre-checkout?
+
+No. Google's checkout transparency rule requires the specific window (e.g., "30 days") to be visible before checkout. Linking to a policy page is necessary but not sufficient.
+
+### Is a contact form enough for the contact-method disclosure?
+
+No. Google requires actual contact information — email, phone, or physical address. A contact form alone is treated as no contact disclosure because the customer can't reach you outside the form.
+
+### What about EU/UK stores with statutory return rights?
+
+Statutory return rights (14 days under EU consumer law) satisfy the disclosure as long as you cite the specific window in your policy and pre-checkout. Don't rely on customers knowing their statutory rights — name the window.
+
+### Do I need a shipping calculator if I offer free shipping?
+
+If shipping is genuinely free on every product, "Free shipping on all orders" displayed prominently on the product page or cart page satisfies the rule. If free shipping has a minimum order value, disclose the threshold ("Free shipping over $50") visibly.
+
+### Can ShieldKit detect checkout transparency issues?
+
+The compliance scan checks contact info presence and policy page depth, which are two of the four disclosures. The other two (returns window pre-checkout, shipping cost connected to specific item) require theme-level audit that's mostly visual — manual review of your product page and cart page.
+
+For Google's official misrepresentation policy text, see [Google's Merchant Center misrepresentation policy](https://support.google.com/merchants/answer/6150127). For Shopify's checkout customization documentation, see [Shopify's checkout settings help](https://help.shopify.com/en/manual/checkout-settings).

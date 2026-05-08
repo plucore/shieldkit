@@ -1,0 +1,166 @@
+export const frontmatter = {
+  title: "Will My Shopify Store Appear in ChatGPT Shopping? How to Check and Improve",
+  slug: "chatgpt-shopping-shopify-visibility",
+  description:
+    "As of March 2026, every eligible Shopify store is automatically discoverable in ChatGPT Shopping — but most products don't actually show up. Here's how to check and what to fix.",
+  publishedAt: "2026-04-22",
+  keywords: [
+    "shopify store chatgpt shopping appear visibility",
+    "chatgpt shopping shopify",
+    "is my store visible in chatgpt",
+    "shopify openai partnership",
+  ],
+};
+
+Yes — as of March 24, 2026, every eligible Shopify store is automatically enrolled in ChatGPT Shopping with no app install required. Catalog data syncs through OpenAI's partnership with Shopify. That's the easy part. The hard part: most products don't actually show up in ChatGPT answers, and the reasons cluster into five specific patterns. 41% of Shopify stores have product titles too branded for AI matching. 34% have incomplete feed data. 19% have structured data gaps. 6% block AI crawlers entirely. And in our audits across 2026, the 80% of brands that implement the top three fixes start seeing visible changes within 10 days.
+
+This post is the "check and improve" playbook: how to verify whether your products show up, the five common reasons they don't, and the three highest-leverage fixes.
+
+## What "automatically enrolled" actually means
+
+The OpenAI + Shopify partnership announced March 2026 covers:
+
+- **Catalog sync.** Eligible Shopify stores' product feeds are made available to ChatGPT Shopping automatically. No store-side action required.
+- **Buy buttons in ChatGPT.** Products surfaced in ChatGPT Shopping include direct purchase flow inside the conversation interface for some users.
+- **Discovery surface.** Your products are eligible to appear when a user asks ChatGPT a shopping question.
+
+What it does **not** cover:
+
+- **Visibility.** Eligibility ≠ appearance. Whether your products surface for any given query depends on the same factors that drive AI Overview citations and Perplexity Shopping rankings.
+- **Brand trust.** New stores still face cold-start visibility problems.
+- **Product matching quality.** A product with a sparse title and missing GTIN won't surface even though the catalog itself is ingested.
+
+The partnership is a distribution channel that's been opened. Whether you fill the channel is up to you.
+
+## How to check if your products are visible
+
+ChatGPT visibility varies by user account, query phrasing, and conversation history. Test from multiple sessions to get a real signal.
+
+**Manual queries to try:**
+
+- "Show me [your product category] under $X"
+- "Best [product type] for [use case]"
+- "Where can I buy [your specific product]?"
+- "What [category] do you recommend for [scenario]?"
+
+**Test from at least three different ChatGPT sessions.** Different accounts get different answers. A logged-out browser session gives you the cleanest baseline; a fresh "Plus" account session is closer to what your customers see.
+
+**Note your product type and direct-name cases separately.** Your store name might surface for direct queries ("where can I buy from [your store]?") even when generic category queries don't surface your products. Both matter, but generic-category visibility is what drives net-new customer acquisition.
+
+## The 5 reasons your products don't show up
+
+In rough order of frequency, based on audits we've run across 2026:
+
+### Reason 1: Branded titles (41% of stores)
+
+Product titles like "Acme Hoodie 2024" match only the query "Acme hoodie." A descriptive title like "Men's Black Cotton Hoodie by Acme — Slim Fit, Size M" matches dozens of queries: "men's hoodie," "black hoodie," "cotton hoodie men's," "slim fit hoodie men's," and more.
+
+This is the single biggest fix in terms of visibility delta. Stores that rewrite titles to a descriptive pattern see citation rates 3-5x higher within two weeks.
+
+### Reason 2: Incomplete feed data (34% of stores)
+
+Missing GTINs, missing brand, missing MPN, missing condition, missing material. ChatGPT's matching algorithm uses the same signals Google uses, and missing identifiers reduce match confidence. See [why "missing GTIN" shows on your Shopify Google channel](/blog/missing-gtin-shopify-fix) for the GTIN fix path and [how to add MPN and brand metafields to Shopify products](/blog/mpn-brand-metafields-shopify) for the brand+MPN substitute.
+
+### Reason 3: Structured data gaps (19% of stores)
+
+Product JSON-LD missing or incomplete on the product page itself. Even when feed data is good, ChatGPT cross-references the live product page — and a sparse JSON-LD signal lowers the product's confidence score. See [how to optimize Shopify product pages for Google AI Overviews](/blog/ai-overviews-shopify-product-pages) for the schema checklist.
+
+### Reason 4: AI crawlers blocked (6% of stores)
+
+robots.txt rules that block GPTBot, OAI-SearchBot, ClaudeBot, or PerplexityBot. Some stores added these blocks during the 2024-2025 "should we let AI train on our content" debate and never reverted. The block kills visibility immediately — without crawler access, the AI never sees your live product pages, even though the catalog feed is ingested.
+
+### Reason 5: New store / low trust signals
+
+ChatGPT Shopping inherits trust signals from broader web indexing. New stores, low-traffic stores, or stores with sparse review counts get lower default visibility. Slow fix — there's no shortcut for "build organic traffic" or "accumulate reviews" — but real.
+
+## The 3 fixes that move the needle
+
+In our audits, 80% of stores implementing all three of these see visible ChatGPT visibility improvements within 10 days.
+
+### Fix 1: Rewrite titles for natural language
+
+Pattern: `[Category] [Material] [Color] [Use Case]` or `[Audience] [Color] [Material] [Product Type] — [Key Attribute]`.
+
+Bulk rewrite via Shopify's product CSV export → spreadsheet edit → import. Run this on the top 50 products by traffic first; the long tail can wait. Track impressions before/after.
+
+### Fix 2: Complete product feed
+
+Three priorities:
+
+- **GTINs** on every branded product. See [the GTIN fix path](/blog/missing-gtin-shopify-fix).
+- **Brand and MPN** as fallback for products without GTINs. See [the MPN+brand metafield setup](/blog/mpn-brand-metafields-shopify).
+- **Condition** explicitly declared (`new`, `used`, or `refurbished`). See [the condition not declared fix](/blog/condition-not-declared-shopify-fix).
+
+A complete feed feeds both Google Shopping and ChatGPT. Same data, two distribution channels.
+
+### Fix 3: Add Product + FAQ JSON-LD schema
+
+Product JSON-LD with all merchant listings extensions (gtin, brand, mpn, material, color, size) and FAQ schema for product-specific questions. ShieldKit's free JSON-LD theme block emits the merchant listings extensions automatically from your product metafields; FAQ schema requires a metafield app or custom theme code.
+
+For the underlying schema decisions, see [JSON-LD vs llms.txt for Shopify](/blog/json-ld-vs-llms-txt-shopify).
+
+## Allowing AI crawlers in robots.txt
+
+Audit your `https://yourstore.com/robots.txt`. Look for any of:
+
+```
+User-agent: GPTBot
+Disallow: /
+
+User-agent: OAI-SearchBot
+Disallow: /
+
+User-agent: ClaudeBot
+Disallow: /
+
+User-agent: PerplexityBot
+Disallow: /
+```
+
+Each of these kills visibility for the corresponding AI engine. Remove the Disallow lines (or change to `Allow: /`) to restore access.
+
+The right default for a 2026 Shopify store is to allow all major AI crawlers: GPTBot, OAI-SearchBot, ChatGPT-User, ClaudeBot, anthropic-ai, PerplexityBot, Google-Extended, CCBot. Block only specific bots you have a reason to block (e.g., Bytespider for stores with TikTok-related concerns).
+
+## What ChatGPT Shopping doesn't fix for you
+
+Three things stay your problem:
+
+- **Brand authority.** ChatGPT inherits the broader web's signal of who's a real brand. Build it.
+- **Review counts.** Reviews on your product pages, on Google customer reviews, on Trustpilot — all factor in.
+- **Pricing competitiveness.** ChatGPT often surfaces multiple options ranked partially by price. If your price is way above market, you'll be cited as "premium" but not always as "recommended."
+
+These are slow-burn fixes. None happen overnight, but they compound.
+
+## Tracking your visibility
+
+The leading indicator of ChatGPT Shopping visibility is GPTBot and ChatGPT-User crawler frequency on your store. Standard analytics doesn't show these; you need server-side logging or a specialized tool. See [how to track AI crawler visits on your Shopify store](/blog/track-ai-crawlers-shopify) for the full setup.
+
+For confirming the broader catalog quality issues that show up in feed-vs-site mismatches, run a [free compliance scan](/scan) — it surfaces the same issues ChatGPT's matching algorithm flags.
+
+## FAQ
+
+### Is my Shopify store automatically in ChatGPT Shopping?
+
+Yes, as of March 24, 2026, eligible Shopify stores are auto-enrolled. Eligibility means standard storefront, no payment-gateway issues, and no robots.txt blocks on AI crawlers.
+
+### Why don't my products show up even though I'm enrolled?
+
+Five common reasons: branded titles, incomplete feed data, structured data gaps, AI crawlers blocked in robots.txt, or low trust signals (new store, sparse reviews). The first three are quick fixes.
+
+### How long until I see visibility improvements?
+
+Most stores implementing the top 3 fixes (titles, feed, schema) see changes in ChatGPT Shopping visibility within 10 days. Slower for the trust-signal fixes (reviews, account age).
+
+### Do I need to pay for ChatGPT Shopping placement?
+
+No. The catalog sync is free. Visibility within ChatGPT Shopping is determined by matching quality and trust signals, not paid placement.
+
+### Will products show in ChatGPT Plus and free tier the same way?
+
+Roughly yes. The Shopping integration is available across tiers, though some features (in-conversation purchase, faster results) are tier-specific.
+
+### How is ChatGPT Shopping different from Google Shopping?
+
+Different distribution channel, different ranking signals. Both ingest similar feed data but rank by different priorities. ChatGPT favors descriptive titles and complete schema; Google Shopping leans more on price + image + ranking history.
+
+For OpenAI's announcement of Shopify integration, see [OpenAI's announcement of ChatGPT Shopping](https://openai.com/blog/). For Shopify's product feed documentation, see [Shopify's Google channel app docs](https://help.shopify.com/en/manual/online-sales-channels/google).

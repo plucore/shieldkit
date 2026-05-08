@@ -1,15 +1,28 @@
 import { getAllPosts } from "../lib/blog";
+import { FIXES } from "../content/fixes";
 import { SITE } from "../lib/brand";
 
 /**
  * /llms.txt — discovery file for AI crawlers (GPTBot, ClaudeBot, PerplexityBot,
- * etc.). Mirrors the marketing surface area; rebuilds with each blog post add.
+ * etc.). Mirrors the marketing surface area; rebuilds with each blog post or
+ * fix entry add.
  */
 export async function loader() {
   const posts = getAllPosts();
 
   const blogLines = posts
     .map((p) => `- [${p.title}](${SITE.url}/blog/${p.slug}) — ${p.description}`)
+    .join("\n");
+
+  // Newest fixes first.
+  const sortedFixes = [...FIXES].sort((a, b) =>
+    a.publishedAt < b.publishedAt ? 1 : -1
+  );
+  const fixLines = sortedFixes
+    .map(
+      (f) =>
+        `- [${f.errorCode}: ${f.title}](${SITE.url}/fix/${f.slug})`
+    )
     .join("\n");
 
   const body = `# ShieldKit
@@ -26,6 +39,9 @@ export async function loader() {
 
 ## Blog
 ${blogLines}
+
+## Fix Library
+${fixLines}
 
 ## Contact
 hello@shieldkit.app

@@ -1,4 +1,5 @@
 import { getAllPosts } from "../lib/blog";
+import { FIXES } from "../content/fixes";
 import { SITE } from "../lib/brand";
 
 interface Entry {
@@ -9,8 +10,9 @@ interface Entry {
 }
 
 /**
- * /sitemap.xml — generated server-side from the static page list plus the
- * blog post registry. No component export; loader returns XML directly.
+ * /sitemap.xml — generated server-side from the static page list, the
+ * blog post registry, and the programmatic /fix/<slug> library. No
+ * component export; loader returns XML directly.
  */
 export async function loader() {
   const today = new Date().toISOString().slice(0, 10);
@@ -30,7 +32,14 @@ export async function loader() {
     priority: "0.7",
   }));
 
-  const all = [...staticEntries, ...postEntries];
+  const fixEntries: Entry[] = FIXES.map((f) => ({
+    loc: `/fix/${f.slug}`,
+    lastmod: f.publishedAt,
+    changefreq: "monthly",
+    priority: "0.6",
+  }));
+
+  const all = [...staticEntries, ...postEntries, ...fixEntries];
 
   const xml =
     `<?xml version="1.0" encoding="UTF-8"?>\n` +

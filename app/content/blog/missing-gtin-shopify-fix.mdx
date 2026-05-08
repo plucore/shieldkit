@@ -1,0 +1,129 @@
+export const frontmatter = {
+  title: "Why \"Missing GTIN\" Shows on Your Shopify Google Channel — and How to Fix It in 2026",
+  slug: "missing-gtin-shopify-fix",
+  description:
+    "GTIN errors in your Shopify Google feed are one of the most common — and most fixable — Google Merchant Center issues. Here's the exact 2026 process for resolving them, including when to set identifier_exists to false.",
+  publishedAt: "2026-05-17",
+  keywords: [
+    "missing gtin shopify fix google merchant center",
+    "shopify gtin barcode google channel",
+    "google merchant center missing identifier",
+    "gtin not provided shopify",
+  ],
+};
+
+"Missing GTIN" in your Shopify Google channel feed means Google can't match your product to its global catalog — and as of 2026 that's a hard requirement for branded products, not a soft warning. The fix path forks based on whether your products actually have GTINs available. If they do, populate them via the variant Barcode field (Shopify maps Barcode → GTIN automatically in the Google channel). If they don't — handmade, custom, private-label — you set `identifier_exists` to false. The wrong fix is doing nothing or inventing fake GTINs, both of which suspend accounts.
+
+This post walks the decision tree, the bulk-edit methods, and the 24-72 hour sync window you have to wait through before you'll see the error clear.
+
+## What "missing GTIN" actually means
+
+GTIN is the umbrella term for Global Trade Item Number — the universal product-identifier family that includes UPC (12-digit, North America), EAN (13-digit, Europe and global), JAN (Japan), and ISBN (books). Google uses GTINs to match your product to its master catalog. That match drives three things:
+
+- **Catalog dedup.** Google groups identical products from different sellers under one entry; GTIN is how it knows your "Acme Wool Beanie" is the same SKU as the Acme Wool Beanie listed by 14 other retailers.
+- **Ranking signal.** Products with verified GTINs rank higher than products without, all else equal. Google's reasoning: a verified GTIN means the product is real and trackable.
+- **Required for branded items.** As of 2024 and reinforced in 2026, GTIN is required for any product sold under a manufacturer brand name. It's optional only for products you make yourself or rebrand under your own label.
+
+If Shopify is showing "missing GTIN" in your Google channel feed, it means the variant Barcode field is empty for products Google's system has flagged as needing one.
+
+## Decide which path applies
+
+Three paths, depending on your catalog:
+
+- **Path A: products HAVE GTINs but the field is empty.** Branded resale, dropshipped name brands, anything with a manufacturer-supplied barcode on the box. You populate the Barcode field on each variant.
+- **Path B: products are unique, handmade, or private-label.** Your own brand, no global catalog entry exists. You set `identifier_exists` to false.
+- **Path C: dropshipped or wholesale products where the supplier won't share GTINs.** Awkward middle ground — three sub-options with different trade-offs.
+
+Pick the right path before doing any bulk edits. Mixing paths on the same product (setting `identifier_exists=false` while populating GTIN, for example) creates contradictory data that Google flags worse than the original error.
+
+## Path A — Populate the GTIN field
+
+Shopify natively maps the variant **Barcode** field to GTIN in the Google channel. There's no separate GTIN field on the product or variant — Barcode is it. Populate per variant, not per product (each size/color combination needs its own).
+
+**Single product, manual:** Shopify Admin → Products → [Product] → Variants → click into the variant → Barcode field. Paste the UPC/EAN/JAN. Save.
+
+**Bulk via Bulk Editor:** Products list → select up to 50 → Edit products. Add the Barcode column. Paste GTINs from a spreadsheet. Save. The Bulk Editor caps at 50 products per batch but you can run it repeatedly.
+
+**Bulk via CSV:** Products → Export → All products. Open the CSV in your spreadsheet of choice. The barcode column is `Variant Barcode`. Populate it for every variant row. Re-import via Products → Import. The CSV path scales to thousands of SKUs in one pass.
+
+**Bulk via Matrixify or similar:** for catalogs over ~5,000 SKUs, Shopify's native CSV gets unwieldy. Matrixify (and a handful of competitors) export and re-import on richer schemas with better error handling. Worth the monthly fee at scale.
+
+**Variants matter.** Each variant of a product needs its own GTIN if the variant is a different SKU at the manufacturer level. A red small T-shirt and a blue large T-shirt have different UPCs. Bulk-populating the same GTIN across all variants is itself a violation — Google catches it on catalog match.
+
+## Path B — Set identifier_exists to false
+
+When your product genuinely has no GTIN — you make it, you rebrand it, no global catalog entry exists — you tell Google explicitly with `identifier_exists=false`.
+
+Two methods:
+
+**Method 1: GMC direct edit (per product).** In Google Merchant Center → Products → All products → click into a product → Edit. Find the Identifier Exists field, set to "no." Slow for large catalogs, but it's the most reliable for one-off products.
+
+**Method 2: Shopify metafield.** Create a metafield named `custom.identifier_exists` (single-line text, product scope) and set the value to `false` on every affected product. Shopify's Google channel reads this metafield on sync and passes it to GMC.
+
+Some Google channel app versions look for a different namespace — `mc_google_offer.identifier_exists` — instead of `custom.identifier_exists`. Check which your version uses by populating one product, syncing, and inspecting the resulting feed entry in GMC. If the value didn't propagate, switch namespaces.
+
+**Important rule:** setting `identifier_exists=false` requires you to **omit GTIN, MPN, and brand** for that product, OR to provide brand+MPN as a substitute. You can't have it both ways. Setting `identifier_exists=false` while still populating brand or MPN sends contradictory data and gets flagged.
+
+For the brand+MPN substitute path, see [how to add MPN and brand metafields to Shopify products](/blog/mpn-brand-metafields-shopify).
+
+## Path C — Dropshipped products with no GTIN
+
+The hardest case. The product exists in a global catalog (so the GTIN exists somewhere) but your supplier won't share it. Three options, in declining order of preference:
+
+- **Option 1: Ask the supplier directly.** Send the SKU list, ask for UPCs/EANs. Some respond, most don't. If they do, populate via the Barcode field (Path A).
+- **Option 2: Set `identifier_exists=false` on these products.** This is technically incorrect — the GTIN exists, you just don't have it — but it's better than no fix. You'll lose some ranking signal but the products will stay live in Shopping. Combine with Path B method 2 above.
+- **Option 3: Remove these products from the Google feed.** Shopify Admin → Google channel → bulk-deselect from feed. Best for low-margin items where the GMC ranking penalty isn't worth the catalog hassle. You keep selling them on your storefront, just not via Google Shopping.
+
+The right choice depends on margin and product mix. For a high-margin handful of products, push the supplier. For thousands of low-margin SKUs, removal is often more efficient.
+
+## Common mistakes
+
+Five patterns we see repeatedly on stores running [a free compliance scan](/scan):
+
+- **Setting `identifier_exists=false` while still populating brand or MPN.** Pick one model, not both. Contradictory identifier data is worse than missing identifier data.
+- **Updating Shopify but not waiting for feed re-sync.** Google's channel app re-syncs every 24-72 hours. Checking GMC Diagnostics 30 minutes after a bulk edit shows nothing — the feed hasn't refreshed yet.
+- **Treating GTIN as optional for branded products.** It's optional only for products you make. Branded resale without GTIN = Google can't match = ranking dies = sometimes a [GMC suspension under misrepresentation](/blog/gmc-suspension-reasons-shopify) follows.
+- **Bulk-pasting the same GTIN across variants.** Each variant needs its own. Same GTIN on red and blue variants = Google flags as duplicate listing.
+- **Inventing fake GTINs to clear the error.** Google validates GTIN check digits and cross-references its catalog. Fake GTINs trigger immediate suspension, and they're hard to recover from.
+
+For the broader pattern of subtle GMC issues that look fixed but aren't, see [the hidden GMC triggers most Shopify stores miss](/blog/hidden-gmc-triggers-shopify).
+
+## How to verify your fix worked
+
+After populating GTINs (or setting `identifier_exists=false`):
+
+- **Wait 24-72 hours.** The Google channel app syncs on a 24-72 hour cadence. Don't check before then.
+- **GMC Diagnostics → Item issues.** The "missing GTIN" entries should disappear. If they don't, check the specific products — usually the variant-level Barcode field is empty even though the product-level looks populated.
+- **GMC Products → All products.** Spot-check 5-10 affected products. The "GTIN" column should show the value you set, or "No identifier" if you went the `identifier_exists=false` route.
+
+If GMC still shows the error after 72 hours, the most common cause is that your Google channel app hasn't actually re-synced — force a manual sync from the Shopify side (Google channel → Overview → Sync now). If it still doesn't update, your metafield namespace is probably wrong; see [how to bulk add identifier_exists on Shopify](/blog/identifier-exists-bulk-shopify) for the namespace troubleshooting.
+
+If GMC Diagnostics is clean but products still aren't showing in Shopping, that's a different problem entirely — see [Shopify products not showing in Google Shopping](/blog/products-not-showing-google-shopping-shopify) for the diagnostic flow.
+
+## FAQ
+
+### Where is the GTIN field on Shopify products?
+
+There isn't a "GTIN" field. Shopify uses the variant-level **Barcode** field and maps it to GTIN automatically when syncing to the Google channel. Populate Barcode per variant.
+
+### Is GTIN required for all Shopify products?
+
+No. It's required for branded resale and any product with an existing global catalog entry. It's optional for handmade, custom, and private-label products — for those you set `identifier_exists` to false.
+
+### What if my supplier won't give me GTINs?
+
+Three options: ask harder, set `identifier_exists=false` (suboptimal but works), or remove the products from your Google feed. Don't invent GTINs — Google validates check digits and will suspend your account.
+
+### How long does it take to clear a missing GTIN error after I fix it?
+
+24-72 hours for the Shopify Google channel to re-sync the feed, then another 24 hours for GMC Diagnostics to update. Total 1-3 business days.
+
+### Can I use the same GTIN across product variants?
+
+No. Each variant SKU has its own GTIN at the manufacturer level. Pasting the same code across variants gets flagged as duplicate listings during catalog match.
+
+### What's the difference between GTIN and MPN?
+
+GTIN is global and assigned by GS1 (the standards body). MPN is manufacturer-specific. GTIN is preferred; MPN+brand together can substitute when GTIN doesn't exist. See [how to add MPN and brand metafields](/blog/mpn-brand-metafields-shopify) for that path.
+
+For Google's official identifier requirements, see [Google's product data specification on identifiers](https://support.google.com/merchants/answer/6324461). For Shopify's documentation on the variant Barcode field, see [Shopify's product details help docs](https://help.shopify.com/en/manual/products/details).

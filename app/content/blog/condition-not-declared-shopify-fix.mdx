@@ -1,0 +1,132 @@
+export const frontmatter = {
+  title: "How to Fix \"Condition Not Declared\" Error on Shopify Google Channel",
+  slug: "condition-not-declared-shopify-fix",
+  description:
+    "The \"condition not declared\" feed error blocks products from Google Shopping until resolved. Most Shopify merchants don't realize Shopify defaults to \"new\" but Google requires explicit declaration. Here's the fix.",
+  publishedAt: "2026-05-24",
+  keywords: [
+    "condition not declared shopify google merchant",
+    "shopify product condition google channel",
+    "google merchant center condition error",
+    "shopify google condition metafield",
+  ],
+};
+
+"Condition not declared" in your Shopify Google channel feed means Google can't tell whether your product is new, used, or refurbished — and without that signal, products are blocked from Shopping until resolved. The trap is that most merchants assume Shopify is sending "new" automatically because everything they sell is new. It isn't. Shopify's default product schema doesn't include the `condition` attribute at all, so Google sees the field as missing rather than defaulting to new. The fix is either a single setting in your Google channel app (for stores selling only new products) or a metafield (for mixed catalogs that include refurbished or used items).
+
+This post walks both paths and the verification steps.
+
+## What the error means
+
+Google accepts exactly three condition values:
+
+- **`new`** — never used, in original packaging, no signs of wear.
+- **`used`** — secondhand, including reconditioned-by-you items.
+- **`refurbished`** — restored to working condition by the manufacturer or an authorized refurbisher.
+
+The `condition` attribute is required for every product in the feed. When it's missing, Google flags the product with the "condition not declared" error and suppresses it from Shopping results. This is a feed-level error, not an account-level suspension — your other products still show normally, but the affected SKUs are invisible until the condition is set.
+
+Why Shopify doesn't auto-send it: Shopify's default product schema doesn't include the field. The Google channel app added it as a configurable attribute later, but it's opt-in — you set it via the channel app's settings or via a metafield, not as part of the base product record.
+
+The error blocks ranking even though it's not classified as a policy violation. The product is treated as ineligible until condition is declared. No appeal needed — fix the metafield, wait the sync window, error clears.
+
+## Three ways to set product condition
+
+Pick the method based on catalog homogeneity.
+
+**Method 1: Google channel app's per-product setting.** Shopify Admin → Sales channels → Google → Products → click into a product → set Condition. UI-based, slow for large catalogs. Useful for one-off fixes.
+
+**Method 2: Shopify metafield `google.condition` (or `mc_google_offer.condition` depending on app version).** Bulk-able, persistent across feed re-syncs. The right approach for mixed catalogs.
+
+**Method 3: Default rule in Google channel settings.** Apply "new" (or any value) to all products that don't have an explicit per-product setting. Quickest fix for stores selling only new items.
+
+## Step-by-step — set default to "new" for all products
+
+The fastest fix for the common case (you sell only new products):
+
+1. Shopify Admin → Sales channels → Google.
+2. Settings or Configuration tab (depending on app version).
+3. Find "Default condition" or similar setting.
+4. Set to "new."
+5. Save.
+
+The Google channel app applies this default to every product in the feed that doesn't have an explicit per-product condition set. Wait 24-72 hours for the feed to re-sync, then check GMC Diagnostics — the "condition not declared" errors should clear.
+
+Caveat: this default applies to **all products**, including any future additions. If you ever add refurbished or used items, you'll need to override per-product or via metafield. For pure-new stores it's the simplest setup; for mixed catalogs it's a footgun.
+
+## Step-by-step — metafield approach for mixed catalogs
+
+If you sell a mix of new, used, and refurbished items, set condition explicitly per product via metafield.
+
+**Step 1: Create the metafield definition.** Settings → Custom data → Products → Add definition. Namespace and key: `google.condition` (or `mc_google_offer.condition` if your channel app uses the legacy namespace — verify by populating one test product). Type: Single line text. Validation: restrict to "new", "used", "refurbished" if your metafield definition supports option lists.
+
+**Step 2: Populate per product.** For each product, set the metafield to one of the three values.
+
+**Step 3: Bulk via Matrixify or CSV.** Same approach as for [bulk identifier_exists](/blog/identifier-exists-bulk-shopify) — export, edit the metafield column, re-import.
+
+**Step 4: Verify.** Wait 24-72 hours. GMC Diagnostics → Item issues — "condition not declared" should clear.
+
+The metafield approach is more durable than the default-rule approach because it's explicit per product. Future product additions still need their own condition value, but you won't accidentally ship a "new" condition on a refurbished product.
+
+## When to use which condition value
+
+The three values aren't interchangeable. Google's reviewers spot-check randomly, and miscategorized condition is a misrepresentation trigger.
+
+- **`new`** — never used. In original packaging or equivalent. No signs of wear or repair. Excludes open-box items even if functionally new.
+- **`used`** — secondhand. Includes anything with prior ownership, light use, or reconditioning by you (the seller). Open-box items go here unless explicitly authorized as refurbished.
+- **`refurbished`** — restored to working condition by the **manufacturer** or an **authorized refurbisher**. The key word is *authorized*. Reconditioning a used product yourself doesn't make it refurbished — it makes it used. Apple Certified Refurbished is refurbished; eBay seller "lightly used, fully tested" is used.
+
+When in doubt, use `used`. False-positive on `used` is mild; false-positive on `new` (selling something with wear as new) or `refurbished` (selling unauthorized refurb) is a misrepresentation suspension.
+
+## Verification
+
+After your fix:
+
+- **Wait 24-72 hours** for the Shopify Google channel to re-sync.
+- **GMC Diagnostics → Item issues.** "Condition not declared" entries should disappear for affected products.
+- **GMC Products → All products.** The Condition column should show your declared value.
+
+If errors persist past 72 hours, two common causes:
+
+- **Namespace mismatch.** Your channel app uses `mc_google_offer.condition` instead of `google.condition` (or vice versa). Re-test with one product on the alternate namespace.
+- **Default rule conflict.** You set a per-product metafield to "used" but the default rule is overriding to "new." Check the Google channel settings for default-condition behavior.
+
+## Related errors that often appear together
+
+The same SKUs that trigger "condition not declared" usually also trigger other identifier errors. Three to check at the same time:
+
+- **Missing GTIN.** Often the same set of products. See [why "missing GTIN" shows on your Shopify Google channel](/blog/missing-gtin-shopify-fix) for the GTIN fix path.
+- **Missing brand or MPN.** When neither is set and `identifier_exists` isn't explicitly false. See [how to add MPN and brand metafields to Shopify products](/blog/mpn-brand-metafields-shopify).
+- **Identifier_exists undeclared.** For genuinely unidentified products. See [how to bulk add identifier_exists to Shopify products](/blog/identifier-exists-bulk-shopify).
+
+These cluster on the same products because they all trace back to incomplete product records — typically dropshipped or imported catalogs where the source data was sparse. Fix them as a single pass: pull the affected SKUs from GMC, write all four metafields (condition, GTIN or identifier_exists, MPN, brand) in one Matrixify pass, and verify with a [free compliance scan](/scan).
+
+For the subtle GMC issues that don't show up in diagnostics at all, see [the hidden GMC triggers most Shopify stores miss](/blog/hidden-gmc-triggers-shopify).
+
+## FAQ
+
+### Where do I set product condition on Shopify?
+
+Three places: per-product in the Google channel app, via a `google.condition` (or `mc_google_offer.condition`) product metafield, or as a global default in the channel app's settings.
+
+### What's the default condition Shopify sends to Google?
+
+There isn't one in the base product schema. The Google channel app sends whatever you've configured — either a global default or per-product values. Without configuration, the field is missing and Google flags it.
+
+### Can I set condition at the variant level?
+
+Standard setup is product-scoped. If you have variants with different conditions (rare), create a variant-scoped metafield definition instead.
+
+### How long until GMC clears the error after I set the condition?
+
+24-72 hours for the Google channel to re-sync, plus another 24 hours for GMC Diagnostics to refresh. Plan for 1-3 business days.
+
+### Does "condition not declared" affect search rankings or just Shopping?
+
+Just Shopping. Products with the error are suppressed from Shopping results but continue to appear in regular Google search. Once condition is set, Shopping eligibility returns within the sync window.
+
+### What if I sell open-box products?
+
+Use `used`. Refurbished is reserved for authorized refurbishment by manufacturers or certified refurbishers. Open-box (returned but unused) is technically used by Google's classification.
+
+For Google's official condition specification, see [Google's product data specification — condition](https://support.google.com/merchants/answer/6324469). For Shopify's Google channel attribute documentation, see [Shopify's Google channel product setup help](https://help.shopify.com/en/manual/online-sales-channels/google/products).

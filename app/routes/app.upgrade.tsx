@@ -2,17 +2,25 @@
  * app/routes/app.upgrade.tsx
  * Route: /app/upgrade
  *
- * Under Shopify Managed Pricing, the pick-a-plan UI is hosted by Shopify.
- * This route is a thin server-side redirect to the merchant's managed-pricing
- * URL on admin.shopify.com.
+ * Bridges from the embedded app iframe to Shopify Managed Pricing's hosted
+ * page on admin.shopify.com.
  *
- * The redirect is unconditional — even if the merchant is already on a paid
- * plan, the managed-pricing page handles the "you're already subscribed"
- * state natively (and supports plan switching from there). No need for a
- * separate switcher route.
+ * Why this isn't a server-side `redirect()`:
+ *   React Router 7's single-fetch translates a loader-returned redirect
+ *   into a 202 with the URL in the body. The client follows it via
+ *   `window.location.assign`, which navigates the IFRAME — and Shopify
+ *   admin sends X-Frame-Options: DENY, so the iframe can't load the
+ *   managed-pricing page. The merchant sees nothing.
+ *
+ *   Instead, the loader returns the URL as data and the component
+ *   `window.open(url, "_top")`s on mount, breaking out of the iframe.
  */
 
-import { redirect, useRouteError } from "react-router";
+import { useEffect } from "react";
+import {
+  useLoaderData,
+  useRouteError,
+} from "react-router";
 import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
@@ -20,9 +28,43 @@ import { getManagedPricingUrl } from "../lib/billing/plans";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
-  const url = getManagedPricingUrl(session.shop);
-  return redirect(url);
+  if (!session.shop) {
+    // Should never happen — the SDK guarantees session.shop on a successful
+    // admin auth. Defensive guard keeps the failure mode visible.
+    throw new Error("authenticate.admin returned a session without a shop");
+  }
+  return { url: getManagedPricingUrl(session.shop) };
 };
+
+export default function Upgrade() {
+  const { url } = useLoaderData<typeof loader>();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    // `_top` breaks out of the embedded-app iframe to the parent Shopify
+    // admin window. Required because admin.shopify.com refuses iframe
+    // embedding (X-Frame-Options: DENY).
+    window.open(url, "_top");
+  }, [url]);
+
+  return (
+    <s-page heading="Opening your plan page…">
+      <s-section>
+        <s-paragraph>
+          Taking you to your ShieldKit plan on Shopify…
+        </s-paragraph>
+        <s-paragraph>
+          {/* Manual fallback if the auto-redirect was blocked by a popup
+              blocker or a stale App Bridge session. target="_top" ensures
+              the click escapes the iframe. */}
+          <a href={url} target="_top" rel="noreferrer">
+            Click here if you aren't redirected automatically.
+          </a>
+        </s-paragraph>
+      </s-section>
+    </s-page>
+  );
+}
 
 // ─── Boundaries ───────────────────────────────────────────────────────────────
 

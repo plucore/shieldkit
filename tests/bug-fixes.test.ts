@@ -189,13 +189,15 @@ describe("Upgrade button uses React Router navigation", () => {
     expect(upgradeContent).toMatch(/export\s+function\s+ErrorBoundary/);
   });
 
-  it("upgrade route is a managed-pricing redirect (no billing.request, no picker JSX)", () => {
+  it("upgrade route bridges to managed pricing without calling Billing API", () => {
     expect(upgradeContent).not.toContain("billing.request");
     expect(upgradeContent).not.toContain("billing.check");
     expect(upgradeContent).toContain("getManagedPricingUrl");
-    expect(upgradeContent).toContain("redirect(");
-    // No default-export component — this is loader-only.
-    expect(upgradeContent).not.toMatch(/export\s+default\s+function/);
+    // Component must escape the embedded-app iframe to admin.shopify.com.
+    // A server-side `redirect()` would target the iframe and be blocked
+    // by Shopify admin's X-Frame-Options: DENY.
+    expect(upgradeContent).toContain('window.open(url, "_top")');
+    expect(upgradeContent).toContain('target="_top"');
   });
 });
 
@@ -482,13 +484,15 @@ describe("Shopify Managed Pricing", () => {
     expect(content).not.toMatch(/^\s*billing:\s/m);
   });
 
-  it("/app/upgrade and /app/plan-switcher are loader-only redirect routes", () => {
+  it("/app/upgrade and /app/plan-switcher bridge to managed pricing via _top window.open", () => {
     for (const route of ["routes/app.upgrade.tsx", "routes/app.plan-switcher.tsx"]) {
       const content = fs.readFileSync(path.join(APP_DIR, route), "utf-8");
       expect(content).toContain("getManagedPricingUrl");
       expect(content).not.toContain("billing.request");
       expect(content).not.toContain("billing.cancel");
-      expect(content).not.toMatch(/export\s+default\s+function/);
+      // Must escape the iframe — a server-side `redirect()` would target
+      // the embedded iframe and Shopify admin blocks iframe embedding.
+      expect(content).toContain('window.open(url, "_top")');
     }
   });
 });

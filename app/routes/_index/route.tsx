@@ -21,8 +21,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     throw redirect(`/app?${url.searchParams.toString()}`);
   }
 
+  // Default to v2 (recurring $14/$39 pricing). Set MARKETING_VERSION=v1 in
+  // Vercel env to roll back to the v1 one-time-$29 pricing copy if needed.
   const marketingVersion =
-    process.env.MARKETING_VERSION === "v2" ? "v2" : "v1";
+    process.env.MARKETING_VERSION === "v1" ? "v1" : "v2";
 
   return { marketingVersion };
 };

@@ -64,8 +64,17 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     // GraphQL AppSubscription nests cycle under lineItems[].plan.pricingDetails.
     // Under managed pricing the "name" can be shared between cycles, so cycle
     // MUST come from the interval enum, not the plan name.
-    const interval = (sub as any)?.lineItems?.[0]?.plan?.pricingDetails?.interval;
+    const lineItems = (sub as any)?.lineItems;
+    const interval = lineItems?.[0]?.plan?.pricingDetails?.interval;
     const cycle = intervalToCycle(interval);
+
+    // Log raw shape for diagnosis — see equivalent block in webhook handler.
+    console.log(
+      `[billing/confirm] raw interval=${JSON.stringify(interval)} (typeof=${typeof interval})`,
+    );
+    console.log(
+      `[billing/confirm] lineItems shape=${JSON.stringify(lineItems)}`,
+    );
 
     if (!tier || tier === "free") {
       // Active payment but plan name doesn't map to a known paid tier —

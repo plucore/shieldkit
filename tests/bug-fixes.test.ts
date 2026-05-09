@@ -433,6 +433,13 @@ describe("Shopify Managed Pricing", () => {
     expect(plansContent).toContain("ANNUAL");
   });
 
+  it("intervalToCycle is case-insensitive (handles REST snake_case + GraphQL upper-snake)", () => {
+    // The 2026-05-09 smoke test produced a webhook with `interval` in a
+    // non-upper-snake casing; the strict check left billing_cycle NULL.
+    // Helper must normalize before comparing.
+    expect(plansContent).toMatch(/toUpperCase\(\)/);
+  });
+
   it("plans.ts exports getManagedPricingUrl helper", () => {
     expect(plansContent).toContain("export function getManagedPricingUrl");
     expect(plansContent).toContain("SHOPIFY_APP_HANDLE");

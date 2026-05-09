@@ -61,13 +61,22 @@ export const PLAN_NAME_TO_TIER: Record<PlanName, "free" | "shield" | "pro"> = {
 //   - 4 separate plans (Shield Pro, Shield Pro Annual, etc.)
 //   - 2 "monthly with yearly option" plans (Shield Pro, Shield Max)
 // Mapping the plan name to a cycle, by contrast, only works for the first.
+//
+// Casing tolerance: the GraphQL `AppPricingInterval` enum uses upper-snake
+// ("ANNUAL", "EVERY_30_DAYS"), but the REST-shaped webhook payload appears
+// to send lowercase ("annual", "every_30_days") — the 2026-05-09 smoke test
+// produced a webhook with `interval` set to a value that didn't match the
+// strict GraphQL casing, leaving billing_cycle NULL in the DB. Normalize
+// to upper-snake before comparing so both shapes work.
 export type ShopifyAppPricingInterval = "EVERY_30_DAYS" | "ANNUAL" | string;
 
 export function intervalToCycle(
   interval: ShopifyAppPricingInterval | null | undefined,
 ): "monthly" | "annual" | null {
-  if (interval === "ANNUAL") return "annual";
-  if (interval === "EVERY_30_DAYS") return "monthly";
+  if (interval == null) return null;
+  const normalized = String(interval).toUpperCase();
+  if (normalized === "ANNUAL") return "annual";
+  if (normalized === "EVERY_30_DAYS") return "monthly";
   return null;
 }
 

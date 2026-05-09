@@ -65,6 +65,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const { admin_graphql_api_id, name, status, created_at, interval } =
     app_subscription;
 
+  // Log raw payload field shape so future smoke-test failures can be
+  // diagnosed without a redeploy. Vercel's table view truncates long lines,
+  // so log each field on its own.
+  console.log(`[${topic}] shop=${shop} status=${status} name=${JSON.stringify(name)}`);
+  console.log(`[${topic}] raw interval=${JSON.stringify(interval)} (typeof=${typeof interval})`);
+
   // Ignore PENDING — fires before merchant has approved; nothing to persist.
   if (status === "PENDING") return new Response();
 

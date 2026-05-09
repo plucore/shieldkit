@@ -2,11 +2,10 @@
  * app/routes/app.billing.confirm.tsx
  * Route: /app/billing/confirm
  *
- * Landing route after Shopify's hosted billing-approval page.
- * Shopify redirects the merchant here (returnUrl set in app.upgrade.tsx)
- * whether they approved OR cancelled the subscription.
- *
- * v2 — recurring billing.
+ * Landing route after Shopify Managed Pricing's hosted approval page.
+ * The founder configures this URL as the "Welcome link" in the Partner
+ * Dashboard listing UI; Shopify redirects merchants here after they approve
+ * (or cancel) a managed-pricing subscription.
  *
  * On approval, persists to merchants:
  *   - tier                       (shield | pro)
@@ -24,9 +23,8 @@ import type { LoaderFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
 import {
-  PAID_PLAN_NAMES,
   PLAN_NAME_TO_TIER,
-  PLAN_NAME_TO_CYCLE,
+  intervalToCycle,
   type PlanName,
 } from "../lib/billing/plans";
 
@@ -36,8 +34,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   let billingCheck;
   try {
+    // Under managed pricing, billing.check() returns active subscriptions
+    // without needing the `plans` argument — the plan list lives in Shopify.
     billingCheck = await billing.check({
-      plans: [...PAID_PLAN_NAMES],
       isTest: process.env.NODE_ENV !== "production",
       returnObject: true,
     });
@@ -62,7 +61,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     const activeName = (sub?.name ?? "") as PlanName;
 
     const tier = PLAN_NAME_TO_TIER[activeName];
-    const cycle = PLAN_NAME_TO_CYCLE[activeName];
+    // GraphQL AppSubscription nests cycle under lineItems[].plan.pricingDetails.
+    // Under managed pricing the "name" can be shared between cycles, so cycle
+    // MUST come from the interval enum, not the plan name.
+    const interval = (sub as any)?.lineItems?.[0]?.plan?.pricingDetails?.interval;
+    const cycle = intervalToCycle(interval);
 
     if (!tier || tier === "free") {
       // Active payment but plan name doesn't map to a known paid tier —
@@ -71,6 +74,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         `[billing/confirm] Active subscription "${activeName}" for ${session.shop} did not map to a paid tier`,
       );
       return redirect("/app?billing=error");
+    }
+
+    if (!cycle) {
+      console.warn(
+        `[billing/confirm] Missing/unknown interval "${interval}" for plan "${activeName}" on ${session.shop} — billing_cycle will be NULL`,
+      );
     }
 
     const subscriptionId = (sub as any)?.id ?? null;

@@ -7,7 +7,6 @@ import {
 import { SupabaseSessionStorage } from "./lib/session-storage.server";
 import { supabase } from "./supabase.server";
 import { encrypt } from "./lib/crypto.server";
-import { SHOPIFY_BILLING_CONFIG } from "./lib/billing/plans";
 
 const sessionStorage = new SupabaseSessionStorage();
 
@@ -25,13 +24,11 @@ const shopify = shopifyApp({
   future: {
     expiringOfflineAccessTokens: true,
   },
-  // ─── Shopify billing plans (v2 — recurring) ──────────────────────────────
-  // Plan definitions live in app/lib/billing/plans.ts as SHOPIFY_BILLING_CONFIG.
-  // Plan names ("Shield Pro", "Shield Pro Annual", "Shield Max", "Shield Max Annual")
-  // are the strings billing.request({ plan }) accepts and that come back in
-  // APP_SUBSCRIPTIONS_UPDATE webhook payloads. Re-run `npm run deploy` after
-  // changing plan names so Shopify re-registers them.
-  billing: SHOPIFY_BILLING_CONFIG,
+  // ─── Shopify Managed Pricing ─────────────────────────────────────────────
+  // Plans are defined in the Partner Dashboard listing UI, not in code.
+  // Merchants pick a plan on Shopify's hosted pricing page; we redirect them
+  // there from /app/upgrade and /app/plan-switcher. APP_SUBSCRIPTIONS_UPDATE
+  // webhooks still fire with the same payload shape (plan name + status).
   ...(process.env.SHOP_CUSTOM_DOMAIN
     ? { customShopDomains: [process.env.SHOP_CUSTOM_DOMAIN] }
     : {}),

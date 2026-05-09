@@ -126,7 +126,7 @@ tests/
 * **Token rotation:** `expiringOfflineAccessTokens: true` -- refresh tokens stored in sessions table.
 * **afterAuth hook:** Fires on every OAuth completion (install + re-auth). For offline sessions only, upserts a `merchants` row: sets `shopify_domain`, encrypts `access_token`, sets `installed_at`, clears `uninstalled_at`.
 * **authenticate.admin(request):** Validates App Bridge 4.x JWT on every `/app/*` route.
-* **Exports:** `authenticate`, `login`, `registerWebhooks`, `sessionStorage`, `addDocumentResponseHeaders`, `unauthenticated`, `apiVersion`. Plan definitions live in `app/lib/billing/plans.ts` (PLANS, PAID_PLAN_NAMES, PLAN_NAME_TO_TIER, PLAN_NAME_TO_CYCLE, SHOPIFY_BILLING_CONFIG, TIER_GROUPS, PLAN_FEATURES, planKeyByName).
+* **Exports:** `authenticate`, `login`, `registerWebhooks`, `sessionStorage`, `addDocumentResponseHeaders`, `unauthenticated`, `apiVersion`. Plan reference data lives in `app/lib/billing/plans.ts` (PLANS, PLAN_NAME_TO_TIER, PLAN_NAME_TO_CYCLE, PLAN_NAME_TO_GROUP, TIER_GROUPS, TIER_FEATURES, PLAN_FEATURES, planKeyByName, getManagedPricingUrl). The `shopifyApp({ billing })` config field is intentionally absent — under managed pricing Shopify owns the plan registry, not us.
 
 ### Webhook Subscriptions
 Declared in `shopify.app.toml` and handled by route files:
@@ -142,29 +142,33 @@ Declared in `shopify.app.toml` and handled by route files:
 
 All webhooks use `authenticate.webhook(request)` which verifies `X-Shopify-Hmac-Sha256`. Invalid HMAC -> automatic 401.
 
-### Billing (`app/shopify.server.ts`, `app/lib/billing/plans.ts`, `app.upgrade.tsx`, `app.billing.confirm.tsx`, `app.plan-switcher.tsx`)
+### Billing — Shopify Managed Pricing (`app/lib/billing/plans.ts`, `app.upgrade.tsx`, `app.billing.confirm.tsx`, `app.plan-switcher.tsx`)
 
-**Four paid plan variants registered with Shopify Billing:**
-| PLAN key | Name string | Price | DB tier | billing_cycle |
-|----------|-------------|-------|---------|----------------|
-| `shield_monthly` | `"Shield Pro"` | $14/mo | `shield` | `monthly` |
-| `shield_annual` | `"Shield Pro Annual"` | $140/yr | `shield` | `annual` |
-| `pro_monthly` | `"Shield Max"` | $39/mo | `pro` | `monthly` |
-| `pro_annual` | `"Shield Max Annual"` | $390/yr | `pro` | `annual` |
+ShieldKit uses **Shopify Managed Pricing**: the pick-a-plan, switch, and cancel UIs are hosted by Shopify on `admin.shopify.com`. The plans themselves are defined in the Partner Dashboard listing UI (Pricing settings) — **not** in code. The codebase no longer registers a `billing` config on `shopifyApp({...})`; `billing.request()` and `billing.cancel()` are not called anywhere.
 
-All four use the recurring `lineItems` shape (BillingConfigSubscriptionLineItemPlan).
+**Four paid plans defined in Partner Dashboard:**
+| Name string (must match exactly) | Price | DB tier | billing_cycle |
+|----------------------------------|-------|---------|----------------|
+| `"Shield Pro"`                   | $14/mo  | `shield` | `monthly` |
+| `"Shield Pro Annual"`            | $140/yr | `shield` | `annual`  |
+| `"Shield Max"`                   | $39/mo  | `pro`    | `monthly` |
+| `"Shield Max Annual"`            | $390/yr | `pro`    | `annual`  |
+
+The plan-name strings are the keys both sides use — `app/lib/billing/plans.ts` keeps `PLAN_NAME_TO_TIER` / `PLAN_NAME_TO_CYCLE` maps so the `app_subscriptions/update` webhook and the billing-confirm loader can translate the name Shopify hands us into our DB tier + cycle.
 
 **Billing flow:**
-1. Merchant clicks plan card on `/app/upgrade` → useNavigate → GET `/app/upgrade?plan=<encoded plan name>`.
-2. Loader calls `billing.check({ plans: PAID_PLAN_NAMES })` — if already on this plan, redirects to `/app`. If on a different paid plan, redirects to `/app/plan-switcher` (prevents stacking subscriptions).
-3. Otherwise calls `billing.request({ plan, isTest, returnUrl })` which throws a Response redirect to Shopify's hosted approval page.
-4. After approval/decline, Shopify returns merchant to `${SHOPIFY_APP_URL}/app/billing/confirm`.
-5. `app.billing.confirm.tsx` loader calls `billing.check()`, derives tier and billing_cycle via PLAN_NAME_TO_TIER/PLAN_NAME_TO_CYCLE, and idempotently writes the full billing column set.
-6. APP_SUBSCRIPTIONS_UPDATE webhook (above) is the reconciliation backstop.
+1. Merchant clicks an upgrade button anywhere in the app → navigates to `/app/upgrade` (or `/app/plan-switcher`).
+2. The loader resolves the merchant's managed-pricing URL via `getManagedPricingUrl(session.shop)` — format `https://admin.shopify.com/store/{shop_subdomain}/charges/{SHOPIFY_APP_HANDLE}/pricing_plans` — and throws a `redirect()`.
+3. The merchant picks (or switches/cancels) a plan on Shopify's hosted page.
+4. After approval/decline, Shopify redirects the merchant to the **Welcome link** configured in the Partner Dashboard listing UI. ShieldKit sets that to `${SHOPIFY_APP_URL}/app/billing/confirm`.
+5. `app.billing.confirm.tsx` loader calls `billing.check()` (no `plans` arg under managed pricing), derives tier and billing_cycle via `PLAN_NAME_TO_TIER` / `PLAN_NAME_TO_CYCLE`, and idempotently writes the full billing column set.
+6. `APP_SUBSCRIPTIONS_UPDATE` webhook fires with the same payload shape as before and acts as the reconciliation backstop.
 
-**Plan switcher (`/app/plan-switcher`)** — mandatory for App Store review. 2-card layout (Shield Pro, Shield Max) with a Monthly | Annual toggle. Switch flow: cancel old subscription via `billing.cancel(prorate=true)`, then `billing.request()` the new plan. Cancel flow: `billing.cancel()` then UPDATE merchants set tier='free', clear paid-plan fields, scans_remaining=1, scans_reset_at=now(). Switch and cancel buttons use `useFetcher().submit()` driven by `useWebComponentClick` (CLAUDE.md §11).
+**`/app/upgrade` and `/app/plan-switcher`** are both loader-only redirect routes (no JSX, no actions). Managed pricing's hosted page handles plan switching and cancellation natively, satisfying the App Store review requirement that merchants can manage their plan without contacting support.
 
-**Billing self-heal** lives in `app/routes/app._index.tsx` loader. Detects drift on tier, billing_cycle, shopify_subscription_id, OR scans_remaining and writes the full set when any field disagrees with `billing.check()` truth. Critical for catching monthly→annual swaps where tier is unchanged but cycle moves.
+**`getManagedPricingUrl`** throws loudly if `SHOPIFY_APP_HANDLE` is unset — a missing env var produces a clear error at the upgrade-redirect site rather than a silent broken URL that 404s on Shopify.
+
+**Billing self-heal** lives in `app/routes/app._index.tsx` loader. Calls `billing.check()` (no `plans` arg), detects drift on tier, billing_cycle, shopify_subscription_id, OR scans_remaining and writes the full set when any field disagrees with Shopify's truth. Critical for catching monthly→annual swaps where tier is unchanged but cycle moves.
 
 **Paid tier features:**
 - Unlimited re-scans (`scans_remaining = null`)
@@ -460,9 +464,9 @@ On first scan, the merchant's email is collected via GraphQL (`shop { email }`) 
 |-----------|----------|------|----------|
 | `app.tsx` | `/app` (layout) | Layout | Wraps all `/app/*` routes. NavMenu links: Dashboard, Appeal letter, Manage plan always; Shield Max settings, GTIN auto-filler, AI bot access only when `tier='pro'`. Loader fetches `merchants.tier` so free/shield merchants don't see Pro-only links they can't use. |
 | `app._index.tsx` | `/app` | Loader + Action + Component | **Onboarding:** Logo + 3-step wizard + "Run Free Scan" CTA. **Dashboard:** Score banner, 4 KPI cards, 12-point checklist, aside with threat level + policy gen + JSON-LD. **Actions:** `runScan`, `generatePolicy`, `dismissReview`, `enableJsonLd`. Loader self-heals tier/billing_cycle/sub_id drift on every render. |
-| `app.upgrade.tsx` | `/app/upgrade` | Loader + Component | Picker UI (2 cards, Monthly/Annual toggle). `?plan=<name>` triggers `billing.request()` and throws redirect. |
-| `app.billing.confirm.tsx` | `/app/billing/confirm` | Loader only | Confirms billing, syncs full set of billing fields, redirects to `/app`. |
-| `app.plan-switcher.tsx` | `/app/plan-switcher` | Loader + Action + Component | **Mandatory for App Store review.** 2-card layout, switch + cancel flows via useFetcher. |
+| `app.upgrade.tsx` | `/app/upgrade` | Loader only | Server-side redirect to the merchant's Shopify Managed Pricing URL via `getManagedPricingUrl(session.shop)`. |
+| `app.billing.confirm.tsx` | `/app/billing/confirm` | Loader only | "Welcome link" landing route after managed-pricing approval. Calls `billing.check()`, syncs full set of billing fields, redirects to `/app`. |
+| `app.plan-switcher.tsx` | `/app/plan-switcher` | Loader only | Server-side redirect to managed pricing. Switch + cancel are handled on Shopify's hosted page. |
 | `app.appeal-letter.tsx` | `/app/appeal-letter` | Loader + Action + Component | GMC re-review letter generator. 3 generations per scan cap. Calls Claude Sonnet via `app/lib/llm/appeal-letter.server.ts`. |
 | `app.pro-settings.tsx` | `/app/pro-settings` | Loader + Action + Component | Shield Max only. Logo URL, support email, social URLs, search URL template — persisted to `merchants.pro_settings`. Mirror values in theme editor for the Liquid blocks. |
 | `app.bots.toggle.tsx` | `/app/bots/toggle` | Loader + Action + Component | Shield Max only. 11 AI crawler allow/block toggles. Renders live `robots.txt` snippet for the merchant to paste into theme. |
@@ -585,6 +589,7 @@ One-off utility to delete orphaned webhook subscriptions from old `shopify app d
 * **Theme block name 25-char limit** -- Shopify validation rejects theme block `name` strings longer than 25 characters. When adding or renaming `extensions/*/blocks/*.liquid` schema blocks, count the chars before deploy. See commit `f3bd7bd` for the rename pass that brought the v2 blocks under the limit.
 * **Brand fallback chain (JSON-LD)** -- Resolution order for the Product schema `brand.name` field is: `product.metafields.custom.brand` -> `product.vendor` -> `shop.name`. Implemented in `extensions/json-ld-schema/blocks/product-schema.liquid`. The same chain is enforced server-side in `app/lib/schema/merchant-listings-enricher.server.ts`; keep both call sites in sync when changing the order.
 * **Pro nav links tier-gated** -- `app/routes/app.tsx` loader reads `merchants.tier` and the layout conditionally renders `/app/pro-settings`, `/app/gtin-fill`, and `/app/bots/toggle` only when `tier='pro'`. Free and Shield Pro merchants don't see Shield Max-only entries they can't use; route-level guards in those files remain the source of truth on enforcement.
+* **Shopify Managed Pricing** -- Plans are defined in the Partner Dashboard listing UI; the codebase does not register a `billing` config on `shopifyApp({...})` and does not call `billing.request()` / `billing.cancel()`. Pick-a-plan, switch, and cancel are all hosted on `admin.shopify.com`. `/app/upgrade` and `/app/plan-switcher` are loader-only redirect routes built from `getManagedPricingUrl(shopifyDomain)` in `app/lib/billing/plans.ts`. Plan-name strings must match Partner Dashboard configuration exactly so APP_SUBSCRIPTIONS_UPDATE webhook reconciliation continues to map them via PLAN_NAME_TO_TIER / PLAN_NAME_TO_CYCLE.
 
 ---
 
@@ -610,6 +615,7 @@ One-off utility to delete orphaned webhook subscriptions from old `shopify app d
 | `SUPABASE_URL` | `supabase.server.ts` | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | `supabase.server.ts` | Admin-level DB access (bypasses RLS) |
 | `TOKEN_ENCRYPTION_KEY` | `crypto.server.ts` | AES-256-GCM key material (>= 32 chars) |
+| `SHOPIFY_APP_HANDLE` | `app/lib/billing/plans.ts` (`getManagedPricingUrl`) | App slug from the Partner Dashboard listing URL (e.g. `shieldkit-google-merchant-fix`). Used to build the managed-pricing redirect URL. `getManagedPricingUrl` throws loudly if unset. |
 
 ### Optional
 | Variable | Used By | Purpose |

@@ -32,9 +32,8 @@ import {
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import {
-  PAID_PLAN_NAMES,
   PLAN_NAME_TO_TIER,
-  PLAN_NAME_TO_CYCLE,
+  intervalToCycle,
   type PlanName,
 } from "../lib/billing/plans";
 import { supabase } from "../supabase.server";
@@ -92,8 +91,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   // monthly→annual swap (same tier) still updates the cycle field.
   if (merchant) {
     try {
+      // Under managed pricing, billing.check() returns active subscriptions
+      // without needing the `plans` argument.
       const billingCheck = await billing.check({
-        plans: [...PAID_PLAN_NAMES],
         isTest: process.env.NODE_ENV !== "production",
         returnObject: true,
       });
@@ -101,7 +101,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         const sub = billingCheck.appSubscriptions?.[0];
         const activeName = (sub?.name ?? "") as PlanName;
         const expectedTier = PLAN_NAME_TO_TIER[activeName];
-        const expectedCycle = PLAN_NAME_TO_CYCLE[activeName];
+        // Under managed pricing, the plan name can be shared across cycles.
+        // Cycle is derived from the line item's interval enum, not the name.
+        const interval = (sub as any)?.lineItems?.[0]?.plan?.pricingDetails?.interval;
+        const expectedCycle = intervalToCycle(interval);
         const expectedSubId = (sub as any)?.id ?? null;
         const expectedStartedAt =
           (sub as any)?.createdAt ?? new Date().toISOString();

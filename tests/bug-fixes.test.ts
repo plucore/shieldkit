@@ -172,6 +172,10 @@ describe("Upgrade button uses React Router navigation", () => {
     expect(dashContent).not.toMatch(/url="\/app\/upgrade/);
   });
 
+  it("dashboard navigates to plain /app/upgrade (no ?plan= deep links under managed pricing)", () => {
+    expect(dashContent).not.toMatch(/\/app\/upgrade\?plan=/);
+  });
+
   const upgradeContent = fs.readFileSync(
     path.join(APP_DIR, "routes/app.upgrade.tsx"),
     "utf-8"
@@ -185,20 +189,13 @@ describe("Upgrade button uses React Router navigation", () => {
     expect(upgradeContent).toMatch(/export\s+function\s+ErrorBoundary/);
   });
 
-  it("upgrade route does not manually build admin.shopify.com URL (Shopify library handles it)", () => {
-    expect(upgradeContent).not.toContain("admin.shopify.com/store/");
-  });
-
-  it("upgrade route checks existing subscription before billing.request()", () => {
-    const checkIndex = upgradeContent.indexOf("await billing.check(");
-    const requestIndex = upgradeContent.indexOf("await billing.request(");
-    expect(checkIndex).toBeGreaterThan(-1);
-    expect(requestIndex).toBeGreaterThan(-1);
-    expect(checkIndex).toBeLessThan(requestIndex);
-  });
-
-  it("upgrade route logs billing.request() failures", () => {
-    expect(upgradeContent).toContain('console.error("[upgrade] billing.request()');
+  it("upgrade route is a managed-pricing redirect (no billing.request, no picker JSX)", () => {
+    expect(upgradeContent).not.toContain("billing.request");
+    expect(upgradeContent).not.toContain("billing.check");
+    expect(upgradeContent).toContain("getManagedPricingUrl");
+    expect(upgradeContent).toContain("redirect(");
+    // No default-export component — this is loader-only.
+    expect(upgradeContent).not.toMatch(/export\s+default\s+function/);
   });
 });
 
@@ -406,24 +403,93 @@ describe("Hooks directory", () => {
   });
 });
 
-// ─── v2 recurring billing model ─────────────────────────────────────────────
+// ─── Shopify Managed Pricing migration ──────────────────────────────────────
 
-describe("v2 recurring billing model", () => {
-  it("billing plans live in app/lib/billing/plans.ts", () => {
-    const filePath = path.join(APP_DIR, "lib/billing/plans.ts");
-    expect(fs.existsSync(filePath)).toBe(true);
-    const content = fs.readFileSync(filePath, "utf-8");
-    expect(content).toContain("Shield Pro");
-    expect(content).toContain("Shield Max");
-    expect(content).toContain("SHOPIFY_BILLING_CONFIG");
+describe("Shopify Managed Pricing", () => {
+  const plansPath = path.join(APP_DIR, "lib/billing/plans.ts");
+  const plansContent = fs.readFileSync(plansPath, "utf-8");
+
+  it("plan reference data still lives in app/lib/billing/plans.ts", () => {
+    expect(plansContent).toContain("Shield Pro");
+    expect(plansContent).toContain("Shield Max");
+    expect(plansContent).toContain("PLAN_NAME_TO_TIER");
   });
 
-  it("billing config uses recurring lineItems shape, not OneTime", () => {
+  it("plans.ts no longer registers a Billing API config", () => {
+    expect(plansContent).not.toContain("SHOPIFY_BILLING_CONFIG");
+    expect(plansContent).not.toContain("BillingConfigSubscriptionLineItemPlan");
+    expect(plansContent).not.toContain("BillingInterval");
+  });
+
+  it("plans.ts derives cycle from interval, not from plan name", () => {
+    // PLAN_NAME_TO_CYCLE must be removed — managed pricing's
+    // "monthly with yearly option" plan type shares one name across cycles.
+    expect(plansContent).not.toContain("PLAN_NAME_TO_CYCLE");
+    expect(plansContent).toContain("export function intervalToCycle");
+    // Maps the AppPricingInterval enum to our DB billing_cycle column.
+    expect(plansContent).toContain("EVERY_30_DAYS");
+    expect(plansContent).toContain("ANNUAL");
+  });
+
+  it("plans.ts exports getManagedPricingUrl helper", () => {
+    expect(plansContent).toContain("export function getManagedPricingUrl");
+    expect(plansContent).toContain("SHOPIFY_APP_HANDLE");
+    // Helper must throw loudly when SHOPIFY_APP_HANDLE is missing.
+    expect(plansContent).toMatch(/throw\s+new\s+Error/);
+  });
+
+  it("webhook handler reads top-level interval (not parsed from name)", () => {
     const content = fs.readFileSync(
-      path.join(APP_DIR, "lib/billing/plans.ts"),
+      path.join(APP_DIR, "routes/webhooks.app_subscriptions.update.tsx"),
       "utf-8"
     );
-    expect(content).not.toContain("BillingInterval.OneTime");
+    expect(content).toContain("intervalToCycle");
+    expect(content).not.toContain("PLAN_NAME_TO_CYCLE");
+    // The AppSubscriptionPayload type declares the top-level `interval` field
+    // — pulled off the flat REST-shaped webhook payload, not nested under a
+    // lineItems array (which only exists on the GraphQL shape).
+    expect(content).toContain("interval?:");
+    expect(content).not.toContain("lineItems");
+  });
+
+  it("billing-confirm loader reads cycle from lineItems interval", () => {
+    const content = fs.readFileSync(
+      path.join(APP_DIR, "routes/app.billing.confirm.tsx"),
+      "utf-8"
+    );
+    expect(content).toContain("intervalToCycle");
+    expect(content).not.toContain("PLAN_NAME_TO_CYCLE");
+    expect(content).toContain("pricingDetails");
+    expect(content).toContain("interval");
+  });
+
+  it("dashboard self-heal reads cycle from lineItems interval", () => {
+    const content = fs.readFileSync(
+      path.join(APP_DIR, "routes/app._index.tsx"),
+      "utf-8"
+    );
+    expect(content).toContain("intervalToCycle");
+    expect(content).not.toContain("PLAN_NAME_TO_CYCLE");
+    expect(content).toContain("pricingDetails");
+  });
+
+  it("shopify.server.ts no longer registers `billing` config", () => {
+    const content = fs.readFileSync(
+      path.join(APP_DIR, "shopify.server.ts"),
+      "utf-8"
+    );
+    expect(content).not.toContain("SHOPIFY_BILLING_CONFIG");
+    expect(content).not.toMatch(/^\s*billing:\s/m);
+  });
+
+  it("/app/upgrade and /app/plan-switcher are loader-only redirect routes", () => {
+    for (const route of ["routes/app.upgrade.tsx", "routes/app.plan-switcher.tsx"]) {
+      const content = fs.readFileSync(path.join(APP_DIR, route), "utf-8");
+      expect(content).toContain("getManagedPricingUrl");
+      expect(content).not.toContain("billing.request");
+      expect(content).not.toContain("billing.cancel");
+      expect(content).not.toMatch(/export\s+default\s+function/);
+    }
   });
 });
 

@@ -5,15 +5,19 @@
  * Handles APP_SUBSCRIPTIONS_UPDATE webhooks fired by Shopify when a merchant's
  * app subscription status changes (ACTIVE, CANCELLED, EXPIRED, etc.).
  *
- * v2 — recurring billing.
+ * Under Shopify Managed Pricing, the webhook payload is FLAT (REST-shaped):
+ *   - `name`        → plan display name; same for both cycles when configured
+ *                     as a "monthly with yearly option" plan in the Partner
+ *                     Dashboard. Maps to merchants.tier via PLAN_NAME_TO_TIER.
+ *   - `interval`    → "EVERY_30_DAYS" | "ANNUAL" — the source of truth for
+ *                     billing_cycle. Do NOT derive cycle from the name.
+ *   - `plan_handle` → Shopify-generated handle, distinct per cycle.
  *
  * On ACTIVE: persist tier, billing_cycle, subscription_started_at,
  *            shopify_subscription_id, scans_remaining=NULL.
  * On CANCELLED / EXPIRED / DECLINED / FROZEN:
  *            reset to free tier — clear paid-plan billing fields and
  *            grant 1 fresh scan with reset_at=now().
- *
- * Plan name → tier mapping lives in app/lib/billing/plans.ts.
  */
 
 import type { ActionFunctionArgs } from "react-router";
@@ -21,15 +25,19 @@ import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
 import {
   PLAN_NAME_TO_TIER,
-  PLAN_NAME_TO_CYCLE,
+  intervalToCycle,
   type PlanName,
+  type ShopifyAppPricingInterval,
 } from "../lib/billing/plans";
 
-// Shape of the APP_SUBSCRIPTIONS_UPDATE webhook payload
+// Shape of the APP_SUBSCRIPTIONS_UPDATE webhook payload (flat REST shape).
 interface AppSubscriptionPayload {
   app_subscription: {
     admin_graphql_api_id: string; // GraphQL gid stored as shopify_subscription_id
     name: string;
+    interval?: ShopifyAppPricingInterval; // "EVERY_30_DAYS" | "ANNUAL"
+    plan_handle?: string;
+    price?: string;
     status:
       | "ACTIVE"
       | "DECLINED"
@@ -54,20 +62,27 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const { payload, topic, shop } = await authenticate.webhook(request);
 
   const { app_subscription } = payload as unknown as AppSubscriptionPayload;
-  const { admin_graphql_api_id, name, status, created_at } = app_subscription;
+  const { admin_graphql_api_id, name, status, created_at, interval } =
+    app_subscription;
 
   // Ignore PENDING — fires before merchant has approved; nothing to persist.
   if (status === "PENDING") return new Response();
 
   if (status === "ACTIVE") {
     const tier = PLAN_NAME_TO_TIER[name as PlanName];
-    const cycle = PLAN_NAME_TO_CYCLE[name as PlanName];
+    const cycle = intervalToCycle(interval);
 
     if (!tier || tier === "free") {
       console.warn(
         `[${topic}] Unrecognised plan name "${name}" for ${shop} — no DB update`,
       );
       return new Response();
+    }
+
+    if (!cycle) {
+      console.warn(
+        `[${topic}] Missing or unrecognised interval "${interval}" for plan "${name}" on ${shop} — billing_cycle will be NULL`,
+      );
     }
 
     const { error } = await supabase

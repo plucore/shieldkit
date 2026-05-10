@@ -7,8 +7,6 @@
 
 import { SITE } from "../lib/brand";
 
-const LAST_UPDATED = "May 5, 2026";
-
 export const meta = () => {
   const title = "Terms of Service — ShieldKit";
   const description =
@@ -42,9 +40,6 @@ export default function Terms() {
         lineHeight: 1.65,
       }}
     >
-      <p style={{ fontSize: "13px", color: "#6d7175", margin: "0 0 24px" }}>
-        Last updated: {LAST_UPDATED}
-      </p>
       <h1 style={{ fontSize: "32px", fontWeight: 700, margin: "0 0 24px" }}>
         Terms of Service
       </h1>
@@ -94,16 +89,18 @@ export default function Terms() {
         <li>
           <strong>Shield Max</strong> — $39 / month or $390 / year. Everything
           in Shield Pro, plus Merchant Listings JSON-LD enrichment, GTIN /
-          MPN / brand auto-filler, Organization & WebSite schema blocks,
-          llms.txt at the App Proxy URL, AI bot allow/block toggle, the
-          dedicated Shield Max settings page.
+          MPN / brand auto-filler (writes identifier metafields back to
+          your products), Organization & WebSite schema blocks, llms.txt at
+          the App Proxy URL, AI bot allow/block toggle, the dedicated Shield
+          Max settings page.
         </li>
       </ul>
       <p>
-        All paid plans are billed by Shopify under their App Subscriptions
-        billing API. Charges appear on your Shopify invoice. Annual plans are
-        billed up front. Recurring charges renew automatically until you
-        cancel via the in-app plan switcher (or by uninstalling the app).
+        All paid plans are billed by Shopify under Shopify Managed Pricing.
+        Charges appear on your Shopify invoice. Annual plans are billed up
+        front. Recurring charges renew automatically until you cancel via
+        Shopify's Managed Pricing page (also reachable from the in-app plan
+        switcher) or by uninstalling the app.
       </p>
       <p>
         Plan switches are prorated automatically by Shopify. Cancellations
@@ -141,6 +138,36 @@ export default function Terms() {
           <strong>You own what you publish.</strong> Once you publish a
           generated policy on your store, it's your content. You're
           responsible for keeping it accurate.
+        </li>
+      </ul>
+
+      <h2 style={{ fontSize: "22px", fontWeight: 700, margin: "32px 0 12px" }}>
+        Product writes (Shield Max)
+      </h2>
+      <p>
+        Shield Max includes the GTIN / MPN / brand Auto-Filler, which writes
+        identifier metafields back to your products via the{" "}
+        <code>write_products</code> Shopify scope. Scope of writes:
+      </p>
+      <ul>
+        <li>
+          We write only to the <code>custom</code> metafield namespace, on
+          the keys <code>gtin</code>, <code>mpn</code>, <code>brand</code>,
+          and <code>identifier_exists</code>.
+        </li>
+        <li>
+          We never modify product titles, descriptions, prices, inventory,
+          images, or variant fields.
+        </li>
+        <li>
+          You can review every product the Auto-Filler will touch before
+          confirming, and you can mark products as "no identifier exists"
+          (handmade / vintage) to opt them out.
+        </li>
+        <li>
+          On products/create and products/update webhooks, we may
+          continuously enrich the same metafields for newly added products,
+          with a 24-hour deduplication window per product.
         </li>
       </ul>
 

@@ -9,8 +9,6 @@
 
 import { SITE } from "../lib/brand";
 
-const LAST_UPDATED = "May 5, 2026";
-
 export const meta = () => {
   const title = "Privacy Policy — ShieldKit";
   const description =
@@ -44,9 +42,6 @@ export default function Privacy() {
         lineHeight: 1.65,
       }}
     >
-      <p style={{ fontSize: "13px", color: "#6d7175", margin: "0 0 24px" }}>
-        Last updated: {LAST_UPDATED}
-      </p>
       <h1 style={{ fontSize: "32px", fontWeight: 700, margin: "0 0 24px" }}>
         Privacy Policy
       </h1>
@@ -68,6 +63,70 @@ export default function Privacy() {
       </p>
 
       <h2 style={{ fontSize: "22px", fontWeight: 700, margin: "32px 0 12px" }}>
+        Shopify scopes we request
+      </h2>
+      <p>
+        ShieldKit follows the principle of least privilege. The exact scopes
+        requested at install are:
+      </p>
+      <ul>
+        <li>
+          <code>read_products</code> — read product titles, descriptions,
+          variants, images, and metafields to run compliance checks (data
+          quality, image hosting, structured data).
+        </li>
+        <li>
+          <code>write_products</code> — used <strong>only</strong> on Shield
+          Max to write GTIN, MPN, and brand metafields back to your products
+          via the GTIN/MPN/Brand Auto-Filler. We never modify product titles,
+          descriptions, prices, inventory, or images.
+        </li>
+        <li>
+          <code>read_content</code> — read your shop's pages and blog content
+          (e.g. About, Contact pages) to run the contact-information and
+          business-identity-consistency checks.
+        </li>
+        <li>
+          <code>read_legal_policies</code> — read your published refund,
+          shipping, privacy, and terms policies to run policy-completeness
+          checks.
+        </li>
+        <li>
+          <code>read_themes</code>, <code>write_themes</code> — read theme
+          structure for the JSON-LD schema theme-app-extension and (Shield
+          Max) install schema blocks. We do not modify theme template files
+          beyond adding/removing our own app blocks.
+        </li>
+        <li>
+          <code>read_shipping</code>, <code>read_locations</code> — read
+          shipping zones and store locations to run the shipping-policy check
+          and contact-information check.
+        </li>
+      </ul>
+
+      <h2 style={{ fontSize: "22px", fontWeight: 700, margin: "32px 0 12px" }}>
+        About the "View customer data" install prompt
+      </h2>
+      <p>
+        At install, Shopify shows a "View customer data" disclosure listing
+        device and activity data, geolocation, IP address, browser, and
+        operating system. Shopify auto-generates this disclosure because
+        ShieldKit declares an <strong>App Proxy</strong> (the{" "}
+        <code>/apps/llms-txt</code> endpoint that powers the optional Shield
+        Max llms.txt feature). When a storefront visitor (or an AI crawler)
+        requests <code>/apps/llms-txt</code>, Shopify forwards the request to
+        ShieldKit's server along with the visitor's IP, User-Agent, and other
+        HTTP request metadata. This is what Shopify is disclosing.
+      </p>
+      <p>
+        We do <strong>not</strong> request <code>read_customers</code>,{" "}
+        <code>read_orders</code>, or any other order/customer scope. We never
+        receive your customers' names, emails, addresses, order history, or
+        payment details. The "customer data" referenced in the prompt is the
+        request metadata described in the next section.
+      </p>
+
+      <h2 style={{ fontSize: "22px", fontWeight: 700, margin: "32px 0 12px" }}>
         Data we collect
       </h2>
       <p>
@@ -86,32 +145,66 @@ export default function Privacy() {
           configuration.
         </li>
         <li>
+          <strong>Public storefront pages.</strong> During a compliance scan
+          we fetch your store's homepage, up to three product pages, the cart
+          page, and pages referenced by your published policies. We parse the
+          HTML to detect compliance signals (payment icons, structured data,
+          contact info). We retain the parsed signals as part of the scan
+          record; we do not retain full page HTML.
+        </li>
+        <li>
           <strong>Scan results.</strong> Compliance scores, individual check
-          results, the URLs we fetched, the HTML snippets we analysed, and any
-          violation details we surfaced. Linked to your shop ID.
+          results, the URLs we fetched, parsed signals, and any violation
+          details we surfaced. Linked to your shop ID.
         </li>
         <li>
           <strong>Billing state.</strong> Plan tier, billing cycle, Shopify
           subscription identifier, subscription start time. We do not see or
-          store credit card details — Shopify handles all payment data.
+          store credit card details — Shopify handles all payment data via
+          Shopify Managed Pricing.
         </li>
         <li>
           <strong>Merchant-supplied content.</strong> Anything you type into
           the app: AI-policy-generator inputs, GMC re-review appeal letter
-          inputs, Shield Max settings (logo URL, social URLs, etc.), AI bot
+          inputs, Shield Max settings (logo URL, support email, social URLs,
+          search URL template) stored in <code>pro_settings</code>, AI bot
           allow/block preferences.
+        </li>
+        <li>
+          <strong>AI-generated artifacts.</strong> The HTML store policies
+          and appeal letters Claude generates for you, stored alongside your
+          merchant record so you can return to them later.
+        </li>
+        <li>
+          <strong>Schema enrichment audit log (Shield Max).</strong> When the
+          GTIN/MPN/Brand Auto-Filler writes metafields to your products, we
+          log which product and which fields were written for diagnostic
+          purposes.
         </li>
         <li>
           <strong>Lead email.</strong> The shop owner's email address (read
           from <code>shop.email</code> via the Shopify Admin API) is stored
-          once at first scan to send the weekly health digest.
+          once at first scan in our <code>leads</code> table to send the
+          weekly health digest and (rarely) product update emails.
+        </li>
+        <li>
+          <strong>App Proxy request logs (llms.txt endpoint only).</strong>{" "}
+          When a storefront visitor or AI crawler requests{" "}
+          <code>/apps/llms-txt</code>, we log the request's User-Agent, the
+          identified crawler name (if recognised), and a privacy-preserving
+          IP hash. The IP is truncated before hashing — for IPv4 we drop the
+          last octet, for IPv6 we drop the last 64 bits — so the hash
+          identifies a /24 or /64 network rather than a specific household.
+          We never receive the visitor's name, email, or any identifying
+          information beyond what their browser sends in HTTP headers.
         </li>
       </ul>
 
       <p>
-        ShieldKit does <strong>not</strong> collect or store any data about your
-        store's <em>customers</em>. We do not read order data, customer profiles,
-        addresses, or payment records. The GDPR <code>customers/data_request</code> and{" "}
+        ShieldKit does <strong>not</strong> read your store's customer
+        records, order history, addresses, or payment data. The Shopify
+        scopes we request do not grant access to those resources. The GDPR{" "}
+        <code>customers/data_request</code> and{" "}
         <code>customers/redact</code> webhooks return HTTP 200 immediately
         because we have nothing to return or delete.
       </p>
@@ -127,10 +220,25 @@ export default function Privacy() {
           API for inference; we do not retain them after the response is
           returned beyond the database row that stores the generated artifact.
         </li>
-        <li>Send the weekly health digest email when you're on a paid plan.</li>
         <li>
-          Cache an llms.txt file for Shield Max merchants so AI search agents
-          can discover your products and policies.
+          Run the GTIN/MPN/Brand Auto-Filler (Shield Max) — write
+          identifier metafields back to your products to satisfy Google
+          Merchant Center's identifier requirements.
+        </li>
+        <li>
+          Send the weekly health digest email via Resend when you're on a
+          paid plan, summarising new findings and fixes confirmed since the
+          previous week's scan.
+        </li>
+        <li>
+          Serve a cached llms.txt file at <code>/apps/llms-txt</code> for
+          Shield Max merchants so AI search agents can discover your
+          products and policies. Requests to this endpoint are logged as
+          described in "Data we collect" above.
+        </li>
+        <li>
+          Submit the merchant's public storefront URL (and product page URLs)
+          to Google's PageSpeed Insights API for the mobile performance check.
         </li>
         <li>Operate the app: authentication, billing reconciliation, error logging.</li>
       </ul>
@@ -181,16 +289,23 @@ export default function Privacy() {
         <li>
           When you uninstall ShieldKit, your Shopify session is deleted
           immediately and your merchant row is soft-deleted (marked with an
-          <code>uninstalled_at</code> timestamp). Scans, violations, and
-          digest history are kept for the 48-hour window Shopify gives
-          merchants to reinstall before the GDPR <code>shop/redact</code> webhook
-          fires.
+          <code>uninstalled_at</code> timestamp). Scans, violations, digest
+          history, and webhook audit logs are kept for the 48-hour window
+          Shopify gives merchants to reinstall before the GDPR{" "}
+          <code>shop/redact</code> webhook fires.
         </li>
         <li>
           When the <code>shop/redact</code> webhook fires (typically 48 hours after
           uninstall), we hard-delete your merchant row and everything that
           cascades: scans, violations, billing history, Shield Max settings,
-          digest email logs, and AI-generated artifacts.
+          digest email logs, AI-generated artifacts, schema enrichment
+          records, and llms.txt request logs.
+        </li>
+        <li>
+          App Proxy request logs (<code>llms_txt_requests</code>) for shops
+          that uninstall are deleted in the same cascade. For shops that
+          remain installed, we retain these logs indefinitely so the weekly
+          digest can show you which AI crawlers have read your llms.txt.
         </li>
         <li>
           Database backups are retained for 7 days by Supabase. After 7 days
@@ -239,10 +354,9 @@ export default function Privacy() {
         Changes to this policy
       </h2>
       <p>
-        We update this page when our practices change. The "Last updated"
-        date at the top reflects the most recent revision. Material changes
-        will be highlighted in the app or via a one-time email to your shop
-        owner address.
+        We update this page when our practices change. Material changes will
+        be highlighted in the app or via a one-time email to your shop owner
+        address.
       </p>
 
       <footer

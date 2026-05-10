@@ -494,8 +494,8 @@ The digest renderer formula is `60% schema coverage + 30% llms.txt freshness + 1
 | `_index/route.tsx` | `/` | Landing page with 3 pricing cards (Free, Shield Pro $14/mo, Shield Max $39/mo). If `?shop` param present, redirects to `/app`. Login form submits to `/auth/login`. |
 | `auth.login/route.tsx` | `/auth/login` | Shop domain form. Uses `login()` from shopify.server. Submit button uses `useWebComponentClick` + `form.requestSubmit()`. |
 | `auth.$.tsx` | `/auth/*` | Catch-all OAuth callback. |
-| `privacy.tsx` | `/privacy` | Public, no auth. Privacy policy required for App Store listing. Last-updated date is hardcoded ("May 5, 2026"); bump on any material change. |
-| `terms.tsx` | `/terms` | Public, no auth. Terms of service required for App Store listing. Last-updated date is hardcoded ("May 5, 2026"); bump on any material change. |
+| `privacy.tsx` | `/privacy` | Public, no auth. Privacy policy required for App Store listing. No last-updated stamp rendered. |
+| `terms.tsx` | `/terms` | Public, no auth. Terms of service required for App Store listing. No last-updated stamp rendered. |
 
 ### Webhook routes (all use `authenticate.webhook` for HMAC verification)
 See Section 3 for full details.

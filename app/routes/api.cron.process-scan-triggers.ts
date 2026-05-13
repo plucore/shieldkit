@@ -3,13 +3,18 @@
  *
  * POST /api/cron/process-scan-triggers
  *
- * Phase 7.3 — Drains pending_scan_triggers, runs the 12-point compliance
- * scan once per affected merchant (regardless of how many trigger rows
- * are queued for that merchant), then marks all of that merchant's
- * pending rows processed_at=NOW().
+ * Drains `pending_scan_triggers` one merchant per invocation. A scan runs
+ * ~10–15s; the Vercel Hobby tier function ceiling is 60s, so we cap each
+ * invocation at a single merchant to stay safely under the limit.
  *
- * Hobby-tier Vercel Cron min frequency = 1/day, so this fires daily at
- * 12:00 UTC. Triggers older than 24h will be picked up the next tick.
+ * Invocation cadence: a GitHub Actions workflow
+ * (`.github/workflows/process-scan-triggers.yml`) curls this endpoint every
+ * 5 minutes. That's 288 invocations/day — plenty of headroom to clear the
+ * weekly-scan enqueue burst within a few hours, even as the paid-merchant
+ * count grows.
+ *
+ * A daily Vercel Cron at 12:00 UTC also hits this endpoint as a safety net
+ * in case GitHub Actions is unavailable.
  *
  * Auth: bearer CRON_SECRET, mirrors api.cron.weekly-scan.ts.
  */
@@ -18,18 +23,15 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { supabase } from "../supabase.server";
 import { runComplianceScan } from "../lib/compliance-scanner.server";
 
-const BATCH_SIZE = 50;
-const MERCHANT_DELAY_MS = 2000;
+// One merchant per invocation. With a ~12s scan, this stays well under the
+// 60s Vercel Hobby ceiling and leaves room for transient slow GraphQL calls.
+const BATCH_SIZE = 1;
 
 function json<T>(body: T, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "Content-Type": "application/json" },
   });
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function loader(_args: LoaderFunctionArgs) {
@@ -153,8 +155,6 @@ export async function action({ request }: ActionFunctionArgs) {
         err instanceof Error ? err.message : err,
       );
     }
-
-    await sleep(MERCHANT_DELAY_MS);
   }
 
   return json({

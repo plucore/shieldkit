@@ -1,0 +1,51 @@
+name: Process scan triggers
+
+# Drains pending_scan_triggers one merchant per invocation. Pairs with the
+# Vercel Cron weekly-scan enqueue (Mondays 08:00 UTC). Vercel Hobby tier
+# caps function duration at 60s and disallows sub-daily crons, so the
+# every-5-minute polling lives in GitHub Actions instead.
+#
+# Manual setup: add CRON_SECRET to the repo's Actions secrets (must match
+# the value set on Vercel for the same env var).
+#
+# Security note: this workflow does not consume any user-controlled GitHub
+# event payloads. The only injected value is `secrets.CRON_SECRET`, passed
+# via `env:` and quoted in the curl invocation.
+
+on:
+  schedule:
+    # Every 5 minutes. GitHub Actions cron is best-effort and can drift /
+    # skip under load — acceptable because the daily Vercel cron at
+    # 12:00 UTC serves as a safety net.
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: process-scan-triggers
+  cancel-in-progress: false
+
+jobs:
+  drain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: POST /api/cron/process-scan-triggers
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET secret is not set. Add it under Settings -> Secrets and variables -> Actions." >&2
+            exit 1
+          fi
+          HTTP_STATUS=$(curl --silent --show-error --output /tmp/response.json --write-out "%{http_code}" \
+            --max-time 90 \
+            --request POST \
+            --header "Authorization: Bearer $CRON_SECRET" \
+            --header "Content-Type: application/json" \
+            "https://shieldkit.vercel.app/api/cron/process-scan-triggers")
+          echo "HTTP $HTTP_STATUS"
+          cat /tmp/response.json || true
+          echo
+          if [ "$HTTP_STATUS" -ge 400 ]; then
+            exit 1
+          fi

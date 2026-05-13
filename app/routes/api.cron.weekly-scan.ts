@@ -3,43 +3,31 @@
  *
  * POST /api/cron/weekly-scan
  *
- * Automated weekly compliance scan for all active Shield Pro / Shield Max
- * merchants (DB tier IN ('shield', 'pro')). Triggered by Vercel Cron every
- * Monday at 8am UTC.
+ * Triggered by Vercel Cron every Monday at 8am UTC.
+ *
+ * Vercel Hobby tier caps function duration at 60s, so this route does NOT
+ * run the scans itself. Instead it enqueues one `pending_scan_triggers` row
+ * per active paid merchant. The actual scans are drained by
+ * `api.cron.process-scan-triggers.ts`, which a GitHub Actions workflow
+ * curls every 5 minutes (one merchant per invocation, ~12s each).
  *
  * Flow:
  *   1. Verify CRON_SECRET bearer token.
- *   2. Fetch all active paid merchants.
- *   3. Run compliance scans sequentially (2s delay between each).
- *   4. Persist results to DB (scans + violations tables).
- *   5. Return summary JSON.
+ *   2. Fetch all active paid merchants (tier IN ('shield','pro')).
+ *   3. Bulk-insert one trigger row per merchant with trigger_type='weekly_scan'.
+ *   4. Return count of triggers queued.
  *
- * Scan results surface on the merchant dashboard via the loader in
- * app._index.tsx (lastAutomatedScan, newAutoIssueCount). Diff vs the prior
- * scan is computed at digest time by api.cron.weekly-digest.ts so we don't
- * need to persist diff fields on the scans table here.
- *
- * TODO(Phase 5): re-introduce a Customer Privacy API status signal once a
- * reliable detection path exists. Shopify Admin GraphQL has no surface for
- * verifying that a merchant's storefront correctly initialises the JS
- * Customer Privacy API; the synthetic EU-IP cookie probe was explicitly
- * cut from v2 in the technical plan. The payment-icon health signal is
- * already produced by check #6 (checkout_transparency) on every scan.
+ * This completes in 1–3 seconds even at 1000 merchants.
  */
 
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { supabase } from "../supabase.server";
-import { runComplianceScan } from "../lib/compliance-scanner.server";
 
 function json<T>(body: T, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "Content-Type": "application/json" },
   });
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function loader(_args: LoaderFunctionArgs) {
@@ -68,7 +56,7 @@ export async function action({ request }: ActionFunctionArgs) {
   // ── 2. Fetch all active paid merchants (Shield Pro + Shield Max) ─────────────
   const { data: merchants, error: fetchError } = await supabase
     .from("merchants")
-    .select("id, shopify_domain")
+    .select("id")
     .in("tier", ["shield", "pro"])
     .is("uninstalled_at", null);
 
@@ -78,32 +66,28 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 
   if (!merchants || merchants.length === 0) {
-    return json({ merchants_scanned: 0, errors: 0 });
+    return json({ triggers_queued: 0 });
   }
 
-  // ── 3. Process merchants sequentially ────────────────────────────────────────
-  let merchantsScanned = 0;
-  let errors = 0;
+  // ── 3. Enqueue one trigger per merchant ─────────────────────────────────────
+  const now = new Date().toISOString();
+  const rows = merchants.map((m) => ({
+    merchant_id: m.id,
+    trigger_type: "weekly_scan",
+    trigger_at: now,
+  }));
 
-  for (const merchant of merchants) {
-    try {
-      await runComplianceScan(
-        merchant.id,
-        merchant.shopify_domain,
-        "automated"
-      );
-      merchantsScanned++;
-    } catch (err) {
-      errors++;
-      console.error(
-        `[cron/weekly-scan] Scan failed for ${merchant.shopify_domain}:`,
-        err instanceof Error ? err.message : err,
-      );
-    }
+  const { error: insertError } = await supabase
+    .from("pending_scan_triggers")
+    .insert(rows);
 
-    // 2-second delay between merchants to avoid Shopify rate limits
-    await sleep(2000);
+  if (insertError) {
+    console.error(
+      "[cron/weekly-scan] Failed to enqueue triggers:",
+      insertError.message,
+    );
+    return json({ error: "database_error", message: insertError.message }, 500);
   }
 
-  return json({ merchants_scanned: merchantsScanned, errors });
+  return json({ triggers_queued: rows.length });
 }

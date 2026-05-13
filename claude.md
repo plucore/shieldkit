@@ -90,8 +90,9 @@ app/
   supabase.server.ts  # Supabase client singleton
   root.tsx, entry.server.tsx, routes.ts, globals.d.ts, styles.css
 scripts/
-  outbound-scanner.ts       # Standalone CLI scanner (no OAuth)
-  cleanup-orphan-webhooks.ts # One-off: deletes orphan webhook subscriptions from old dev tunnels
+  outbound-scanner.ts                # Standalone CLI scanner (no OAuth)
+  cleanup-orphan-webhooks.ts         # One-off: deletes orphan webhook subscriptions from old dev tunnels
+  backfill-merchant-shop-info.ts     # Walks merchants table and refreshes Shopify metadata columns
 supabase/
   schema.sql           # Database DDL
 public/
@@ -215,7 +216,16 @@ One row per installed shop. Soft-deleted on uninstall, hard-deleted by GDPR shop
 |--------|------|-------|
 | `id` | UUID PK (gen_random_uuid) | |
 | `shopify_domain` | TEXT NOT NULL UNIQUE | e.g. `mystore.myshopify.com` |
-| `shop_name` | TEXT | Display name from `shop.name` GraphQL — populated opportunistically; may be NULL on older rows. |
+| `shop_name` | TEXT | Display name from `shop.name` GraphQL. Refreshed opportunistically on every scan; may be NULL on rows that haven't scanned since the upsert was wired in. |
+| `shop_owner_name` | TEXT | `shop.shopOwnerName` from GraphQL. Owner's name, distinct from store/brand name. Refreshed opportunistically on every scan. |
+| `contact_email` | TEXT | `shop.contactEmail` from GraphQL. Refreshed opportunistically on every scan. |
+| `country`, `province`, `city` | TEXT | `shop.billingAddress.{country,province,city}`. Geo segmentation. Refreshed opportunistically on every scan. |
+| `currency_code` | TEXT | `shop.currencyCode`, e.g. `USD`. Refreshed opportunistically on every scan. |
+| `shopify_plan` | TEXT | `shop.plan.displayName`, e.g. `Basic`, `Shopify`, `Advanced`, `Plus`. ICP signal. Refreshed opportunistically on every scan. |
+| `primary_domain` | TEXT | `shop.primaryDomain.host` — the real storefront host (e.g. `tbgypsysoul.com`), different from `*.myshopify.com`. Refreshed opportunistically on every scan. |
+| `shop_created_at` | TIMESTAMPTZ | `shop.createdAt` — when the Shopify store itself was created. Store age signal. Refreshed opportunistically on every scan. |
+| `iana_timezone` | TEXT | `shop.ianaTimezone`, e.g. `America/Chicago`. Refreshed opportunistically on every scan. |
+| `shop_metadata_refreshed_at` | TIMESTAMPTZ | Set on every successful opportunistic refresh of the columns above. Useful for diagnostics — NULL means we have never had a fresh token successfully resolve `getShopInfo()` for this merchant. |
 | `access_token_encrypted` | TEXT | AES-256-GCM encrypted token |
 | `tier` | TEXT DEFAULT 'free' CHECK ('free', 'shield', 'pro') | `'free'` = no plan, `'shield'` = Shield Pro ($14), `'pro'` = Shield Max ($39). |
 | `billing_cycle` | TEXT CHECK ('monthly','annual') | NULL on free tier. Set from PLAN_NAME_TO_CYCLE on activation. |
@@ -232,7 +242,7 @@ One row per installed shop. Soft-deleted on uninstall, hard-deleted by GDPR shop
 | `uninstalled_at` | TIMESTAMPTZ | Soft-delete marker |
 | `created_at` | TIMESTAMPTZ DEFAULT now() | |
 
-* **Indexes:** `idx_merchants_domain`, `idx_merchants_active` (WHERE `uninstalled_at IS NULL`)
+* **Indexes:** `idx_merchants_domain`, `idx_merchants_active` (WHERE `uninstalled_at IS NULL`), `idx_merchants_country` (WHERE `uninstalled_at IS NULL`)
 * **RLS Policy:** `merchants_shop_isolation` -- row accessible only when `shopify_domain = current_setting('app.current_shop')`
 * **CASCADE:** Deleting a merchant cascades to scans, then to violations.
 
@@ -369,6 +379,7 @@ The diff against the prior scan (new_issues, fixes_confirmed) is computed at dig
 
 1. **Build admin GraphQL client** via `createAdminClient(shopifyDomain)` -- reads the offline session token from `sessions` table first (always fresh), falls back to `merchants.access_token_encrypted`. Decrypts and creates fetch-based executor.
 2. **Fetch Shopify data** (concurrent): `getShopInfo()`, `getShopPolicies()`, `getProducts(first=50)`, `getPages(first=20)`.
+2b. **Opportunistic merchant metadata refresh** (fire-and-forget): if `getShopInfo()` returned a result, UPDATE the merchant row with `shop_name`, `shop_owner_name`, `contact_email`, `country`, `province`, `city`, `currency_code`, `shopify_plan`, `primary_domain`, `shop_created_at`, `iana_timezone`, and `shop_metadata_refreshed_at = now()`. Failures are logged but never abort the scan.
 3. **Pre-fetch public storefront pages** (concurrent): Homepage + up to 3 product pages. All fetches go through `fetchPublicPage()` which includes SSRF protection (DNS resolution + private IP blocking).
 4. **Run all 12 checks** in two concurrent batches via `Promise.all`, each wrapped in `safeCheck()` (catches exceptions, returns severity "error" so scan continues).
 5. **Calculate score:** `(passedChecks / scorableTotal) * 100`. Errored checks excluded from denominator.
@@ -559,6 +570,19 @@ npx tsx scripts/outbound-scanner.ts https://example.myshopify.com
 
 One-off utility to delete orphaned webhook subscriptions from old `shopify app dev` tunnel sessions. Fetches all webhooks via GraphQL, filters those pointing to dead trycloudflare.com URLs, deletes them.
 
+### Merchant Metadata Backfill (`scripts/backfill-merchant-shop-info.ts`)
+
+Walks the `merchants` table and refreshes the Shopify-sourced metadata columns (`shop_name`, `shop_owner_name`, `contact_email`, `country`, `province`, `city`, `currency_code`, `shopify_plan`, `primary_domain`, `shop_created_at`, `iana_timezone`, `shop_metadata_refreshed_at`) via `getShopInfo()`. Useful when adding new metadata columns, or after fixing a token-decryption issue.
+
+**Usage:**
+```bash
+npx tsx scripts/backfill-merchant-shop-info.ts                          # all installed merchants
+npx tsx scripts/backfill-merchant-shop-info.ts --all                    # include uninstalled
+npx tsx scripts/backfill-merchant-shop-info.ts --shop foo.myshopify.com # target a single merchant
+```
+
+250ms pause between calls to stay under Shopify's GraphQL rate limit. Rows whose stored access token has expired/rotated will log a 401 from Shopify and skip cleanly — those merchants get backfilled organically the next time they trigger a scan via the opportunistic upsert wired into `runComplianceScan`.
+
 ---
 
 ## 10. UI & Styling Rules
@@ -656,10 +680,27 @@ One-off utility to delete orphaned webhook subscriptions from old `shopify app d
 
 ### Vercel (current)
 * App URL: `https://shieldkit.vercel.app`
-* **`vercel.json`:** Defines 3 Vercel Cron jobs — weekly-scan (Mon 08:00 UTC), monthly-reset (1st 00:00 UTC), weekly-digest (Mon 13:00 UTC).
+* **Tier: Hobby.** This is load-bearing — Hobby caps function duration at 60s and disallows sub-daily cron frequency. Any work that exceeds 60s must be split across invocations.
+* **`vercel.json`:** Defines 4 Vercel Cron jobs — weekly-scan (Mon 08:00 UTC, enqueues only), monthly-reset (1st 00:00 UTC), weekly-digest (Mon 13:00 UTC), process-scan-triggers (daily 12:00 UTC safety net).
 * **App Proxy:** `[app_proxy]` block in `shopify.app.toml` registers `/apps/llms-txt` → `/api/proxy/llms-txt`. HMAC verified by Shopify SDK's `authenticate.public.appProxy(request)`. Both prod and dev tomls have this block; dev toml is gitignored so URL field changes are local-only and rewritten by `shopify app dev` on tunnel start.
 * **`react-router.config.ts`:** Uses `@vercel/react-router` preset for serverless deployment.
 * Build: `react-router build` (Vite). Serve: `react-router-serve ./build/server/index.js`.
+
+### Weekly scan execution model (Hobby-compatible)
+
+The 12-point compliance scan takes ~10–15s per merchant. Running every paid merchant in a single Vercel function call would time out at ~5 merchants on Hobby. Instead the work is split:
+
+1. **`api.cron.weekly-scan.ts`** (Vercel Cron, Mon 08:00 UTC) — fans out: inserts one row per paid merchant into `pending_scan_triggers` with `trigger_type='weekly_scan'`. Completes in 1–3s even at 1000 merchants.
+2. **`api.cron.process-scan-triggers.ts`** — drains the queue **one merchant per invocation** (BATCH_SIZE=1). Each invocation runs ~12s, well under 60s. Runs the scan, marks the trigger row `processed_at`, returns.
+3. **`.github/workflows/process-scan-triggers.yml`** — GitHub Actions cron every 5 minutes curls the process endpoint with `CRON_SECRET` bearer auth. 288 invocations/day clears any reasonable weekly burst within hours. `workflow_dispatch:` is enabled for manual testing.
+4. **Daily Vercel Cron at 12:00 UTC** also hits the process endpoint as a safety net in case GitHub Actions is unavailable.
+
+**Capacity planning:** when paid-merchant count grows past what 5-minute polling can clear in 24h (~288 merchants if every tick actually runs), either bump the GitHub Actions cadence (down to a few minutes — note GH Actions cron is best-effort) or upgrade to Vercel Pro (300s function ceiling, sub-daily crons, batched processing becomes viable again).
+
+**Manual setup required when first wiring up this workflow:**
+- GitHub repo → Settings → Secrets and variables → Actions → New repository secret
+- Name: `CRON_SECRET`
+- Value: same string as the `CRON_SECRET` env var set on Vercel
 
 ### Docker (alternative)
 ```dockerfile

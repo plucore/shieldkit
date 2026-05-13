@@ -4,6 +4,19 @@ Tracked items that are intentionally deferred, decisions that should not be re-l
 
 ---
 
+## RESOLVED
+
+### Weekly-scan cron timeout on Vercel Hobby *(was: HIGH)*
+**Symptom:** `api.cron.weekly-scan.ts` ran all scans sequentially in one Vercel function call. Each scan takes ~10–15s; Vercel Hobby caps function duration at 60s. The cron would abort at ~5 paid merchants, leaving the rest unscanned and their digests empty.
+
+**Resolution:** Split into enqueue + drain. Weekly cron now inserts one `pending_scan_triggers` row per paid merchant (1–3s). A new GitHub Actions workflow (`.github/workflows/process-scan-triggers.yml`) curls `/api/cron/process-scan-triggers` every 5 minutes with `CRON_SECRET` bearer auth; the processor drains one merchant per invocation (BATCH_SIZE=1, ~12s, well under 60s). Daily Vercel cron at 12:00 UTC remains as a safety net.
+
+**Capacity ceiling:** ~288 merchants/day at the current cadence. Beyond that, either tighten GH Actions schedule (best-effort below 5 min) or move to Vercel Pro for sub-daily crons and 300s function ceiling. Documented in CLAUDE.md §15.
+
+**Manual setup performed:** added `CRON_SECRET` to GitHub repo Actions secrets (matches Vercel env var of same name).
+
+---
+
 ## DEFERRED
 
 ### `/app/billing/confirm` auth bounce *(LOW)*

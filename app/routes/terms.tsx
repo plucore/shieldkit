@@ -81,18 +81,19 @@ export default function Terms() {
           JSON-LD theme extension, plus fix instructions for surfaced findings.
         </li>
         <li>
-          <strong>Shield Pro</strong> — $14 / month or $140 / year. Unlimited
-          scans, continuous weekly monitoring, weekly health digest email,
-          AI policy generator, GMC re-review appeal letter, hidden fee
-          detection, image hosting audit.
+          <strong>Monitoring</strong> — $30 / month or $290 / year. Weekly
+          automated compliance scans, weekly health digest email, ongoing
+          GTIN / MPN / brand enrichment on newly-updated products,
+          Merchant Listings JSON-LD enrichment, Organization &amp; WebSite
+          schema blocks, llms.txt at the App Proxy URL, AI bot allow/block
+          toggle, AI-visibility tracking, and the Pro settings page.
         </li>
         <li>
-          <strong>Shield Max</strong> — $39 / month or $390 / year. Everything
-          in Shield Pro, plus Merchant Listings JSON-LD enrichment, GTIN /
-          MPN / brand auto-filler (writes identifier metafields back to
-          your products), Organization & WebSite schema blocks, llms.txt at
-          the App Proxy URL, AI bot allow/block toggle, the dedicated Shield
-          Max settings page.
+          <strong>Recovery</strong> — $150 / year. Everything in Monitoring,
+          plus the AI policy generator, the GMC re-review appeal letter
+          generator, bulk GTIN / MPN / brand fill on the existing catalog
+          (writes identifier metafields back to your products), and
+          unlimited on-demand compliance scans.
         </li>
       </ul>
       <p>
@@ -142,12 +143,14 @@ export default function Terms() {
       </ul>
 
       <h2 style={{ fontSize: "22px", fontWeight: 700, margin: "32px 0 12px" }}>
-        Product writes (Shield Max)
+        Product writes (Monitoring + Recovery)
       </h2>
       <p>
-        Shield Max includes the GTIN / MPN / brand Auto-Filler, which writes
-        identifier metafields back to your products via the{" "}
-        <code>write_products</code> Shopify scope. Scope of writes:
+        Both paid plans write identifier metafields back to your products via
+        the <code>write_products</code> Shopify scope. Monitoring runs
+        continuous enrichment on newly-updated products; Recovery adds the
+        bulk Auto-Filler that fills missing identifiers across the existing
+        catalog. Scope of writes:
       </p>
       <ul>
         <li>
@@ -180,7 +183,7 @@ export default function Terms() {
         <li>Use ShieldKit to scan stores you don't own or aren't authorised to administer.</li>
         <li>Abuse the scanner — for example, automated rapid re-scans designed to overwhelm rate limits.</li>
         <li>Use the AI features to generate content that violates Shopify's or Google's policies.</li>
-        <li>Attempt to bypass the plan tier (e.g. modifying client-side state to access Shield Max features without subscribing).</li>
+        <li>Attempt to bypass the plan tier (e.g. modifying client-side state to access paid features without subscribing).</li>
       </ul>
 
       <h2 style={{ fontSize: "22px", fontWeight: 700, margin: "32px 0 12px" }}>

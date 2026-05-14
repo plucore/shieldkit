@@ -2,15 +2,15 @@
  * app/routes/app.pro-settings.tsx
  * Route: /app/pro-settings
  *
- * Phase 4.1 — Shield Max merchants enter their Organization + WebSite
- * schema values + AI bot preferences here. Persisted to merchants.pro_settings
- * (a JSONB column proposed in Block 7's SQL ALTER, applied separately).
+ * Monitoring + Recovery merchants (plus grandfathered pro) enter their
+ * Organization + WebSite schema values + AI bot preferences here. Persisted
+ * to merchants.pro_settings (JSONB).
  *
- * For now (Phase 4) the values feed the Liquid block settings: the merchant
- * has to copy them into the theme editor manually. Phase 5 will sync them
- * via metafields once write_products scope is approved.
+ * The values feed the Liquid block settings: the merchant has to copy them
+ * into the theme editor manually. A future iteration may sync them via
+ * metafields once write_products scope is approved.
  *
- * Tier gate: tier='pro' (Shield Max) only. Lower tiers see an upgrade nudge.
+ * Tier gate: hasMonitoringAccess. Free / shield see an upgrade nudge.
  */
 
 import { useCallback, useRef } from "react";
@@ -163,7 +163,7 @@ export default function ProSettingsPage() {
   }
 
   return (
-    <s-page heading="Shield Max settings">
+    <s-page heading="Pro settings">
       {columnMissing && (
         <s-section>
           <s-banner tone="warning" heading="Database column not yet applied">

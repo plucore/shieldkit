@@ -4,9 +4,10 @@
  * Phase 7.2 — Dashboard aside card showing llms.txt crawler hits over
  * the last 7 days vs the prior 7 days, plus the top 3 crawlers by name.
  *
- * Only rendered for Shield Max merchants (tier='pro'). The parent gate
- * lives in app/routes/app._index.tsx — this component assumes its props
- * are already filtered.
+ * Only rendered for merchants with monitoring access (tier='monitoring',
+ * 'recovery', or grandfathered 'pro'). The parent gate lives in
+ * app/routes/app._index.tsx via hasMonitoringAccess — this component
+ * assumes its props are already filtered.
  */
 
 import { wowDeltaPct } from "../lib/ai-visibility/identify-crawler";

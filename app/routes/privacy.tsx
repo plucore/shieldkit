@@ -166,7 +166,7 @@ export default function Privacy() {
         <li>
           <strong>Merchant-supplied content.</strong> Anything you type into
           the app: AI-policy-generator inputs, GMC re-review appeal letter
-          inputs, Shield Max settings (logo URL, support email, social URLs,
+          inputs, Pro settings (logo URL, support email, social URLs,
           search URL template) stored in <code>pro_settings</code>, AI bot
           allow/block preferences.
         </li>
@@ -176,7 +176,7 @@ export default function Privacy() {
           merchant record so you can return to them later.
         </li>
         <li>
-          <strong>Schema enrichment audit log (Shield Max).</strong> When the
+          <strong>Schema enrichment audit log (paid plans).</strong> When the
           GTIN/MPN/Brand Auto-Filler writes metafields to your products, we
           log which product and which fields were written for diagnostic
           purposes.
@@ -221,7 +221,7 @@ export default function Privacy() {
           returned beyond the database row that stores the generated artifact.
         </li>
         <li>
-          Run the GTIN/MPN/Brand Auto-Filler (Shield Max) — write
+          Run the GTIN/MPN/Brand Auto-Filler (Recovery) — write
           identifier metafields back to your products to satisfy Google
           Merchant Center's identifier requirements.
         </li>
@@ -232,7 +232,7 @@ export default function Privacy() {
         </li>
         <li>
           Serve a cached llms.txt file at <code>/apps/llms-txt</code> for
-          Shield Max merchants so AI search agents can discover your
+          Monitoring and Recovery merchants so AI search agents can discover your
           products and policies. Requests to this endpoint are logged as
           described in "Data we collect" above.
         </li>
@@ -297,7 +297,7 @@ export default function Privacy() {
         <li>
           When the <code>shop/redact</code> webhook fires (typically 48 hours after
           uninstall), we hard-delete your merchant row and everything that
-          cascades: scans, violations, billing history, Shield Max settings,
+          cascades: scans, violations, billing history, Pro settings,
           digest email logs, AI-generated artifacts, schema enrichment
           records, and llms.txt request logs.
         </li>

@@ -9,9 +9,11 @@
  * Behavior:
  *   1. authenticate.webhook(request) — HMAC verified by Shopify SDK.
  *   2. Look up merchant by shop domain. Bail (200 OK) on no match.
- *   3. Insert pending_scan_triggers row (Phase 7.3) — gated by tier
- *      IN ('shield','pro') with a 24h dedup window.
- *   4. Tier gate: tier='pro' (Shield Max) for the GTIN enrichment.
+ *   3. Insert pending_scan_triggers row — gated by hasMonitoringAccess
+ *      (monitoring + recovery + grandfathered pro) with a 24h dedup window.
+ *   4. Tier gate: hasMonitoringAccess for ongoing GTIN enrichment on the
+ *      newly-updated product. Bulk fill on the existing catalog is gated
+ *      separately by hasRecoveryAccess in app.gtin-fill.tsx.
  *   5. Scope gate: SCOPES env must include write_products.
  *   6. Dedup: skip if schema_enrichments has a row for this product
  *      within the last 24h.

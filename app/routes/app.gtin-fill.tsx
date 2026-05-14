@@ -11,7 +11,10 @@
  * loads + previews but the action returns a "scope pending" error rather
  * than attempting a write that would fail.
  *
- * Tier gate: tier='pro' (Shield Max) only.
+ * Tier gate: hasRecoveryAccess (Recovery + grandfathered pro).
+ * Note the GTIN feature split: this bulk fill on the existing catalog is
+ * Recovery-only. Ongoing per-product enrichment on newly-updated products
+ * runs from webhooks.products.update.tsx, gated by hasMonitoringAccess.
  */
 
 import { useCallback, useMemo, useRef } from "react";
@@ -431,9 +434,10 @@ export default function GtinFillPage() {
     return (
       <s-page heading="GTIN / MPN / Brand Auto-Filler">
         <s-section>
-          <s-banner tone="info" heading="Shield Max only">
-            The Auto-Filler enriches your product feed with the identifiers
-            Google Merchant Center expects. Upgrade to Shield Max to access it.
+          <s-banner tone="info" heading="Recovery plan required">
+            The bulk Auto-Filler enriches your existing catalog with the
+            identifiers Google Merchant Center expects. Upgrade to Recovery
+            to access it.
           </s-banner>
           <s-link href="/app/plan-switcher">View plans</s-link>
         </s-section>
@@ -452,7 +456,7 @@ export default function GtinFillPage() {
             automatically once approval lands — no action required from you.
             <br />
             <br />
-            In the meantime, your Shield Max plan continues to deliver weekly
+            In the meantime, your paid plan continues to deliver weekly
             scans, the weekly health digest, the Merchant Listings JSON-LD
             theme blocks, llms.txt, and the AI bot allow/block toggle.
           </s-banner>

@@ -361,45 +361,44 @@ function PricingV2() {
           <div className="mt-10 grid lg:grid-cols-3 gap-6 max-w-5xl mx-auto">
             <PricingCard
               name="Free"
+              tagline="Scan your store. See what's wrong."
               price="$0"
               features={[
-                "1 scan/month",
-                "Fix instructions for top 3 findings",
-                "Free JSON-LD structured data",
+                "One scan per month",
+                "Step-by-step fix instructions",
+                "Free theme extension",
               ]}
               cta="Start Free"
               ctaHref={SITE.installUrl}
             />
             <PricingCard
-              name="Shield Pro"
+              name="Monitoring"
+              tagline="Stay compliant. Stay visible."
               badge="Most popular"
               highlight
-              priceMonthly="$14"
-              priceAnnual="$140"
-              annualSavings="16% off"
+              priceMonthly="$30"
+              priceAnnual="$290"
+              annualSavings="Save $70/yr"
               features={[
-                "Unlimited scans",
-                "Continuous weekly monitoring",
-                "Weekly health digest email",
-                "AI policy generator",
-                "GMC re-review appeal letter",
-                "Hidden fee detector",
-                "Image hosting audit",
+                "Weekly automated scans",
+                "Weekly digest email",
+                "Get found in AI Overviews and ChatGPT",
+                "Auto structured data for new products",
+                "AI crawler controls",
               ]}
               cta="Start Free"
               ctaHref={SITE.installUrl}
             />
             <PricingCard
-              name="Shield Max"
-              priceMonthly="$39"
-              priceAnnual="$390"
+              name="Recovery"
+              tagline="Suspended? Fix it now."
+              price="$150/yr"
               features={[
-                "Everything in Shield Pro",
-                "Merchant Listings JSON-LD enricher",
-                "GTIN/MPN/brand auto-filler",
-                "Organization & WebSite schema blocks",
-                "llms.txt at root",
-                "AI bot allow/block toggle",
+                "Everything in Monitoring",
+                "AI-written policies",
+                "GMC appeal letter generator",
+                "Product data fixes (GTIN/MPN/brand)",
+                "Unlimited scans",
               ]}
               cta="Start Free"
               ctaHref={SITE.installUrl}
@@ -413,6 +412,7 @@ function PricingV2() {
 
 interface PricingCardProps {
   name: string;
+  tagline?: string;
   price?: string;
   priceMonthly?: string;
   priceAnnual?: string;
@@ -427,6 +427,7 @@ interface PricingCardProps {
 
 function PricingCard({
   name,
+  tagline,
   price,
   priceMonthly,
   priceAnnual,
@@ -450,6 +451,11 @@ function PricingCard({
         </span>
       )}
       <div className="text-lg font-bold text-brand-navy">{name}</div>
+      {tagline && (
+        <div className="mt-1 text-sm text-brand-gray-text italic">
+          {tagline}
+        </div>
+      )}
       <div className="mt-3 min-h-[3.25rem]">
         {price && (
           <div className="text-4xl font-extrabold text-brand-navy">
@@ -554,15 +560,17 @@ function FAQ({ isV2 }: { isV2: boolean }) {
     },
     isV2
       ? {
-          q: "What's the difference between Shield Pro and Shield Max?",
+          q: "What's the difference between Monitoring and Recovery?",
           a: (
             <>
-              Shield Pro ($14/mo) gives you unlimited scans, weekly
-              monitoring, weekly digest email, AI policy generator, the GMC
-              appeal-letter generator, and hidden-fee + dropshipper-image
-              audits. Shield Max ($39/mo) adds the Merchant Listings schema
-              enricher, Organization &amp; WebSite blocks, llms.txt at root,
-              and AI bot allow/block toggles for AI search visibility.
+              Monitoring ($30/mo or $290/yr) keeps your store compliant going
+              forward — weekly automated scans, the weekly digest, AI search
+              visibility (AI Overviews, ChatGPT shopping), structured data
+              for new products, and AI crawler controls. Recovery ($150/yr)
+              adds everything you need to get reinstated fast when something
+              has already gone wrong: AI-written policies, the GMC re-review
+              appeal letter generator, bulk product data fixes (GTIN/MPN/
+              brand), and unlimited on-demand scans.
             </>
           ),
         }

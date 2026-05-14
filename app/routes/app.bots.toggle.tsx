@@ -2,8 +2,8 @@
  * app/routes/app.bots.toggle.tsx
  * Route: /app/bots/toggle
  *
- * Phase 4.3 — AI Bot Access Control. Shield Max merchants choose whether to
- * allow or block each known AI training/runtime crawler. The page generates
+ * AI Bot Access Control. Monitoring + Recovery merchants (plus grandfathered
+ * pro) choose whether to allow or block each known AI training/runtime crawler. The page generates
  * a robots.txt snippet they paste into their theme's templates/robots.txt.liquid.
  *
  * State persists to merchants.pro_settings.bot_preferences (JSONB column —

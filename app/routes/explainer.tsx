@@ -233,7 +233,7 @@ export default function ExplainerPage() {
           compliance scan on a regular cadence (weekly is standard) so that
           any regression introduced by a theme update, a new app, a policy
           edit, or a copy change gets caught before Google's crawler finds
-          it. ShieldKit's <strong>Shield Pro</strong> tier runs an automated
+          it. ShieldKit's <strong>Monitoring</strong> plan runs an automated
           weekly scan against your store and emails you a digest of any new
           issues, fixed issues, or score regressions.
         </p>

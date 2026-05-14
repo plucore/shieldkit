@@ -1,7 +1,8 @@
 /**
  * app/routes/api.proxy.llms-txt.ts
  *
- * Phase 4.2 — App Proxy endpoint serving llms.txt for Shield Max merchants.
+ * App Proxy endpoint serving llms.txt for Monitoring + Recovery merchants
+ * (plus grandfathered pro). Gated by hasMonitoringAccess.
  * Configured in shopify.app.toml as /apps/llms-txt → this URL.
  *
  * Shopify's React Router authenticate.public.appProxy(request) verifies the

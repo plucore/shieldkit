@@ -42,7 +42,7 @@ export interface WeeklyDigestData {
   paymentIconHealthy: boolean;
   customerPrivacyApiWired: boolean | null; // null = not yet measured
   /**
-   * Phase 5 "Shield Max — This Week" payload. Optional — when undefined the
+   * Phase 5 "Your ShieldKit Weekly Report" payload. Optional — when undefined the
    * Pro section falls back to the Phase 3.3 placeholder copy.
    */
   proThisWeek?: {
@@ -117,7 +117,7 @@ export function renderWeeklyDigest(data: WeeklyDigestData): string {
           ? Math.round((p.productsWithFullSchema / p.totalProducts) * 100)
           : 0;
       proSection = `<div style="margin-top:24px;padding:16px;background:#f6f6f7;border-radius:8px;">
-           <p style="margin:0 0 12px;font-weight:700;color:#0f172a;">Shield Max — This Week</p>
+           <p style="margin:0 0 12px;font-weight:700;color:#0f172a;">Your ShieldKit Weekly Report</p>
            <ul style="margin:0;padding:0 0 0 20px;line-height:1.7;color:#303030;">
              <li><strong>${esc(p.productsEnrichedCount)}</strong> product${p.productsEnrichedCount === 1 ? "" : "s"} auto-enriched this week</li>
              <li>Full Merchant Listings schema on <strong>${esc(p.productsWithFullSchema)}</strong> of <strong>${esc(p.totalProducts)}</strong> products (${esc(schemaPct)}%)</li>
@@ -127,7 +127,7 @@ export function renderWeeklyDigest(data: WeeklyDigestData): string {
          </div>`;
     } else {
       proSection = `<div style="margin-top:24px;padding:16px;background:#f6f6f7;border-radius:8px;">
-           <p style="margin:0 0 8px;font-weight:700;color:#0f172a;">Shield Max — This Week</p>
+           <p style="margin:0 0 8px;font-weight:700;color:#0f172a;">Your ShieldKit Weekly Report</p>
            <p style="margin:0;color:#303030;line-height:1.6;">
              Detailed AI-readiness reporting (auto-enriched products, schema status,
              llms.txt freshness, AI Readiness Score) is preparing — first numbers

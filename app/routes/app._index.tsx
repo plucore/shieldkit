@@ -520,7 +520,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           JSON.stringify({
             success: false,
             error_code: "scan_limit_reached",
-            message: "You've used your free scan for this month. Upgrade to Shield Pro ($14/mo) for unlimited re-scans.",
+            message: "You've used your free scan for this month. Upgrade to Monitoring for weekly automated scans, or Recovery for unlimited on-demand scans.",
           }),
           { status: 402, headers: { "Content-Type": "application/json" } }
         );
@@ -530,7 +530,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         JSON.stringify({
           success: false,
           error_code: "scan_limit_reached",
-          message: "You've used your free scan for this month. Upgrade to Shield Pro ($14/mo) for unlimited re-scans.",
+          message: "You've used your free scan for this month. Upgrade to Monitoring for weekly automated scans, or Recovery for unlimited on-demand scans.",
         }),
         { status: 402, headers: { "Content-Type": "application/json" } }
       );
@@ -821,8 +821,8 @@ export default function Index() {
         <s-banner
           tone="warning"
         >
-          You're on the Free plan. Upgrade to Shield Pro (from $14/month) for
-          unlimited re-scans, continuous monitoring, and AI policy generation.
+          You're on the Free plan. Upgrade to keep your store monitored every
+          week — and catch issues before Google does.
           <s-button slot="actions" ref={upgradeRef3}>
             View upgrade options
           </s-button>
@@ -1070,15 +1070,12 @@ export default function Index() {
             </s-section>
           )}
 
-          {/* ── Inline upgrade banner ──
-              TODO(copy): banner blurb + button labels are placeholder
-              technical strings; replace with marketing-approved v3 copy in
-              the upgrade/UpgradeCard pass. Gating logic is final. */}
+          {/* ── Inline upgrade banner ── */}
           {tier === "free" && sortedChecks.length > 0 && (
             <s-section>
               <s-banner tone="info">
-                Upgrade to Monitoring or Recovery for continuous compliance
-                monitoring and acute-recovery tools.
+                Upgrade to keep your store monitored every week — and catch
+                issues before Google does.
                 <s-button slot="actions" ref={upgradeRef4}>
                   See plans
                 </s-button>
@@ -1088,11 +1085,10 @@ export default function Index() {
           {showMonitoring && !showRecovery && sortedChecks.length > 0 && (
             <s-section>
               <s-banner tone="info">
-                Upgrade to Recovery for the GMC appeal letter generator, AI
-                policy rewrites, bulk GTIN fill, and unlimited on-demand
-                scans.
+                Generating policies and appeal letters is part of Recovery.
+                Upgrade to fix your suspension fast.
                 <s-button slot="actions" ref={upgradeRef4}>
-                  Upgrade to Recovery
+                  See Recovery
                 </s-button>
               </s-banner>
             </s-section>

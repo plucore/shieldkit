@@ -1,11 +1,10 @@
 /**
  * app/components/UpgradeCard.tsx
  *
- * Tier-aware sidebar/main upgrade CTA.
- *
- * Free merchants see Shield Pro ($14/mo) upsell with its feature highlights.
- * Shield Pro merchants see Shield Max ($39/mo) upsell focused on AI search visibility.
- * Shield Max merchants should not render this card — gate at the call site.
+ * Sidebar/main upgrade CTA shown to any merchant without Recovery access
+ * (free / shield / monitoring / unknown). Recovery-tier merchants and
+ * grandfathered Shield Max (tier='pro') do NOT render this card — gate at
+ * the call site via hasRecoveryAccess.
  *
  * Uses useWebComponentClick for native DOM event handling on <s-button>
  * (synthetic React onClick does not fire on Polaris web components).
@@ -14,66 +13,32 @@
 import { useWebComponentClick } from "../hooks/useWebComponentClick";
 
 interface UpgradeCardProps {
-  tier: string; // "free" | "shield" | (other tiers should not render this card)
+  tier: string; // retained for call-site debugging / future per-tier nuance
   onUpgrade: () => void;
   sidebar?: boolean;
 }
 
-const COPY: Record<
-  "free" | "shield",
-  {
-    heading: string;
-    sidebarBlurb: string;
-    mainBlurb: string;
-    features: string[];
-    cta: string;
-    sidebarCta: string;
-  }
-> = {
-  free: {
-    heading: "Upgrade to Shield Pro",
-    sidebarBlurb:
-      "Get unlimited scans, continuous monitoring, and AI policy generation from $14/month.",
-    mainBlurb:
-      "Continuous compliance monitoring. Stay one step ahead of GMC suspensions.",
-    features: [
-      "Unlimited compliance scans",
-      "Weekly health digest email",
-      "GMC re-review appeal letter",
-      "AI-powered policy generator",
-    ],
-    cta: "See plans",
-    sidebarCta: "Upgrade — from $14/mo",
-  },
-  shield: {
-    heading: "Upgrade to Shield Max",
-    sidebarBlurb:
-      "Make your products show up correctly in Google AI Overviews and ChatGPT shopping.",
-    mainBlurb:
-      "Full Merchant Listings JSON-LD enrichment, llms.txt at root, AI bot controls.",
-    features: [
-      "Merchant Listings JSON-LD enricher",
-      "GTIN / MPN / brand auto-filler",
-      "llms.txt at root domain",
-      "AI bot allow/block toggle",
-    ],
-    cta: "Upgrade to Shield Max",
-    sidebarCta: "Upgrade to Shield Max — $39/mo",
-  },
-};
+const HEADING = "Suspended or at risk? Get the full fix.";
+const BODY =
+  "Recovery gives you AI-written policies, a GMC appeal letter, and product data fixes — everything you need to get reinstated and stay that way.";
+const FEATURES = [
+  "AI-written policies",
+  "GMC re-review appeal letter",
+  "Product data fixes (GTIN/MPN/brand)",
+  "Unlimited on-demand scans",
+];
+const CTA_FULL = "See Recovery";
+const CTA_SIDEBAR = "See Recovery";
 
-export default function UpgradeCard({ tier, onUpgrade, sidebar }: UpgradeCardProps) {
+export default function UpgradeCard({ onUpgrade, sidebar }: UpgradeCardProps) {
   const upgradeRef = useWebComponentClick<HTMLElement>(onUpgrade);
-
-  // Defensive: if a non-upgradeable tier slipped through, render nothing.
-  const copy = tier === "shield" ? COPY.shield : COPY.free;
 
   return (
     <s-section {...(sidebar ? { slot: "aside" } : {})}>
       {sidebar && (
         <div style={{ marginBottom: "12px" }}>
           <div style={{ fontSize: "16px", fontWeight: 700, color: "#0f172a" }}>
-            {copy.heading}
+            {HEADING}
           </div>
         </div>
       )}
@@ -88,7 +53,7 @@ export default function UpgradeCard({ tier, onUpgrade, sidebar }: UpgradeCardPro
                 marginBottom: "8px",
               }}
             >
-              {copy.heading}
+              {HEADING}
             </div>
           )}
           <div
@@ -98,7 +63,7 @@ export default function UpgradeCard({ tier, onUpgrade, sidebar }: UpgradeCardPro
               marginBottom: sidebar ? "12px" : "16px",
             }}
           >
-            {sidebar ? copy.sidebarBlurb : copy.mainBlurb}
+            {BODY}
           </div>
           {!sidebar && (
             <div
@@ -111,9 +76,16 @@ export default function UpgradeCard({ tier, onUpgrade, sidebar }: UpgradeCardPro
                 color: "var(--p-color-text, #303030)",
               }}
             >
-              {copy.features.map((feature) => (
-                <div key={feature} style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-                  <s-icon type="check-circle-filled" tone="success" size="base" />
+              {FEATURES.map((feature) => (
+                <div
+                  key={feature}
+                  style={{ display: "flex", gap: "6px", alignItems: "center" }}
+                >
+                  <s-icon
+                    type="check-circle-filled"
+                    tone="success"
+                    size="base"
+                  />
                   <span>{feature}</span>
                 </div>
               ))}
@@ -130,16 +102,23 @@ export default function UpgradeCard({ tier, onUpgrade, sidebar }: UpgradeCardPro
                 color: "var(--p-color-text, #303030)",
               }}
             >
-              {copy.features.map((feature) => (
-                <div key={feature} style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-                  <s-icon type="check-circle-filled" tone="success" size="small" />
+              {FEATURES.map((feature) => (
+                <div
+                  key={feature}
+                  style={{ display: "flex", gap: "6px", alignItems: "center" }}
+                >
+                  <s-icon
+                    type="check-circle-filled"
+                    tone="success"
+                    size="small"
+                  />
                   <span>{feature}</span>
                 </div>
               ))}
             </div>
           )}
           <s-button variant="primary" ref={upgradeRef}>
-            {sidebar ? copy.sidebarCta : copy.cta}
+            {sidebar ? CTA_SIDEBAR : CTA_FULL}
           </s-button>
         </div>
       </s-card>

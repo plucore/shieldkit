@@ -29,6 +29,14 @@ export interface ShopInfo {
   myshopifyDomain: string;
   currencyCode: string;
   primaryDomain: PrimaryDomain;
+  shopOwnerName: string | null;
+  ianaTimezone: string | null;
+  createdAt: string | null;
+  plan: {
+    displayName: string | null;
+    shopifyPlus: boolean | null;
+    partnerDevelopment: boolean | null;
+  };
 }
 
 export type ShopPolicyType =
@@ -109,6 +117,14 @@ export const SHOP_INFO_QUERY = /* GraphQL */ `
       primaryDomain {
         url
         host
+      }
+      shopOwnerName
+      ianaTimezone
+      createdAt
+      plan {
+        displayName
+        shopifyPlus
+        partnerDevelopment
       }
     }
   }

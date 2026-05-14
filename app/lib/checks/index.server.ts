@@ -83,6 +83,37 @@ export async function runComplianceScan(
     getPages(executor, 20),
   ]);
 
+  // ── 2b. Opportunistically refresh merchant metadata from Shopify ────────────
+  // Fire-and-forget: keeps shop_name, owner, country, plan, etc. in sync on
+  // every scan. Failures are logged but never abort the scan.
+  if (shopInfo) {
+    void supabase
+      .from("merchants")
+      .update({
+        shop_name: shopInfo.name,
+        shop_owner_name: shopInfo.shopOwnerName,
+        contact_email: shopInfo.contactEmail,
+        country: shopInfo.billingAddress.country,
+        province: shopInfo.billingAddress.province,
+        city: shopInfo.billingAddress.city,
+        currency_code: shopInfo.currencyCode,
+        shopify_plan: shopInfo.plan.displayName,
+        primary_domain: shopInfo.primaryDomain.host,
+        shop_created_at: shopInfo.createdAt,
+        iana_timezone: shopInfo.ianaTimezone,
+        shop_metadata_refreshed_at: new Date().toISOString(),
+      })
+      .eq("id", merchantId)
+      .then((result: { error: { message: string } | null }) => {
+        if (result.error) {
+          console.error(
+            `[Scanner] Failed to refresh merchant metadata for ${shopifyDomain}:`,
+            result.error.message,
+          );
+        }
+      });
+  }
+
   // ── 3. Pre-fetch public storefront pages (shared by checks 6, 7, 8) ─────────
   // Prefer the custom domain; fall back to the myshopify domain.
   const storeUrl = shopInfo

@@ -107,6 +107,14 @@ export async function getShopInfo(
         myshopifyDomain: string;
         currencyCode: string;
         primaryDomain: { url: string; host: string };
+        shopOwnerName: string | null;
+        ianaTimezone: string | null;
+        createdAt: string | null;
+        plan: {
+          displayName: string | null;
+          shopifyPlus: boolean | null;
+          partnerDevelopment: boolean | null;
+        } | null;
       };
     }
 
@@ -141,6 +149,14 @@ export async function getShopInfo(
       primaryDomain: {
         url: shop.primaryDomain.url,
         host: shop.primaryDomain.host,
+      },
+      shopOwnerName: shop.shopOwnerName ?? null,
+      ianaTimezone: shop.ianaTimezone ?? null,
+      createdAt: shop.createdAt ?? null,
+      plan: {
+        displayName: shop.plan?.displayName ?? null,
+        shopifyPlus: shop.plan?.shopifyPlus ?? null,
+        partnerDevelopment: shop.plan?.partnerDevelopment ?? null,
       },
     };
   } catch (err) {

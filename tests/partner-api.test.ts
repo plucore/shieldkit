@@ -166,3 +166,66 @@ describe("webhooks.app_subscriptions.update.tsx — demoted to supplementary", (
     expect(src).toMatch(/export const action/);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Runtime fail-safe assertions (no network — validates input-shape branches)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// These exercise the actual exported functions. Any call that would otherwise
+// require a network request bails at the chargeGid format check at the top of
+// the function and returns UNKNOWN synchronously — so we get real behavioral
+// coverage without mocking fetch.
+
+import {
+  getActiveSubscriptionByChargeId,
+  buildAppSubscriptionGid,
+} from "../app/lib/billing/partner-api.server";
+
+describe("partner-api.server.ts — runtime fail-safe paths", () => {
+  it("buildAppSubscriptionGid produces the correct format from string and number", () => {
+    expect(buildAppSubscriptionGid("12345")).toBe(
+      "gid://shopify/AppSubscription/12345",
+    );
+    expect(buildAppSubscriptionGid(67890)).toBe(
+      "gid://shopify/AppSubscription/67890",
+    );
+  });
+
+  it("getActiveSubscriptionByChargeId returns UNKNOWN for empty gid", async () => {
+    const sub = await getActiveSubscriptionByChargeId("");
+    expect(sub.status).toBe("unknown");
+    expect(sub.tier).toBeNull();
+    expect(sub.cycle).toBeNull();
+    expect(sub.subscriptionGid).toBeNull();
+    expect(sub.reason).toMatch(/invalid chargeGid/);
+  });
+
+  it("getActiveSubscriptionByChargeId returns UNKNOWN for non-gid string", async () => {
+    const sub = await getActiveSubscriptionByChargeId("not-a-gid");
+    expect(sub.status).toBe("unknown");
+    expect(sub.tier).toBeNull();
+    expect(sub.reason).toMatch(/invalid chargeGid/);
+  });
+
+  it("getActiveSubscriptionByChargeId returns UNKNOWN for wrong gid namespace", async () => {
+    // gid://partners/App/123 is a valid gid format but the WRONG resource
+    // type — the check rejects anything that isn't an AppSubscription gid.
+    const sub = await getActiveSubscriptionByChargeId(
+      "gid://partners/App/123",
+    );
+    expect(sub.status).toBe("unknown");
+    expect(sub.tier).toBeNull();
+    expect(sub.reason).toMatch(/invalid chargeGid/);
+  });
+
+  it("getActiveSubscriptionByChargeId never throws on bad input — always returns a value", async () => {
+    // The fail-safe contract: callers can rely on never seeing a thrown
+    // error from the front-door API. Promotes to UNKNOWN instead.
+    await expect(
+      getActiveSubscriptionByChargeId(undefined as unknown as string),
+    ).resolves.toBeDefined();
+    await expect(
+      getActiveSubscriptionByChargeId(null as unknown as string),
+    ).resolves.toBeDefined();
+  });
+});

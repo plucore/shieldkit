@@ -411,7 +411,12 @@ describe("Shopify Managed Pricing", () => {
   const plansPath = path.join(APP_DIR, "lib/billing/plans.ts");
   const plansContent = fs.readFileSync(plansPath, "utf-8");
 
-  it("plan reference data still lives in app/lib/billing/plans.ts", () => {
+  it("plans.ts exposes v3 plan names alongside grandfathered entries", () => {
+    // v3 active plans — must be present for reconciliation of new subscribers.
+    expect(plansContent).toContain("Monitoring");
+    expect(plansContent).toContain("Recovery");
+    // Grandfathered names — must be preserved so reconciliation for the 2
+    // live Shield Max customers continues to work post-v3.
     expect(plansContent).toContain("Shield Pro");
     expect(plansContent).toContain("Shield Max");
     expect(plansContent).toContain("PLAN_NAME_TO_TIER");
@@ -451,29 +456,58 @@ describe("Shopify Managed Pricing", () => {
     expect(plansContent).toMatch(/throw\s+new\s+Error/);
   });
 
-  it("webhook handler reads top-level interval (not parsed from name)", () => {
+  it("webhook handler reads top-level interval (pre-April-28 supplementary channel)", () => {
+    // Webhook is a supplementary reconciliation path until Shopify removes
+    // APP_SUBSCRIPTIONS_UPDATE for managed-pricing apps on 2026-04-28.
+    // Until then it derives cycle from the REST-shaped payload's top-level
+    // `interval` field, via intervalToCycle().
     const content = fs.readFileSync(
       path.join(APP_DIR, "routes/webhooks.app_subscriptions.update.tsx"),
       "utf-8"
     );
     expect(content).toContain("intervalToCycle");
     expect(content).not.toContain("PLAN_NAME_TO_CYCLE");
-    // The AppSubscriptionPayload type declares the top-level `interval` field
-    // — pulled off the flat REST-shaped webhook payload, not nested under a
-    // lineItems array (which only exists on the GraphQL shape).
     expect(content).toContain("interval?:");
     expect(content).not.toContain("lineItems");
   });
 
-  it("billing-confirm loader reads cycle from lineItems interval", () => {
+  it("billing-confirm loader uses Partner API primary + legacy billing.check fallback", () => {
+    // Primary path: Partner API (post-April-28 canonical). Reads charge_id
+    // from the URL appended by Shopify's managed-pricing welcome redirect,
+    // resolves via getActiveSubscriptionByChargeId, never demotes on
+    // status='unknown'.
+    //
+    // Legacy fallback: billing.check() + intervalToCycle + pricingDetails —
+    // dead code after April 28, kept for the transition window only.
     const content = fs.readFileSync(
       path.join(APP_DIR, "routes/app.billing.confirm.tsx"),
       "utf-8"
     );
+    // Primary path assertions
+    expect(content).toContain("getActiveSubscriptionByChargeId");
+    expect(content).toContain("buildAppSubscriptionGid");
+    expect(content).toContain('searchParams.get("charge_id")');
+    expect(content).toMatch(/sub\.status === "active"/);
+    // Legacy fallback still wired
     expect(content).toContain("intervalToCycle");
-    expect(content).not.toContain("PLAN_NAME_TO_CYCLE");
     expect(content).toContain("pricingDetails");
-    expect(content).toContain("interval");
+    // Removable-on-April-28 marker
+    expect(content).toMatch(/REMOVE AFTER 2026-04-28/);
+  });
+
+  it("billing-confirm writes the full billing column set on Partner API success", () => {
+    // Regression guard for the documented SLA columns in the loader docblock.
+    // If any of these column writes goes missing, reconciliation will leave
+    // the merchant in a half-promoted state.
+    const content = fs.readFileSync(
+      path.join(APP_DIR, "routes/app.billing.confirm.tsx"),
+      "utf-8"
+    );
+    expect(content).toMatch(/tier:\s*sub\.tier/);
+    expect(content).toMatch(/billing_cycle:\s*sub\.cycle/);
+    expect(content).toMatch(/subscription_started_at:/);
+    expect(content).toMatch(/shopify_subscription_id:\s*sub\.subscriptionGid/);
+    expect(content).toMatch(/scans_remaining:\s*null/);
   });
 
   it("dashboard self-heal uses Partner API (post April 28 cliff)", () => {

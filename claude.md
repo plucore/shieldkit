@@ -5,7 +5,7 @@
 ShieldKit is a B2B SaaS Shopify Embedded App that scans Shopify stores for Google Merchant Center (GMC) compliance issues and surfaces AI-search visibility tools.
 
 * **Module A (Current):** 12-point automated compliance scanner. Identifies suspension risks and provides plain-English fix instructions.
-* **Module B (Future/Hidden):** Automated DMCA Takedown Legal Engine. All DMCA features are deferred. `app/routes/app.dmca-takedowns.tsx` redirects to `/app`.
+* **Module B (Future/Hidden):** Automated DMCA Takedown Legal Engine. All DMCA features are deferred indefinitely — the placeholder route was removed on 2026-05-14.
 
 **Business model (v2 — recurring):**
 - **Free:** 1 scan/month, fix instructions for top findings, JSON-LD theme extension.
@@ -479,10 +479,9 @@ On first scan, the merchant's email is collected via GraphQL (`shop { email }`) 
 | `app.billing.confirm.tsx` | `/app/billing/confirm` | Loader only | "Welcome link" landing route after managed-pricing approval. Calls `billing.check()`, syncs full set of billing fields, redirects to `/app`. |
 | `app.plan-switcher.tsx` | `/app/plan-switcher` | Loader only | Server-side redirect to managed pricing. Switch + cancel are handled on Shopify's hosted page. |
 | `app.appeal-letter.tsx` | `/app/appeal-letter` | Loader + Action + Component | GMC re-review letter generator. 3 generations per scan cap. Calls Claude Sonnet via `app/lib/llm/appeal-letter.server.ts`. |
-| `app.pro-settings.tsx` | `/app/pro-settings` | Loader + Action + Component | Shield Max only. Logo URL, support email, social URLs, search URL template — persisted to `merchants.pro_settings`. Mirror values in theme editor for the Liquid blocks. |
-| `app.bots.toggle.tsx` | `/app/bots/toggle` | Loader + Action + Component | Shield Max only. 11 AI crawler allow/block toggles. Renders live `robots.txt` snippet for the merchant to paste into theme. |
-| `app.gtin-fill.tsx` | `/app/gtin-fill` | Loader + Action + Component | Shield Max (`tier='pro'`) only. Server action and loader both gated by `WRITE_METAFIELDS_SCOPE_ENABLED` env flag (currently `false` in dev + prod). Stubs return HTTP 501 until the `write_products` scope grant lands via App Store re-review. |
-| `app.dmca-takedowns.tsx` | `/app/dmca-takedowns` | Loader only | Redirects to `/app`. DMCA deferred. |
+| `app.pro-settings.tsx` | `/app/pro-settings` | Loader + Action + Component | Monitoring access required (`hasMonitoringAccess` — monitoring + recovery + grandfathered pro). Logo URL, support email, social URLs, search URL template — persisted to `merchants.pro_settings`. Mirror values in theme editor for the Liquid blocks. |
+| `app.bots.toggle.tsx` | `/app/bots/toggle` | Loader + Action + Component | Monitoring access required. 11 AI crawler allow/block toggles. Renders live `robots.txt` snippet for the merchant to paste into theme. |
+| `app.gtin-fill.tsx` | `/app/gtin-fill` | Loader + Action + Component | Recovery access required (`hasRecoveryAccess` — recovery + grandfathered pro). Bulk fill on the existing catalog. Server action and loader both gated by `WRITE_METAFIELDS_SCOPE_ENABLED` env flag (currently `false` in dev + prod). Stubs return HTTP 501 until the `write_products` scope grant lands via App Store re-review. |
 
 ### API routes
 
@@ -494,9 +493,9 @@ On first scan, the merchant's email is collected via GraphQL (`shop { email }`) 
 | `api.cron.monthly-reset.ts` | `/api/cron/monthly-reset` | POST | Bearer token auth. Refills `scans_remaining=1` and `scans_reset_at=now()` for free-tier merchants whose last reset is >30 days old. Vercel Cron 1st of month 00:00 UTC. |
 | `api.proxy.llms-txt.ts` | `/api/proxy/llms-txt` | GET | App Proxy endpoint. HMAC verified by `authenticate.public.appProxy`. Tier='pro' (Shield Max) only. Generates llms.txt from shop name/description/email + policies + first 50 published products. 24h in-memory per-shop cache. |
 
-#### Weekly digest — aiReadinessScore caps at 60/100 (TODO)
+#### Weekly digest — aiReadinessScore formula
 
-The digest renderer formula is `60% schema coverage + 30% llms.txt freshness + 10% bot config completeness`. Two of the three inputs are hardcoded to `0` in `api.cron.weekly-digest.ts` (around lines 248-250) — llms.txt freshness and bot config completeness aren't wired up yet. Real ceiling for any Pro merchant today is **60/100**. Decision pending: ship capped + caveat copy, re-weight to 100% schema coverage temporarily, or hold the Pro section render until all three signals land. **Do not change the formula or remove the score without explicit founder approval.**
+The digest renderer formula is `60% schema coverage + 30% llms.txt freshness + 10% bot config completeness`. All three inputs are now wired: schema coverage from `schema_enrichments`, llms.txt freshness from `merchants.llms_txt_last_served_at` (≤ 7 days), and bot config completeness from `merchants.pro_settings.bot_preferences`. Scores can now reach the full 100/100 ceiling. **Do not change the formula or remove the score without explicit founder approval.**
 
 ### Public routes
 
@@ -618,9 +617,6 @@ npx tsx scripts/backfill-merchant-shop-info.ts --shop foo.myshopify.com # target
 ---
 
 ## 12. Known Issues
-
-### Medium
-* **Stale `billing_plan` column in live DB** -- The live Supabase `merchants` table may have both `billing_plan` (stale) and `tier` columns. All code uses `tier`. Run `ALTER TABLE merchants DROP COLUMN IF EXISTS billing_plan;` to clean up.
 
 ### Low
 * **npm audit: 24 vulnerabilities in dev dependencies** -- All in ESLint, GraphQL codegen, and related transitive deps. No production runtime impact. No non-breaking fixes available.

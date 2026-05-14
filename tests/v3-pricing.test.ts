@@ -180,7 +180,7 @@ describe("Migration SQL widens the merchants.tier CHECK constraint", () => {
     const sql = read(
       "supabase",
       "migrations",
-      "20260514_widen_tier_for_v3_pricing.sql",
+      "20260514150228_widen_tier_for_v3_pricing.sql",
     );
     expect(sql).toContain("CHECK (tier IN ('free', 'shield', 'pro', 'monitoring', 'recovery'))");
     // Sanity: the migration must NOT migrate existing pro rows.

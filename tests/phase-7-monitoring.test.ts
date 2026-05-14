@@ -88,9 +88,12 @@ describe("api.cron.process-scan-triggers", () => {
     expect(src).toContain('.update({ processed_at:');
   });
 
-  it("inserts merchant delay between scans", () => {
-    expect(src).toContain("MERCHANT_DELAY_MS");
-    expect(src).toContain("sleep(MERCHANT_DELAY_MS)");
+  it("processes one merchant per invocation to stay under Vercel Hobby's 60s function ceiling", () => {
+    // The original enqueue/drain refactor replaced an in-process sleep between
+    // merchants (MERCHANT_DELAY_MS) with one-merchant-per-invocation batching.
+    // Pacing is now external: GitHub Actions cron polls every 5 minutes.
+    expect(src).toMatch(/const\s+BATCH_SIZE\s*=\s*1\b/);
+    expect(src).toContain(".limit(BATCH_SIZE)");
   });
 });
 

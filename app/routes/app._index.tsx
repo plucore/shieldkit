@@ -31,11 +31,7 @@ import {
 } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
-import {
-  PLAN_NAME_TO_TIER,
-  intervalToCycle,
-  type PlanName,
-} from "../lib/billing/plans";
+import { getActiveSubscriptionByChargeId } from "../lib/billing/partner-api.server";
 import { supabase } from "../supabase.server";
 import { runComplianceScan } from "../lib/compliance-scanner.server";
 import {
@@ -70,7 +66,7 @@ export const links: LinksFunction = () => [
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session, billing } = await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
   const shopDomain = session.shop;
 
   const { data: merchantRow } = await supabase
@@ -86,57 +82,64 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   let merchant = merchantRow as Merchant | null;
 
   // ── Billing self-heal ────────────────────────────────────────────────────
-  // Reconcile DB against Shopify's view of truth. Detects drift on tier,
-  // billing_cycle, AND shopify_subscription_id — not just tier — so a
-  // monthly→annual swap (same tier) still updates the cycle field.
-  if (merchant) {
+  // Reconcile DB against the Partner API (the canonical post-April-28 source
+  // of truth). Detects drift on tier, billing_cycle, AND
+  // shopify_subscription_id — not just tier — so a monthly→annual swap (same
+  // tier) still updates the cycle field.
+  //
+  // Fail-safe contract: if the Partner API call fails or returns "unknown",
+  // we DO NOT write any change to the DB. Never demote on uncertainty —
+  // the worst case is a delayed tier upgrade, never a premature downgrade.
+  //
+  // Free-tier merchants have no shopify_subscription_id stored; we skip the
+  // self-heal entirely for them. A free→paid promotion is reconciled by
+  // /app/billing/confirm, not here.
+  if (merchant && (merchant as any).shopify_subscription_id) {
     try {
-      // Under managed pricing, billing.check() returns active subscriptions
-      // without needing the `plans` argument.
-      const billingCheck = await billing.check({
-        isTest: process.env.NODE_ENV !== "production",
-        returnObject: true,
-      });
-      if (billingCheck.hasActivePayment) {
-        const sub = billingCheck.appSubscriptions?.[0];
-        const activeName = (sub?.name ?? "") as PlanName;
-        const expectedTier = PLAN_NAME_TO_TIER[activeName];
-        // Under managed pricing, the plan name can be shared across cycles.
-        // Cycle is derived from the line item's interval enum, not the name.
-        const interval = (sub as any)?.lineItems?.[0]?.plan?.pricingDetails?.interval;
-        const expectedCycle = intervalToCycle(interval);
-        const expectedSubId = (sub as any)?.id ?? null;
-        const expectedStartedAt =
-          (sub as any)?.createdAt ?? new Date().toISOString();
+      const sub = await getActiveSubscriptionByChargeId(
+        (merchant as any).shopify_subscription_id as string,
+      );
 
-        if (expectedTier && expectedTier !== "free") {
-          const drift =
-            merchant.tier !== expectedTier ||
-            (merchant as any).billing_cycle !== expectedCycle ||
-            (merchant as any).shopify_subscription_id !== expectedSubId ||
-            merchant.scans_remaining !== null;
+      if (sub.status === "unknown") {
+        console.warn(
+          `[app._index] self-heal: partner-api status=unknown for ${shopDomain} reason=${sub.reason ?? ""} — leaving DB untouched`,
+        );
+      } else if (sub.status === "active" && sub.tier && sub.tier !== "free") {
+        const drift =
+          merchant.tier !== sub.tier ||
+          (merchant as any).billing_cycle !== sub.cycle ||
+          (merchant as any).shopify_subscription_id !== sub.subscriptionGid ||
+          merchant.scans_remaining !== null;
 
-          if (drift) {
-            await supabase
-              .from("merchants")
-              .update({
-                tier: expectedTier,
-                billing_cycle: expectedCycle,
-                shopify_subscription_id: expectedSubId,
-                subscription_started_at: expectedStartedAt,
-                scans_remaining: null,
-              })
-              .eq("id", merchant.id);
-            merchant = {
-              ...merchant,
-              tier: expectedTier,
+        if (drift) {
+          await supabase
+            .from("merchants")
+            .update({
+              tier: sub.tier,
+              billing_cycle: sub.cycle,
+              shopify_subscription_id: sub.subscriptionGid,
+              subscription_started_at:
+                sub.activatedAt ?? new Date().toISOString(),
               scans_remaining: null,
-            };
-          }
+            })
+            .eq("id", merchant.id);
+          merchant = {
+            ...merchant,
+            tier: sub.tier,
+            scans_remaining: null,
+          };
         }
       }
-    } catch (_) {
-      // billing.check() throws when no subscription exists — expected for free tier
+      // Terminal statuses (cancelled / declined / expired / frozen) are
+      // intentionally NOT acted on here — the demote path runs in the
+      // APP_SUBSCRIPTIONS_UPDATE webhook (pre-April-28) and will move to a
+      // separate scheduled reconciliation job (post-April-28) so this
+      // user-blocking loader never makes a downgrade decision.
+    } catch (err) {
+      console.error(
+        `[app._index] self-heal: partner-api threw for ${shopDomain}:`,
+        err,
+      );
     }
   }
 

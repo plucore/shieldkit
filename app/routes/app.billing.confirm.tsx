@@ -5,17 +5,30 @@
  * Landing route after Shopify Managed Pricing's hosted approval page.
  * The founder configures this URL as the "Welcome link" in the Partner
  * Dashboard listing UI; Shopify redirects merchants here after they approve
- * (or cancel) a managed-pricing subscription.
+ * (or cancel) a managed-pricing subscription, appending the new charge ID
+ * as a `?charge_id={numeric}` query param.
+ *
+ * Primary path (post-April-28 canonical): query the Partner API for the
+ * charge's most recent AppSubscriptionEvent, derive tier/cycle from plan
+ * name, persist on "active".
+ *
+ * Legacy fallback (pre-April-28 only): billing.check() against the Admin
+ * API. Shopify is removing this for managed-pricing apps on April 28, 2026
+ * — after that date this fallback is dead code and should be deleted. The
+ * APP_SUBSCRIPTIONS_UPDATE webhook is a separate reconciliation backstop
+ * (see webhooks.app_subscriptions.update.tsx) that also expires April 28.
  *
  * On approval, persists to merchants:
  *   - tier                       (shield | pro)
  *   - billing_cycle              (monthly | annual)
- *   - subscription_started_at    (now)
- *   - shopify_subscription_id    (GraphQL gid from Shopify)
+ *   - subscription_started_at    (Partner API activatedAt, else now)
+ *   - shopify_subscription_id    (GraphQL gid)
  *   - scans_remaining = NULL     (unlimited on paid plans)
  *
- * The APP_SUBSCRIPTIONS_UPDATE webhook still fires and acts as a
- * reconciliation backstop — both writers must stay consistent.
+ * Fail-safe contract: when both the Partner API and billing.check() fail
+ * or return ambiguous results, we DO NOT demote tier. We redirect to
+ * /app?billing=error so the merchant ends up on the dashboard rather than
+ * a blank page, and the founder can reconcile manually.
  */
 
 import { redirect } from "react-router";
@@ -27,74 +40,106 @@ import {
   intervalToCycle,
   type PlanName,
 } from "../lib/billing/plans";
+import {
+  buildAppSubscriptionGid,
+  getActiveSubscriptionByChargeId,
+} from "../lib/billing/partner-api.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { billing, session } = await authenticate.admin(request);
   console.log(`[billing/confirm] loader entered for shop=${session.shop}`);
 
+  // Shopify appends ?charge_id={numericId} to the welcome URL on approve.
+  const url = new URL(request.url);
+  const chargeIdParam = url.searchParams.get("charge_id");
+
+  // ── Primary: Partner API ─────────────────────────────────────────────────
+  if (chargeIdParam) {
+    const chargeGid = buildAppSubscriptionGid(chargeIdParam);
+    const sub = await getActiveSubscriptionByChargeId(chargeGid);
+    console.log(
+      `[billing/confirm] partner-api status=${sub.status} plan="${sub.planName}" tier=${sub.tier} cycle=${sub.cycle} reason=${sub.reason ?? ""}`,
+    );
+
+    if (sub.status === "active" && sub.tier && sub.tier !== "free") {
+      const { error } = await supabase
+        .from("merchants")
+        .update({
+          tier: sub.tier,
+          billing_cycle: sub.cycle,
+          subscription_started_at: sub.activatedAt ?? new Date().toISOString(),
+          shopify_subscription_id: sub.subscriptionGid,
+          scans_remaining: null,
+        })
+        .eq("shopify_domain", session.shop);
+
+      if (error) {
+        console.error(
+          `[billing/confirm] Supabase update FAILED for ${session.shop}: ${error.message}`,
+        );
+      }
+      return redirect("/app");
+    }
+
+    if (
+      sub.status === "cancelled" ||
+      sub.status === "declined" ||
+      sub.status === "expired"
+    ) {
+      // Merchant declined or cancelled on the hosted page.
+      return redirect("/app?billing=cancelled");
+    }
+
+    // status === "unknown" or "pending" or "frozen" — fall through to the
+    // legacy billing.check() path. Never demote on uncertainty.
+    console.warn(
+      `[billing/confirm] partner-api inconclusive (status=${sub.status}); falling back to billing.check()`,
+    );
+  } else {
+    console.warn(
+      "[billing/confirm] no charge_id URL param; falling back to billing.check()",
+    );
+  }
+
+  // ── Legacy fallback: billing.check() — REMOVE AFTER 2026-04-28 ───────────
+  // Shopify stops returning subscription data via Admin billing.check() for
+  // managed-pricing apps after April 28, 2026. This entire block is dead
+  // code after that date and should be deleted then.
   let billingCheck;
   try {
-    // Under managed pricing, billing.check() returns active subscriptions
-    // without needing the `plans` argument — the plan list lives in Shopify.
     billingCheck = await billing.check({
       isTest: process.env.NODE_ENV !== "production",
       returnObject: true,
     });
     console.log(
-      `[billing/confirm] billing.check hasActivePayment=${billingCheck.hasActivePayment}`,
-      billingCheck.hasActivePayment
-        ? `activePlan="${billingCheck.appSubscriptions?.[0]?.name}" subId="${(billingCheck.appSubscriptions?.[0] as any)?.id}"`
-        : "",
+      `[billing/confirm] LEGACY billing.check hasActivePayment=${billingCheck.hasActivePayment}`,
     );
   } catch (err) {
-    // billing.check() can throw if no subscription exists at all — treat as
-    // cancelled / declined and fall through to the free-tier redirect.
     console.warn(
-      "[billing/confirm] billing.check threw — treating as no active plan:",
+      "[billing/confirm] LEGACY billing.check threw — treating as no active plan:",
       err,
     );
-    billingCheck = { hasActivePayment: false, appSubscriptions: [] } as any;
+    billingCheck = { hasActivePayment: false, appSubscriptions: [] } as never;
   }
 
   if (billingCheck.hasActivePayment) {
-    const sub = billingCheck.appSubscriptions?.[0];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sub = billingCheck.appSubscriptions?.[0] as any;
     const activeName = (sub?.name ?? "") as PlanName;
 
     const tier = PLAN_NAME_TO_TIER[activeName];
-    // GraphQL AppSubscription nests cycle under lineItems[].plan.pricingDetails.
-    // Under managed pricing the "name" can be shared between cycles, so cycle
-    // MUST come from the interval enum, not the plan name.
-    const lineItems = (sub as any)?.lineItems;
-    const interval = lineItems?.[0]?.plan?.pricingDetails?.interval;
+    const interval = sub?.lineItems?.[0]?.plan?.pricingDetails?.interval;
     const cycle = intervalToCycle(interval);
 
-    // Log raw shape for diagnosis — see equivalent block in webhook handler.
-    console.log(
-      `[billing/confirm] raw interval=${JSON.stringify(interval)} (typeof=${typeof interval})`,
-    );
-    console.log(
-      `[billing/confirm] lineItems shape=${JSON.stringify(lineItems)}`,
-    );
-
     if (!tier || tier === "free") {
-      // Active payment but plan name doesn't map to a known paid tier —
-      // shouldn't happen in practice but guard against billing config drift.
       console.error(
-        `[billing/confirm] Active subscription "${activeName}" for ${session.shop} did not map to a paid tier`,
+        `[billing/confirm] LEGACY active subscription "${activeName}" for ${session.shop} did not map to a paid tier`,
       );
       return redirect("/app?billing=error");
     }
 
-    if (!cycle) {
-      console.warn(
-        `[billing/confirm] Missing/unknown interval "${interval}" for plan "${activeName}" on ${session.shop} — billing_cycle will be NULL`,
-      );
-    }
-
-    const subscriptionId = (sub as any)?.id ?? null;
-    // Prefer Shopify's authoritative createdAt; fall back to now() if absent.
-    const startedAt =
-      (sub as any)?.createdAt ?? new Date().toISOString();
+    const subscriptionId = sub?.id ?? null;
+    const startedAt = sub?.createdAt ?? new Date().toISOString();
 
     const { error } = await supabase
       .from("merchants")
@@ -103,20 +148,18 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         billing_cycle: cycle,
         subscription_started_at: startedAt,
         shopify_subscription_id: subscriptionId,
-        scans_remaining: null, // null = unlimited on all paid plans
+        scans_remaining: null,
       })
       .eq("shopify_domain", session.shop);
 
     if (error) {
       console.error(
-        `[billing/confirm] Supabase update FAILED for ${session.shop}:`,
-        error.message,
+        `[billing/confirm] LEGACY Supabase update FAILED for ${session.shop}: ${error.message}`,
       );
     }
 
     return redirect("/app");
   }
 
-  // No active payment — merchant declined or closed the billing page.
   return redirect("/app?billing=cancelled");
 };

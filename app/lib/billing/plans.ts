@@ -80,6 +80,24 @@ export function intervalToCycle(
   return null;
 }
 
+// ─── Cycle derivation by plan name (Partner API path) ───────────────────────
+// Partner API's `AppSubscription` object exposes no `interval` enum — only
+// `id`, `name`, `amount`, `billingOn`, `test`. So when the Partner API is the
+// source of truth (post April 28 2026), cycle must come from the plan name.
+//
+// This works *only* because all four plans are configured as distinct names
+// in the Partner Dashboard (no "monthly with yearly option" merging here).
+// Keep this map in sync with PLAN_NAME_TO_TIER. If a future plan ever shares
+// a name across cycles, the Partner API path will be unable to disambiguate
+// and `partner-api.server.ts` will need a different source for cycle.
+export const PLAN_NAME_TO_CYCLE: Record<PlanName, "monthly" | "annual" | null> = {
+  Free: null,
+  "Shield Pro": "monthly",
+  "Shield Pro Annual": "annual",
+  "Shield Max": "monthly",
+  "Shield Max Annual": "annual",
+};
+
 // ─── Feature lists for plan-switcher UI ──────────────────────────────────────
 export const PLAN_FEATURES: Record<PlanKey, readonly string[]> = {
   free: [

@@ -2,6 +2,28 @@
  * app/routes/webhooks.app_subscriptions.update.tsx
  * Route: /webhooks/app_subscriptions/update
  *
+ * ⚠️  STATUS: PRE-APRIL-28 SUPPLEMENTARY CHANNEL — NOT CANONICAL.
+ *
+ * Shopify is removing APP_SUBSCRIPTIONS_UPDATE webhooks for managed-pricing
+ * apps on April 28, 2026. Until that date, this handler still fires and acts
+ * as a reconciliation backstop so plan state stays correct even if the
+ * /app/billing/confirm redirect is interrupted.
+ *
+ * POST-APRIL-28 the canonical reconciliation path is the Partner API:
+ *   - /app/billing/confirm calls getActiveSubscriptionByChargeId() with the
+ *     ?charge_id= URL param.
+ *   - The /app loader (app._index.tsx) self-heals via the same Partner API
+ *     call on every dashboard render.
+ *   - Out-of-band status changes (cancellations from the merchant's billing
+ *     page, freezes, etc.) need to be discovered via the Partner API events
+ *     endpoint — see partner-api.server.ts getEventsByShopGid /
+ *     getEventsByChargeId. A scheduled reconciliation job using those
+ *     queries should be added before the April 28 cliff.
+ *
+ * After Shopify confirms the webhook is no longer delivered, this entire
+ * file can be deleted along with the [[webhooks]] block in shopify.app.toml
+ * that subscribes to app_subscriptions/update.
+ *
  * Handles APP_SUBSCRIPTIONS_UPDATE webhooks fired by Shopify when a merchant's
  * app subscription status changes (ACTIVE, CANCELLED, EXPIRED, etc.).
  *

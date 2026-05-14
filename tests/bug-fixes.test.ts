@@ -423,14 +423,18 @@ describe("Shopify Managed Pricing", () => {
     expect(plansContent).not.toContain("BillingInterval");
   });
 
-  it("plans.ts derives cycle from interval, not from plan name", () => {
-    // PLAN_NAME_TO_CYCLE must be removed — managed pricing's
-    // "monthly with yearly option" plan type shares one name across cycles.
-    expect(plansContent).not.toContain("PLAN_NAME_TO_CYCLE");
+  it("plans.ts exposes both interval-based and name-based cycle derivation", () => {
+    // intervalToCycle is used on the Admin API path (APP_SUBSCRIPTIONS_UPDATE
+    // webhook + billing.check() legacy fallback) where Shopify gives us the
+    // AppPricingInterval enum.
     expect(plansContent).toContain("export function intervalToCycle");
-    // Maps the AppPricingInterval enum to our DB billing_cycle column.
     expect(plansContent).toContain("EVERY_30_DAYS");
     expect(plansContent).toContain("ANNUAL");
+    // PLAN_NAME_TO_CYCLE is required on the Partner API path because the
+    // Partner API's AppSubscription has no interval field — cycle must be
+    // derived from the plan name. Only works because all four paid plan
+    // names are distinct in the Partner Dashboard config.
+    expect(plansContent).toContain("PLAN_NAME_TO_CYCLE");
   });
 
   it("intervalToCycle is case-insensitive (handles REST snake_case + GraphQL upper-snake)", () => {
@@ -472,14 +476,17 @@ describe("Shopify Managed Pricing", () => {
     expect(content).toContain("interval");
   });
 
-  it("dashboard self-heal reads cycle from lineItems interval", () => {
+  it("dashboard self-heal uses Partner API (post April 28 cliff)", () => {
+    // Self-heal migrated from billing.check() (Admin API) to the Partner
+    // API on 2026-05-14 ahead of Shopify removing managed-pricing data from
+    // billing.check() on April 28. Cycle comes from the plan name via
+    // partner-api.server.ts, not lineItems.pricingDetails.interval.
     const content = fs.readFileSync(
       path.join(APP_DIR, "routes/app._index.tsx"),
       "utf-8"
     );
-    expect(content).toContain("intervalToCycle");
-    expect(content).not.toContain("PLAN_NAME_TO_CYCLE");
-    expect(content).toContain("pricingDetails");
+    expect(content).toContain("getActiveSubscriptionByChargeId");
+    expect(content).not.toMatch(/billing\.check\(/);
   });
 
   it("shopify.server.ts no longer registers `billing` config", () => {

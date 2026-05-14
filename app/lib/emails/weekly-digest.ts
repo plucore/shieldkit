@@ -63,12 +63,15 @@ export function renderWeeklyDigest(data: WeeklyDigestData): string {
     customerPrivacyApiWired,
   } = data;
 
+  const thisWeekRounded = scoreThisWeek === null ? null : Math.round(scoreThisWeek);
+  const prevWeekRounded = scorePreviousWeek === null ? null : Math.round(scorePreviousWeek);
+
   const scoreLine =
-    scoreThisWeek === null
+    thisWeekRounded === null
       ? "Score: <em>no scan completed yet</em>"
-      : scorePreviousWeek === null
-        ? `Score this week: <strong>${esc(scoreThisWeek)}%</strong>`
-        : `Score: <strong>${esc(scorePreviousWeek)}% → ${esc(scoreThisWeek)}%</strong>`;
+      : prevWeekRounded === null
+        ? `Score this week: <strong>${esc(thisWeekRounded)}%</strong>`
+        : `Score: <strong>${esc(prevWeekRounded)}% → ${esc(thisWeekRounded)}%</strong>`;
 
   const newIssuesBlock =
     newIssues.length === 0

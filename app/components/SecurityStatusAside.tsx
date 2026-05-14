@@ -24,7 +24,7 @@ export default function SecurityStatusAside({
   let trendArrow = "";
   let trendText = "";
   if (score !== null && previousScan?.compliance_score != null) {
-    const prevScore = previousScan.compliance_score;
+    const prevScore = Math.round(previousScan.compliance_score);
     if (score > prevScore) {
       trendArrow = "↑";
       trendText = `Improved from ${prevScore}%`;

@@ -687,7 +687,7 @@ export default function Index() {
 
   const showOnboarding = latestScan === null;
 
-  const score         = latestScan?.compliance_score ?? null;
+  const score         = latestScan?.compliance_score != null ? Math.round(latestScan.compliance_score) : null;
   const sortedChecks  = sortChecks(checkResults);
   const criticalCount = latestScan?.critical_count ?? 0;
   const warningCount  = latestScan?.warning_count  ?? 0;

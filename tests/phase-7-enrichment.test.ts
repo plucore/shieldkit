@@ -167,6 +167,37 @@ describe("Phase 7.1 — webhook + config wiring", () => {
     expect(src).toContain("skip_dedup");
   });
 
+  it("webhook short-circuits when merchant.uninstalled_at is set", () => {
+    // Soft-deleted merchants must not trigger pending_scan_triggers inserts
+    // or GTIN enrichment. The guard must (a) select uninstalled_at,
+    // (b) bail before the tier/scope gates, and (c) NOT contain any
+    // delete/clear/null-write against merchant GTIN/MPN/brand data.
+    const src = readFileSync(
+      join(root, "app", "routes", "webhooks.products.update.tsx"),
+      "utf8",
+    );
+    expect(src).toMatch(/select\("id, tier, uninstalled_at"\)/);
+    expect(src).toMatch(/if \(merchant\.uninstalled_at\)/);
+    expect(src).toContain("skip_uninstalled");
+
+    // Guard must appear before the scan-trigger insert and tier gate so the
+    // soft-deleted merchant short-circuits all downstream writes. The
+    // uninstalled_at check should sit between the merchant lookup and the
+    // maybeRecordScanTrigger call.
+    const guardIdx = src.indexOf("if (merchant.uninstalled_at)");
+    const scanTriggerCallIdx = src.indexOf("await maybeRecordScanTrigger(");
+    const tierGateIdx = src.indexOf("skip_tier");
+    expect(guardIdx).toBeGreaterThan(0);
+    expect(guardIdx).toBeLessThan(scanTriggerCallIdx);
+    expect(guardIdx).toBeLessThan(tierGateIdx);
+
+    // Belt-and-braces: this file must contain ZERO logic that deletes or
+    // nulls existing GTIN/MPN/brand metafield values. Enrichment writes are
+    // additive only.
+    expect(src).not.toMatch(/metafieldsDelete/);
+    expect(src).not.toMatch(/clearGtin|deleteMpn|nullBrand/i);
+  });
+
   it("webhook uses the shared HMAC pattern (authenticate.webhook)", () => {
     const src = readFileSync(
       join(root, "app", "routes", "webhooks.products.update.tsx"),

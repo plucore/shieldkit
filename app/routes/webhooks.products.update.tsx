@@ -97,7 +97,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   // 2. Look up merchant.
   const { data: merchant } = await supabase
     .from("merchants")
-    .select("id, tier")
+    .select("id, tier, uninstalled_at")
     .eq("shopify_domain", shop)
     .maybeSingle();
 
@@ -107,6 +107,23 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       productId: null,
       topic,
       outcome: "skip_no_merchant",
+    });
+    return ack();
+  }
+
+  // Uninstalled merchants must not trigger any future write — neither a
+  // pending_scan_triggers insert nor GTIN enrichment. Shopify revokes the
+  // OAuth token on uninstall so `admin` is usually null already, but that's
+  // a practical coincidence, not a contract: queued retries and in-flight
+  // deliveries can still land here. This guard is the durable answer.
+  // Note: existing GTIN/MPN/brand metafields on the merchant's products are
+  // intentionally NOT touched — they belong to the merchant.
+  if (merchant.uninstalled_at) {
+    await logOutcome({
+      merchantId: merchant.id,
+      productId: null,
+      topic,
+      outcome: "skip_uninstalled",
     });
     return ack();
   }

@@ -32,6 +32,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
 import { useWebComponentClick } from "../hooks/useWebComponentClick";
+import { hasMonitoringAccess } from "../lib/billing/plans";
 
 interface Bot {
   id: string;
@@ -105,9 +106,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   const { data: current } = await supabase
     .from("merchants")
-    .select("pro_settings")
+    .select("tier, pro_settings")
     .eq("shopify_domain", session.shop)
     .maybeSingle();
+
+  if (!current || !hasMonitoringAccess((current as { tier: string }).tier)) {
+    return data(
+      { ok: false, error: "Monitoring plan required to change AI bot preferences." },
+      { status: 403 },
+    );
+  }
 
   const existing = ((current as any)?.pro_settings ?? {}) as Record<string, unknown>;
   const next = { ...existing, bot_preferences: prefs };
@@ -180,13 +188,13 @@ export default function BotsTogglePage() {
   }, [snippet]);
   const copyRef = useWebComponentClick<HTMLElement>(onCopy);
 
-  if (tier !== "pro") {
+  if (!hasMonitoringAccess(tier)) {
     return (
       <s-page heading="AI Bot Access Control">
         <s-section>
-          <s-banner tone="info" heading="Shield Max only">
+          <s-banner tone="info" heading="Monitoring plan required">
             Choose which AI crawlers can train on or index your storefront.
-            Upgrade to Shield Max to access this control.
+            Upgrade to Monitoring or Recovery to access this control.
           </s-banner>
           <s-link href="/app/plan-switcher">View plans</s-link>
         </s-section>

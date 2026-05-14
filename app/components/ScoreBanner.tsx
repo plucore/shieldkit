@@ -7,6 +7,7 @@
 
 import type { Merchant, Scan } from "../lib/types";
 import { fmtDate, fmtDateShort, scoreColor } from "../lib/scan-helpers";
+import { hasMonitoringAccess } from "../lib/billing/plans";
 
 interface ScoreBannerProps {
   merchant: Merchant;
@@ -105,7 +106,7 @@ export default function ScoreBanner({
           </div>
 
           {/* Automated scan info for Pro merchants */}
-          {merchant.tier === "pro" && lastAutomatedScan && !isScanning && (
+          {hasMonitoringAccess(merchant.tier) && lastAutomatedScan && !isScanning && (
             <div
               style={{
                 marginTop: "12px",
@@ -121,7 +122,7 @@ export default function ScoreBanner({
       </s-card>
 
       {/* Automated monitoring detected new issues banner */}
-      {merchant.tier === "pro" && newAutoIssueCount > 0 && (
+      {hasMonitoringAccess(merchant.tier) && newAutoIssueCount > 0 && (
         <div style={{ marginTop: "12px" }}>
           <s-banner tone="warning">
             Your automated monitoring detected {newAutoIssueCount} new issue

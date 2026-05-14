@@ -3,10 +3,13 @@
  *
  * Plain-HTML weekly digest renderer. Returns a string suitable for the
  * Resend `html` parameter. Inline styles only — Gmail/Outlook strip <style>
- * blocks. Includes a Shield Max ("Pro This Week") section that renders only
- * when tier='pro'; Phase 5 fills it in with real data, this scaffold gates
- * it so adding content later doesn't require touching the digest pipeline.
+ * blocks. Includes an AI-readiness ("Pro This Week") section that renders
+ * for any merchant with monitoring access (monitoring, recovery, or
+ * grandfathered pro); the data inside is monitoring-level (schema coverage,
+ * llms.txt freshness, bot config completeness).
  */
+
+import { hasMonitoringAccess } from "../billing/plans";
 
 // HTML-escape helper. We intentionally don't use querystring.escape — it
 // URL-escapes, not HTML-escapes.
@@ -29,7 +32,9 @@ export interface WeeklyDigestData {
   shopName: string;
   shopDomain: string;
   appUrl: string;
-  tier: "shield" | "pro";
+  // String for v3: monitoring | recovery | pro (grandfathered) | (shield).
+  // Section toggles run through hasMonitoringAccess / hasRecoveryAccess.
+  tier: string;
   scoreThisWeek: number | null;
   scorePreviousWeek: number | null;
   newIssues: IssueChange[];
@@ -101,7 +106,7 @@ export function renderWeeklyDigest(data: WeeklyDigestData): string {
         : `<li style="margin:6px 0;color:#e51c00;">✗ Customer Privacy API not detected</li>`;
 
   let proSection = "";
-  if (tier === "pro") {
+  if (hasMonitoringAccess(tier)) {
     if (data.proThisWeek) {
       const p = data.proThisWeek;
       const refreshedLabel = p.llmsTxtRefreshedAt

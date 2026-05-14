@@ -23,6 +23,7 @@ import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
 import { enrichProductMetafields, gidToNumericId } from "../lib/enrichment/gtin-enrichment.server";
+import { hasMonitoringAccess } from "../lib/billing/plans";
 
 const SAFETY_BUDGET_MS = 3000;
 const ENRICHMENT_DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -57,8 +58,8 @@ async function maybeRecordScanTrigger(opts: {
   merchantId: string;
   tier: string;
 }): Promise<void> {
-  // Phase 7.3 — only paid tiers get continuous monitoring.
-  if (opts.tier !== "shield" && opts.tier !== "pro") return;
+  // v3 — only monitoring-access tiers get continuous scan triggers.
+  if (!hasMonitoringAccess(opts.tier)) return;
 
   try {
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -118,8 +119,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   // Phase 7.3 — record scan trigger (independent of GTIN enrichment).
   await maybeRecordScanTrigger({ merchantId: merchant.id, tier: merchant.tier });
 
-  // 3. Tier gate — Shield Max only for GTIN enrichment.
-  if (merchant.tier !== "pro") {
+  // 3. Tier gate — *ongoing* GTIN enrichment on newly-updated products is a
+  // Monitoring-level feature. Bulk fill on the existing catalog is gated
+  // separately in app.gtin-fill.tsx via hasRecoveryAccess.
+  if (!hasMonitoringAccess(merchant.tier)) {
     await logOutcome({
       merchantId: merchant.id,
       productId: numericId,

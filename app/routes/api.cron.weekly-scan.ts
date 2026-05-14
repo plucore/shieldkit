@@ -22,6 +22,7 @@
 
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { supabase } from "../supabase.server";
+import { MONITORING_TIERS } from "../lib/billing/plans";
 
 function json<T>(body: T, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -53,11 +54,14 @@ export async function action({ request }: ActionFunctionArgs) {
     return json({ error: "unauthorized", message: "Invalid or missing authorization." }, 401);
   }
 
-  // ── 2. Fetch all active paid merchants (Shield Pro + Shield Max) ─────────────
+  // ── 2. Fetch all active monitoring-tier merchants ────────────────────────
+  // MONITORING_TIERS centralises which DB tier values get the weekly scan
+  // pipeline — currently monitoring + recovery + grandfathered pro. The
+  // 2 live Shield Max customers (tier='pro') are included.
   const { data: merchants, error: fetchError } = await supabase
     .from("merchants")
     .select("id")
-    .in("tier", ["shield", "pro"])
+    .in("tier", MONITORING_TIERS as readonly string[])
     .is("uninstalled_at", null);
 
   if (fetchError) {

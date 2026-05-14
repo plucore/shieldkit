@@ -37,6 +37,7 @@ import {
   PLAN_NAME_TO_CYCLE,
   PLAN_NAME_TO_TIER,
   type PlanName,
+  type Tier,
 } from "./plans";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -85,8 +86,9 @@ export interface PartnerActiveSubscription {
   status: SubscriptionStatus;
   /** Display name from Partner Dashboard config. */
   planName: string | null;
-  /** Mapped via PLAN_NAME_TO_TIER. */
-  tier: "free" | "shield" | "pro" | null;
+  /** Mapped via PLAN_NAME_TO_TIER — see ./plans.ts Tier union (v3 widens
+   *  the set to include "monitoring" and "recovery"). */
+  tier: Tier | null;
   /** Derived from plan name via PLAN_NAME_TO_CYCLE (Partner API has no interval field). */
   cycle: "monthly" | "annual" | null;
   /** Full GraphQL gid, e.g. `gid://shopify/AppSubscription/12345`. */

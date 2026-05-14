@@ -29,6 +29,7 @@ import {
   type IssueChange,
 } from "../lib/emails/weekly-digest";
 import { createAdminClient, executeWithRetry } from "../lib/shopify-api.server";
+import { MONITORING_TIERS, hasMonitoringAccess } from "../lib/billing/plans";
 
 // Fallback recipient when leads.email is missing — fetch the shop owner email
 // from Shopify Admin GraphQL using the merchant's stored offline session token.
@@ -120,11 +121,13 @@ export async function action({ request }: ActionFunctionArgs) {
 
   const appUrl = process.env.SHOPIFY_APP_URL ?? "https://shieldkit.vercel.app";
 
-  // ── 3. Fetch active paid merchants ─────────────────────────────────────────
+  // ── 3. Fetch active monitoring-tier merchants ────────────────────────────
+  // Centralised via MONITORING_TIERS so the cron and the in-app gates can't
+  // drift. Currently monitoring + recovery + grandfathered pro.
   const { data: merchants, error: merchantsErr } = await supabase
     .from("merchants")
     .select("id, shopify_domain, shop_name, tier, llms_txt_last_served_at, pro_settings")
-    .in("tier", ["shield", "pro"])
+    .in("tier", MONITORING_TIERS as readonly string[])
     .is("uninstalled_at", null);
 
   if (merchantsErr) {
@@ -242,10 +245,12 @@ export async function action({ request }: ActionFunctionArgs) {
         continue;
       }
 
-      // 3f. Compose Shield Max ("Pro This Week") block when applicable.
-      const tierKey: "shield" | "pro" = merchant.tier === "pro" ? "pro" : "shield";
+      // 3f. Compose AI-readiness ("Pro This Week") block when applicable.
+      // Under v3 every digest recipient has monitoring access (we filtered
+      // by MONITORING_TIERS above) and the AI-readiness fields are all
+      // monitoring-level data, so the block always renders.
       let proThisWeek: Parameters<typeof renderWeeklyDigest>[0]["proThisWeek"];
-      if (tierKey === "pro") {
+      if (hasMonitoringAccess(merchant.tier)) {
         const sevenDaysAgo = new Date(
           Date.now() - 7 * 24 * 60 * 60 * 1000,
         ).toISOString();
@@ -317,7 +322,7 @@ export async function action({ request }: ActionFunctionArgs) {
         shopName: merchant.shop_name ?? merchant.shopify_domain,
         shopDomain: merchant.shopify_domain,
         appUrl,
-        tier: tierKey,
+        tier: merchant.tier,
         scoreThisWeek: latest.compliance_score,
         scorePreviousWeek: previous?.compliance_score ?? null,
         newIssues,

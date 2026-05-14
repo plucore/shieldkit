@@ -14,6 +14,7 @@
 import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
+import { hasMonitoringAccess } from "../lib/billing/plans";
 
 const DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -37,8 +38,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       return ack();
     }
 
-    // Tier gate — paid only (skip_tier).
-    if (merchant.tier !== "shield" && merchant.tier !== "pro") {
+    // Tier gate — monitoring-access only (skip_tier).
+    if (!hasMonitoringAccess(merchant.tier)) {
       return ack();
     }
 

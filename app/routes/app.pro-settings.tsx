@@ -31,6 +31,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
 import { useWebComponentClick } from "../hooks/useWebComponentClick";
+import { hasMonitoringAccess } from "../lib/billing/plans";
 
 interface ProSettings {
   logo_url?: string;
@@ -147,13 +148,13 @@ export default function ProSettingsPage() {
   }, []);
   const submitRef = useWebComponentClick<HTMLElement>(submitForm);
 
-  if (tier !== "pro") {
+  if (!hasMonitoringAccess(tier)) {
     return (
-      <s-page heading="Shield Max settings">
+      <s-page heading="Pro settings">
         <s-section>
-          <s-banner tone="info" heading="Shield Max only">
-            These settings power the Organization & WebSite JSON-LD blocks
-            shipped with Shield Max. Upgrade your plan to unlock them.
+          <s-banner tone="info" heading="Monitoring plan required">
+            These settings power the Organization & WebSite JSON-LD blocks.
+            Upgrade to Monitoring or Recovery to unlock them.
           </s-banner>
           <s-link href="/app/plan-switcher">View plans</s-link>
         </s-section>

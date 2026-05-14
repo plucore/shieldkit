@@ -12,8 +12,9 @@
  * scan for that merchant; running a new scan resets the counter (because
  * each scan_id has its own row count).
  *
- * No tier gating on visibility per the plan. Free merchants can use it once
- * they've used their free scan.
+ * Recovery-gated as of v3 (2026-05-14). Available to tier='recovery' and
+ * grandfathered tier='pro' (Shield Max). Free / monitoring / shield see a
+ * 403 from the action and a redirect from the loader.
  */
 
 import { useCallback, useRef } from "react";
@@ -36,6 +37,7 @@ import { supabase } from "../supabase.server";
 import { useWebComponentClick } from "../hooks/useWebComponentClick";
 import { wrapAdminClient, getShopInfo } from "../lib/shopify-api.server";
 import { generateAppealLetter } from "../lib/llm/appeal-letter.server";
+import { hasRecoveryAccess } from "../lib/billing/plans";
 
 const APPEAL_LIMIT_PER_SCAN = 3;
 
@@ -46,12 +48,18 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   const { data: merchant } = await supabase
     .from("merchants")
-    .select("id, shop_name")
+    .select("id, shop_name, tier")
     .eq("shopify_domain", session.shop)
     .maybeSingle();
 
   if (!merchant) {
     return redirect("/app");
+  }
+
+  // Recovery-gated as of v3. NavMenu hides the link for non-recovery tiers,
+  // but defend the route too in case a merchant lands here via bookmark.
+  if (!hasRecoveryAccess(merchant.tier)) {
+    return redirect("/app/upgrade");
   }
 
   // Latest scan for this merchant defines the "current scan" cap window.
@@ -104,13 +112,24 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   // Look up merchant + latest scan for the cap.
   const { data: merchant } = await supabase
     .from("merchants")
-    .select("id")
+    .select("id, tier")
     .eq("shopify_domain", session.shop)
     .maybeSingle();
   if (!merchant) {
     return data(
       { ok: false, error: "Merchant not found.", letter: null },
       { status: 404 },
+    );
+  }
+
+  if (!hasRecoveryAccess(merchant.tier)) {
+    return data(
+      {
+        ok: false,
+        error: "Recovery plan required to generate appeal letters.",
+        letter: null,
+      },
+      { status: 403 },
     );
   }
 

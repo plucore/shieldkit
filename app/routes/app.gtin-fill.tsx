@@ -33,6 +33,7 @@ import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
 import { useWebComponentClick } from "../hooks/useWebComponentClick";
 import { wrapAdminClient, getProducts } from "../lib/shopify-api.server";
+import { hasRecoveryAccess } from "../lib/billing/plans";
 
 const WRITE_METAFIELDS_SCOPE_ENABLED =
   (process.env.SCOPES ?? "").includes("write_products");
@@ -140,7 +141,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   if (!merchant) return redirect("/app");
 
-  if (merchant.tier !== "pro") {
+  // Bulk catalog fill is Recovery-gated (acute tool). Ongoing per-product
+  // enrichment on newly-created products is Monitoring-gated; see
+  // webhooks.products.update.tsx for that path.
+  if (!hasRecoveryAccess(merchant.tier)) {
     return {
       gated: true as const,
       tier: merchant.tier as string,
@@ -230,7 +234,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     .select("id, tier")
     .eq("shopify_domain", session.shop)
     .maybeSingle();
-  if (!merchant || merchant.tier !== "pro") return fail(403, "Shield Max only.");
+  if (!merchant || !hasRecoveryAccess(merchant.tier))
+    return fail(403, "Recovery plan required to bulk-fill the existing catalog.");
 
   // Scope gate
   if (!WRITE_METAFIELDS_SCOPE_ENABLED) {

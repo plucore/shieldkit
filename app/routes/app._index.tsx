@@ -32,6 +32,10 @@ import {
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { getActiveSubscriptionByChargeId } from "../lib/billing/partner-api.server";
+import {
+  hasMonitoringAccess,
+  hasRecoveryAccess,
+} from "../lib/billing/plans";
 import { supabase } from "../supabase.server";
 import { runComplianceScan } from "../lib/compliance-scanner.server";
 import {
@@ -188,9 +192,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     previousScan = prevRow as Scan | null;
   }
 
-  // Fetch last automated scan (for Pro automated scan comparison)
+  // Fetch last automated scan — only meaningful for tiers with weekly
+  // monitoring (monitoring, recovery, grandfathered pro). Free + shield
+  // have no automated scans to compare against.
   let lastAutomatedScan: Scan | null = null;
-  if (merchant.tier === "pro") {
+  if (hasMonitoringAccess(merchant.tier)) {
     const { data: autoRow } = await supabase
       .from("scans")
       .select(
@@ -207,7 +213,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   // Count new issues from automated scan vs last manual scan
   let newAutoIssueCount = 0;
-  if (lastAutomatedScan && merchant.tier === "pro") {
+  if (lastAutomatedScan && hasMonitoringAccess(merchant.tier)) {
     const { data: lastManualRow } = await supabase
       .from("scans")
       .select("id")
@@ -259,9 +265,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     trendScans = (trendRows ?? []) as Scan[];
   }
 
-  // Phase 7.2 — AI visibility (Shield Max only)
+  // AI visibility — a Monitoring feature. Available to monitoring,
+  // recovery, and grandfathered pro (Shield Max).
   let aiVisibility: { thisWeekHits: number; priorWeekHits: number; topCrawlers: string[] } | null = null;
-  if (merchant.tier === "pro") {
+  if (hasMonitoringAccess(merchant.tier)) {
     const now = Date.now();
     const sevenDaysAgo = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
     const fourteenDaysAgo = new Date(now - 14 * 24 * 60 * 60 * 1000).toISOString();
@@ -345,10 +352,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       .eq("shopify_domain", shopDomain)
       .maybeSingle();
 
-    if (!merchant || merchant.tier !== "pro") {
+    // AI policy rewrites are a Recovery feature (also available to
+    // grandfathered Shield Max under tier='pro').
+    if (!merchant || !hasRecoveryAccess(merchant.tier)) {
       return new Response(
-        JSON.stringify({ success: false, message: "Pro plan required for AI policy generation." }),
-        { status: 403, headers: { "Content-Type": "application/json" } }
+        JSON.stringify({
+          success: false,
+          message: "Recovery plan required for AI policy generation.",
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
       );
     }
 
@@ -640,10 +652,16 @@ export default function Index() {
     [navigate],
   );
 
-  // tier-aware helpers — v2 has free, shield, pro.
+  // tier-aware helpers — v3 has free, monitoring, recovery, plus the
+  // grandfathered shield + pro tiers preserved for the 2 live Shield Max
+  // customers. Feature access goes through hasMonitoringAccess /
+  // hasRecoveryAccess; tier-string comparisons here are only for upgrade
+  // CTA placement (which tier the merchant is on, not which features they
+  // can use).
   const tier = merchant?.tier ?? "free";
-  const isPaid = tier === "shield" || tier === "pro";
-  const isShield = tier === "shield";
+  const showMonitoring = hasMonitoringAccess(tier);
+  const showRecovery = hasRecoveryAccess(tier);
+  const isPaid = showMonitoring;
   const [searchParams, setSearchParams] = useSearchParams();
   const [allExpanded, setAllExpanded]   = useState(false);
   const [localPolicies, setLocalPolicies] = useState(merchant?.generated_policies ?? {});
@@ -1052,25 +1070,29 @@ export default function Index() {
             </s-section>
           )}
 
-          {/* ── Inline upgrade banner ── */}
+          {/* ── Inline upgrade banner ──
+              TODO(copy): banner blurb + button labels are placeholder
+              technical strings; replace with marketing-approved v3 copy in
+              the upgrade/UpgradeCard pass. Gating logic is final. */}
           {tier === "free" && sortedChecks.length > 0 && (
             <s-section>
               <s-banner tone="info">
-                Upgrade to Shield Pro (from $14/month) for unlimited re-scans,
-                continuous monitoring, and AI policy generation.
+                Upgrade to Monitoring or Recovery for continuous compliance
+                monitoring and acute-recovery tools.
                 <s-button slot="actions" ref={upgradeRef4}>
                   See plans
                 </s-button>
               </s-banner>
             </s-section>
           )}
-          {isShield && sortedChecks.length > 0 && (
+          {showMonitoring && !showRecovery && sortedChecks.length > 0 && (
             <s-section>
               <s-banner tone="info">
-                Upgrade to Shield Max ($39/month) to make your products show up
-                correctly in Google AI Overviews and ChatGPT shopping.
+                Upgrade to Recovery for the GMC appeal letter generator, AI
+                policy rewrites, bulk GTIN fill, and unlimited on-demand
+                scans.
                 <s-button slot="actions" ref={upgradeRef4}>
-                  Upgrade to Shield Max
+                  Upgrade to Recovery
                 </s-button>
               </s-banner>
             </s-section>
@@ -1098,17 +1120,15 @@ export default function Index() {
         previousScan={previousScan}
       />
 
-      {/* Upgrade CTA — hidden for pro, tier-aware copy otherwise */}
-      {merchant && (tier === "free" || tier === "shield") && !showOnboarding && (
+      {/* Upgrade CTA — hidden once the merchant has full recovery access.
+          Monitoring merchants still see an upsell toward Recovery. */}
+      {merchant && !showRecovery && !showOnboarding && (
         <UpgradeCard tier={tier} onUpgrade={navigateToUpgrade} sidebar />
       )}
 
-      {/* Policy Generation card (Shield Max only).
-          shield-tier (Shield Pro) policy gen is in PLAN_FEATURES but the
-          action handler and DB still gate on tier='pro' (Shield Max);
-          widening to shield tier is a Phase 3 change so we don't ship a
-          card that fires 403 on click. */}
-      {merchant && tier === "pro" && !showOnboarding && (
+      {/* Policy Generation card — AI policy rewrites are a Recovery feature.
+          Available to recovery + grandfathered pro (Shield Max). */}
+      {merchant && showRecovery && !showOnboarding && (
         <PolicyGenerationCard
           generatedPolicies={localPolicies}
           policyRegenUsed={localRegenUsed}
@@ -1122,8 +1142,9 @@ export default function Index() {
         />
       )}
 
-      {/* Phase 7.2 — AI visibility (Shield Max only) */}
-      {merchant && tier === "pro" && aiVisibility && !showOnboarding && (
+      {/* AI visibility — a Monitoring feature. Available to monitoring,
+          recovery, and grandfathered pro. */}
+      {merchant && showMonitoring && aiVisibility && !showOnboarding && (
         <s-section slot="aside">
           <AIVisibilityCard
             thisWeekHits={aiVisibility.thisWeekHits}

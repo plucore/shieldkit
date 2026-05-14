@@ -18,6 +18,7 @@ import { createHash } from "node:crypto";
 import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
 import { identifyCrawler } from "../lib/ai-visibility/identify-crawler.server";
+import { hasMonitoringAccess } from "../lib/billing/plans";
 
 const CACHE: Map<string, { body: string; expires: number }> = new Map();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -185,17 +186,17 @@ export async function loader({ request }: LoaderFunctionArgs) {
     request.headers.get("x-real-ip");
   const ipHash = hashIp(forwardedFor);
 
-  // ── Tier gate: Shield Max only ─────────────────────────────────────────────
+  // ── Tier gate: Monitoring (or higher) only ────────────────────────────────
   const { data: merchant } = await supabase
     .from("merchants")
     .select("tier")
     .eq("shopify_domain", shop)
     .maybeSingle();
 
-  if (merchant?.tier !== "pro") {
+  if (!hasMonitoringAccess(merchant?.tier)) {
     return new Response(
-      "# llms.txt is a Shield Max feature\n\n" +
-        "This store is not currently subscribed to ShieldKit Shield Max.\n",
+      "# llms.txt requires a ShieldKit Monitoring or Recovery plan\n\n" +
+        "This store is not currently subscribed to a plan that includes llms.txt.\n",
       {
         status: 200,
         headers: {

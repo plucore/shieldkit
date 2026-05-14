@@ -6,6 +6,10 @@ import { NavMenu } from "@shopify/app-bridge-react";
 
 import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
+import {
+  hasMonitoringAccess,
+  hasRecoveryAccess,
+} from "../lib/billing/plans";
 
 // Mirrors the gate in app.gtin-fill.tsx. We hide the nav entry entirely when
 // write_products has not yet been granted so paying merchants don't click
@@ -16,8 +20,9 @@ const WRITE_METAFIELDS_SCOPE_ENABLED =
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
 
-  // Load tier so NavMenu can hide Shield Max-only links for free/shield merchants.
-  // Single small read; avoids exposing pro-only routes to merchants who can't use them.
+  // Load tier so NavMenu can hide paid-only links for free merchants and
+  // recovery-only links for monitoring merchants. Single small read; avoids
+  // exposing routes the merchant can't use.
   const { data: merchantRow } = await supabase
     .from("merchants")
     .select("tier")
@@ -37,16 +42,25 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
 export default function App() {
   const { apiKey, tier, gtinFillEnabled } = useLoaderData<typeof loader>();
-  const isShieldMax = tier === "pro";
+
+  // Monitoring-gated links: Pro Settings, AI bot access. Available to
+  // monitoring, recovery, and grandfathered pro (Shield Max).
+  const showMonitoring = hasMonitoringAccess(tier);
+  // Recovery-gated links: GMC appeal letter, bulk GTIN auto-filler. Available
+  // to recovery and grandfathered pro only. Appeal letter is moving from
+  // "available to everyone" to recovery-only as part of the v3 cutover.
+  const showRecovery = hasRecoveryAccess(tier);
 
   return (
     <AppProvider embedded apiKey={apiKey}>
       <NavMenu>
         <a href="/app" rel="home">Dashboard</a>
-        <a href="/app/appeal-letter">Appeal letter</a>
-        {isShieldMax && <a href="/app/pro-settings">Shield Max settings</a>}
-        {isShieldMax && gtinFillEnabled && <a href="/app/gtin-fill">GTIN auto-filler</a>}
-        {isShieldMax && <a href="/app/bots/toggle">AI bot access</a>}
+        {showRecovery && <a href="/app/appeal-letter">Appeal letter</a>}
+        {showMonitoring && <a href="/app/pro-settings">Pro settings</a>}
+        {showRecovery && gtinFillEnabled && (
+          <a href="/app/gtin-fill">GTIN auto-filler</a>
+        )}
+        {showMonitoring && <a href="/app/bots/toggle">AI bot access</a>}
         <a href="/app/plan-switcher">Manage plan</a>
       </NavMenu>
 

@@ -9,6 +9,7 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
+import DOMPurify from "isomorphic-dompurify";
 import type { ShopInfo } from "./shopify-api.server";
 
 const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
@@ -120,7 +121,9 @@ export async function generatePolicy(
 
   // Extract the text content from the response
   const textBlock = message.content.find((block) => block.type === "text");
-  const body = textBlock?.text ?? "";
+  const rawBody = textBlock?.text ?? "";
+  // Defense-in-depth: sanitize at the source before the HTML is stored.
+  const body = DOMPurify.sanitize(rawBody);
 
   return {
     type,

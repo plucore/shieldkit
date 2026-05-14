@@ -24,9 +24,10 @@ describe("webhooks.themes.update", () => {
   });
 
   it("acks 200 on free tier (skip_tier branch)", () => {
-    // Tier gate: tier IN ('shield','pro') means free returns ack() early.
-    expect(src).toContain('merchant.tier !== "shield"');
-    expect(src).toContain('merchant.tier !== "pro"');
+    // v3 — gate routed through hasMonitoringAccess helper. Helper returns
+    // true for monitoring + recovery + grandfathered pro.
+    expect(src).toContain("hasMonitoringAccess");
+    expect(src).toMatch(/if\s*\(\s*!hasMonitoringAccess\(merchant\.tier\)\s*\)/);
   });
 
   it("inserts pending_scan_triggers row for paid tiers", () => {
@@ -53,9 +54,10 @@ describe("webhooks.products.update — also enqueues scan triggers", () => {
     expect(src).toContain('from("pending_scan_triggers")');
   });
 
-  it("scan-trigger gate accepts shield + pro tiers", () => {
-    expect(src).toContain('opts.tier !== "shield"');
-    expect(src).toContain('opts.tier !== "pro"');
+  it("scan-trigger gate is routed through hasMonitoringAccess helper", () => {
+    // v3 — accepts monitoring + recovery + grandfathered pro.
+    expect(src).toContain("hasMonitoringAccess");
+    expect(src).toMatch(/if\s*\(\s*!hasMonitoringAccess\(opts\.tier\)\s*\)/);
   });
 
   it("scan-trigger has its own 24h dedup window", () => {

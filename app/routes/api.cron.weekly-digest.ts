@@ -289,9 +289,16 @@ export async function action({ request }: ActionFunctionArgs) {
             7 * 24 * 60 * 60 * 1000
             ? 1
             : 0;
+        // bot_preferences stores explicit string choices ("allow" | "block")
+        // per bot. The completeness signal is "merchant configured something" —
+        // either choice counts. Earlier code compared to `=== true`, which
+        // capped this term at 0 for every merchant and silently held the
+        // aiReadinessScore ceiling at 90/100.
         const botPrefs = merchant.pro_settings?.bot_preferences;
         const botConfigShare = botPrefs
-          ? Object.values(botPrefs).filter((v) => v === true).length / 11
+          ? Object.values(botPrefs).filter(
+              (v) => v === "allow" || v === "block",
+            ).length / 11
           : 0;
         const aiReadinessScore = Math.round(
           schemaShare * 60 + llmsFreshShare * 30 + botConfigShare * 10,

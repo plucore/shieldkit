@@ -527,8 +527,36 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     scanResult = await runComplianceScan(merchant.id, shopDomain, "manual");
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+
+    // Compensating refund: the quota was already decremented above. If the
+    // scan failed before a row landed in the `scans` table, the merchant
+    // would otherwise burn their one free scan on an internal error.
+    // Skipped for unlimited (paid) merchants where scans_remaining is NULL.
+    if (scansRemaining !== null) {
+      const { error: refundErr } = await supabase
+        .from("merchants")
+        .update({ scans_remaining: (scansRemaining ?? 0) + 1 })
+        .eq("id", merchant.id)
+        .not("scans_remaining", "is", null);
+      if (refundErr) {
+        console.error(
+          `[runScan] scan failed AND quota refund failed for ${shopDomain}: scan=${message}, refund=${refundErr.message}`,
+        );
+      } else {
+        console.warn(
+          `[runScan] scan failed for ${shopDomain}, refunded 1 scan to quota: ${message}`,
+        );
+      }
+    } else {
+      console.error(`[runScan] scan failed for ${shopDomain}: ${message}`);
+    }
+
     return new Response(
-      JSON.stringify({ success: false, message }),
+      JSON.stringify({
+        success: false,
+        message:
+          "We hit an error running your scan. Your scan quota has been restored — please try again. If this keeps happening, contact support.",
+      }),
       { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }

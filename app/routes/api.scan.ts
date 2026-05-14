@@ -201,6 +201,29 @@ export async function action({ request }: ActionFunctionArgs) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[API/scan] runComplianceScan threw for ${shopDomain}:`, message);
 
+    // Compensating refund: the quota was already decremented above. Without
+    // this, a free-tier merchant burns their one scan on a transient internal
+    // error and has no recovery path. Paid merchants (scans_remaining = NULL)
+    // are skipped — the `.not("scans_remaining", "is", null)` guard prevents
+    // turning NULL into a finite value.
+    if (scansRemaining !== null) {
+      const { error: refundErr } = await supabase
+        .from("merchants")
+        .update({ scans_remaining: (scansRemaining ?? 0) + 1 })
+        .eq("id", merchant.id)
+        .not("scans_remaining", "is", null);
+      if (refundErr) {
+        console.error(
+          `[API/scan] quota refund failed for ${shopDomain}: ${refundErr.message}`,
+        );
+      } else {
+        console.warn(
+          `[API/scan] refunded 1 scan to ${shopDomain} after scan failure`,
+        );
+        newScansRemaining = scansRemaining;
+      }
+    }
+
     // Surface specific failure modes as distinct error codes so the UI can
     // render meaningful copy rather than a generic "something went wrong".
     if (message.includes("No access token")) {

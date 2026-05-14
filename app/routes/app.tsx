@@ -7,6 +7,12 @@ import { NavMenu } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
 
+// Mirrors the gate in app.gtin-fill.tsx. We hide the nav entry entirely when
+// write_products has not yet been granted so paying merchants don't click
+// through to a feature that can't run.
+const WRITE_METAFIELDS_SCOPE_ENABLED =
+  (process.env.SCOPES ?? "").includes("write_products");
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
 
@@ -21,11 +27,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const tier = (merchantRow?.tier as string | undefined) ?? "free";
 
   // eslint-disable-next-line no-undef
-  return { apiKey: process.env.SHOPIFY_API_KEY || "", tier };
+  return {
+    // eslint-disable-next-line no-undef
+    apiKey: process.env.SHOPIFY_API_KEY || "",
+    tier,
+    gtinFillEnabled: WRITE_METAFIELDS_SCOPE_ENABLED,
+  };
 };
 
 export default function App() {
-  const { apiKey, tier } = useLoaderData<typeof loader>();
+  const { apiKey, tier, gtinFillEnabled } = useLoaderData<typeof loader>();
   const isShieldMax = tier === "pro";
 
   return (
@@ -34,7 +45,7 @@ export default function App() {
         <a href="/app" rel="home">Dashboard</a>
         <a href="/app/appeal-letter">Appeal letter</a>
         {isShieldMax && <a href="/app/pro-settings">Shield Max settings</a>}
-        {isShieldMax && <a href="/app/gtin-fill">GTIN auto-filler</a>}
+        {isShieldMax && gtinFillEnabled && <a href="/app/gtin-fill">GTIN auto-filler</a>}
         {isShieldMax && <a href="/app/bots/toggle">AI bot access</a>}
         <a href="/app/plan-switcher">Manage plan</a>
       </NavMenu>

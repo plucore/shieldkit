@@ -150,6 +150,19 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     };
   }
 
+  // If the write_products scope hasn't been granted yet, short-circuit before
+  // we render the form or hit Shopify. Paying merchants see a friendly
+  // "coming soon" page instead of a form whose action would return HTTP 501.
+  if (!WRITE_METAFIELDS_SCOPE_ENABLED) {
+    return {
+      gated: false as const,
+      tier: merchant.tier as string,
+      missingIdentifiers: [] as MissingIdentifierProduct[],
+      enrichedCount: 0,
+      scopeReady: false,
+    };
+  }
+
   // Fetch up to 250 products and filter for missing identifiers via raw fields.
   // Once write_products is approved we'll also read the custom.* metafields
   // here to confirm whether the Auto-Filler has already enriched them.
@@ -423,19 +436,30 @@ export default function GtinFillPage() {
     );
   }
 
+  if (!loaderData.scopeReady) {
+    return (
+      <s-page heading="GTIN / MPN / Brand Auto-Filler">
+        <s-section>
+          <s-banner tone="info" heading="Feature pending — additional Shopify permissions required">
+            The GTIN / MPN / Brand Auto-Filler needs the <code>write_products</code>{" "}
+            permission to write identifier metafields to your catalog. We've
+            requested this permission from Shopify and it will activate
+            automatically once approval lands — no action required from you.
+            <br />
+            <br />
+            In the meantime, your Shield Max plan continues to deliver weekly
+            scans, the weekly health digest, the Merchant Listings JSON-LD
+            theme blocks, llms.txt, and the AI bot allow/block toggle.
+          </s-banner>
+        </s-section>
+      </s-page>
+    );
+  }
+
   const total = loaderData.missingIdentifiers.length;
 
   return (
     <s-page heading="GTIN / MPN / Brand Auto-Filler">
-      {!loaderData.scopeReady && (
-        <s-section>
-          <s-banner tone="warning" heading="write_products scope pending">
-            The Auto-Filler is wired and ready to run. Shopify is reviewing the
-            scope expansion request — actions will activate as soon as
-            approval lands. No code change required on your side.
-          </s-banner>
-        </s-section>
-      )}
 
       <s-section>
         <s-paragraph>

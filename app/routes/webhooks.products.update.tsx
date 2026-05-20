@@ -102,12 +102,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     .maybeSingle();
 
   if (!merchant) {
-    await logOutcome({
-      merchantId: null,
-      productId: null,
-      topic,
-      outcome: "skip_no_merchant",
-    });
+    // skip_no_merchant — race between OAuth and first webhook delivery, or
+    // stale subscription on an uninstalled shop. Deterministic from a single
+    // SELECT; logging removed 2026-05-20 to cut Supabase write volume on the
+    // hot path. See git history if you need to bring it back for debugging.
     return ack();
   }
 
@@ -119,12 +117,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   // Note: existing GTIN/MPN/brand metafields on the merchant's products are
   // intentionally NOT touched — they belong to the merchant.
   if (merchant.uninstalled_at) {
-    await logOutcome({
-      merchantId: merchant.id,
-      productId: null,
-      topic,
-      outcome: "skip_uninstalled",
-    });
+    // skip_uninstalled — Shopify revokes the OAuth token on uninstall so
+    // `admin` is usually null already, but queued retries and in-flight
+    // deliveries can still land here. Deterministic from a single column;
+    // logging removed 2026-05-20.
     return ack();
   }
 
@@ -142,23 +138,17 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   // Monitoring-level feature. Bulk fill on the existing catalog is gated
   // separately in app.gtin-fill.tsx via hasRecoveryAccess.
   if (!hasMonitoringAccess(merchant.tier)) {
-    await logOutcome({
-      merchantId: merchant.id,
-      productId: numericId,
-      topic,
-      outcome: "skip_tier",
-    });
+    // skip_tier — free/shield merchants never get enrichment. Deterministic
+    // from merchants.tier; this was the largest source of Supabase write
+    // volume from the webhook hot path. Logging removed 2026-05-20.
     return ack();
   }
 
   // 4. Scope gate.
   if (!(process.env.SCOPES ?? "").includes("write_products")) {
-    await logOutcome({
-      merchantId: merchant.id,
-      productId: numericId,
-      topic,
-      outcome: "skip_scope",
-    });
+    // skip_scope — flips uniformly when the write_products scope grant
+    // lands via App Store re-review. Deterministic from env; logging
+    // removed 2026-05-20.
     return ack();
   }
 

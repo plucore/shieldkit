@@ -14,10 +14,13 @@ name: Process scan triggers
 
 on:
   schedule:
-    # Every 5 minutes. GitHub Actions cron is best-effort and can drift /
-    # skip under load — acceptable because the daily Vercel cron at
-    # 12:00 UTC serves as a safety net.
-    - cron: "*/5 * * * *"
+    # Every 30 minutes. GitHub Actions cron is best-effort and can drift /
+    # skip under load — acceptable because pending_scan_triggers rows are
+    # 24h-deduped at the webhook layer, so a missed tick is picked up on
+    # the next run. Cadence was reduced from */5 to */30 on 2026-05-20 to
+    # cut Vercel Hobby Fluid Active CPU. Revert here if the queue starts
+    # backing up faster than 30 min can drain.
+    - cron: "*/30 * * * *"
   workflow_dispatch: {}
 
 concurrency:

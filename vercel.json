@@ -13,12 +13,20 @@
       "schedule": "0 13 * * 1"
     },
     {
-      "path": "/api/cron/process-scan-triggers",
-      "schedule": "0 12 * * *"
-    },
-    {
       "path": "/api/cron/reconcile-subscriptions",
       "schedule": "0 4 * * *"
     }
+  ],
+  "redirects": [
+    { "source": "/wp-admin/:path*",   "destination": "/", "permanent": true },
+    { "source": "/wp-login.php",      "destination": "/", "permanent": true },
+    { "source": "/wordpress/:path*",  "destination": "/", "permanent": true },
+    { "source": "/wp/:path*",         "destination": "/", "permanent": true },
+    { "source": "/.env",              "destination": "/", "permanent": true },
+    { "source": "/.env.:ext",         "destination": "/", "permanent": true },
+    { "source": "/.git/:path*",       "destination": "/", "permanent": true },
+    { "source": "/xmlrpc.php",        "destination": "/", "permanent": true },
+    { "source": "/phpmyadmin/:path*", "destination": "/", "permanent": true },
+    { "source": "/phpinfo.php",       "destination": "/", "permanent": true }
   ]
 }

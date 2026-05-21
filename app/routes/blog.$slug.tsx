@@ -1,8 +1,16 @@
 import type {
+  HeadersFunction,
   LinksFunction,
   LoaderFunctionArgs,
   MetaFunction,
 } from "react-router";
+
+// Cache blog posts at Vercel's edge for 24h, stale-while-revalidate for 7 days.
+// Posts are effectively immutable once published; the long swr window means
+// even an updated post propagates within 7 days without any origin pressure.
+export const headers: HeadersFunction = () => ({
+  "Cache-Control": "public, max-age=0, s-maxage=86400, stale-while-revalidate=604800",
+});
 import { useLoaderData, isRouteErrorResponse, useRouteError } from "react-router";
 
 import { MarketingArticleLayout } from "../components/marketing/MarketingArticleLayout";
@@ -85,7 +93,7 @@ export default function BlogPost() {
     publisher: {
       "@type": "Organization",
       name: "ShieldKit",
-      logo: { "@type": "ImageObject", url: SITE.url + "/logo-main.png" },
+      logo: { "@type": "ImageObject", url: SITE.url + "/logo-main.webp" },
     },
     datePublished: fm.publishedAt,
     dateModified: fm.publishedAt,

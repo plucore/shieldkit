@@ -1,5 +1,13 @@
-import type { LoaderFunctionArgs, MetaFunction, LinksFunction } from "react-router";
+import type { HeadersFunction, LoaderFunctionArgs, MetaFunction, LinksFunction } from "react-router";
 import { redirect } from "react-router";
+
+// Cache marketing HTML at Vercel's edge for 24h, stale-while-revalidate for 7
+// days. Cuts Fast Origin Transfer dramatically — marketing content changes
+// rarely and a 24h freshness lag is acceptable. Embedded merchants are
+// redirected to /app before this cache layer applies (see loader).
+export const headers: HeadersFunction = () => ({
+  "Cache-Control": "public, max-age=0, s-maxage=86400, stale-while-revalidate=604800",
+});
 
 import { MarketingLayout } from "../../components/marketing/MarketingLayout";
 import { MarketingButton } from "../../components/marketing/Button";
@@ -93,7 +101,7 @@ export default function HomePage() {
     "@type": "Organization",
     name: "ShieldKit",
     url: SITE.url,
-    logo: SITE.url + "/logo-main.png",
+    logo: SITE.url + "/logo-main.webp",
     description:
       "GMC compliance and AI search visibility tools for Shopify merchants.",
   };

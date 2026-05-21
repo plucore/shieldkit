@@ -1,4 +1,10 @@
-import type { LinksFunction, LoaderFunctionArgs, MetaFunction } from "react-router";
+import type { HeadersFunction, LinksFunction, LoaderFunctionArgs, MetaFunction } from "react-router";
+
+// Cache marketing HTML at Vercel's edge for 24h, stale-while-revalidate for 7
+// days. Explainer content rarely changes; a 24h freshness lag is acceptable.
+export const headers: HeadersFunction = () => ({
+  "Cache-Control": "public, max-age=0, s-maxage=86400, stale-while-revalidate=604800",
+});
 
 import { MarketingArticleLayout } from "../components/marketing/MarketingArticleLayout";
 import { JsonLd } from "../components/marketing/JsonLd";
@@ -56,7 +62,7 @@ export default function ExplainerPage() {
     publisher: {
       "@type": "Organization",
       name: "ShieldKit",
-      logo: { "@type": "ImageObject", url: SITE.url + "/logo-main.png" },
+      logo: { "@type": "ImageObject", url: SITE.url + "/logo-main.webp" },
     },
     datePublished: PUBLISHED_AT,
     dateModified: PUBLISHED_AT,

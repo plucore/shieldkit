@@ -28,5 +28,13 @@
     { "source": "/xmlrpc.php",        "destination": "/", "permanent": true },
     { "source": "/phpmyadmin/:path*", "destination": "/", "permanent": true },
     { "source": "/phpinfo.php",       "destination": "/", "permanent": true }
+  ],
+  "headers": [
+    {
+      "source": "/(logo-main\\.webp|og-default\\.jpg|favicon\\.ico)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, must-revalidate" }
+      ]
+    }
   ]
 }

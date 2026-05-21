@@ -26,6 +26,6 @@ export const SITE = {
   url: "https://shieldkit.app",
   name: "ShieldKit",
   tagline: "GMC compliance for Shopify",
-  ogImage: "/og-default.png",
+  ogImage: "/og-default.jpg",
   installUrl: "https://apps.shopify.com/shieldkit",
 } as const;

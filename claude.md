@@ -48,9 +48,9 @@ DB `merchants.tier` values: `'free' | 'shield' | 'pro' | 'monitoring' | 'recover
 | `@shopify/shopify-app-react-router` | ^1.1.0 | Auth, billing, webhooks, session management |
 | `@supabase/supabase-js` | ^2.47.0 | PostgreSQL client (service role) |
 | `cheerio` | ^1.2.0 | Server-side HTML parsing for compliance checks |
-| `@anthropic-ai/sdk` | latest | AI policy generation (Pro feature, model: `claude-sonnet-4-20250514`) |
+| `@anthropic-ai/sdk` | ^0.85.0 | AI policy generation (Pro feature, model: `claude-sonnet-4-20250514`) |
 | `isbot` | ^5.1.31 | Bot detection for streaming SSR |
-| `isomorphic-dompurify` | latest | HTML sanitization for AI-generated policy content |
+| `sanitize-html` | ^2.13.0 | HTML sanitization for AI-generated policy content (replaced isomorphic-dompurify on 2026-05-21 to drop jsdom from the server bundle — see "Server-side HTML sanitization" in §11) |
 | `vite-tsconfig-paths` | ^5.1.4 | TypeScript path aliases |
 
 ### Key Dev Dependencies
@@ -648,7 +648,8 @@ npx tsx scripts/backfill-merchant-shop-info.ts --shop foo.myshopify.com # target
 * **s-banner onDismiss** -- Same issue as `onClick`: synthetic events don't fire on web components. Use native `<button>` inside banners for dismiss actions.
 * **SSRF protection** -- `fetchPublicPage()` in `helpers.server.ts` validates DNS records against private IP ranges before fetching. Both in-app and outbound scanners have this protection.
 * **Streaming SSR** -- `entry.server.tsx` uses `renderToPipeableStream`. Bots get `onAllReady` (full render), humans get `onShellReady` (early streaming). 5s timeout.
-* **DOMPurify sanitization** -- AI-generated policy HTML is sanitized with `isomorphic-dompurify` before rendering as defense-in-depth.
+* **Server-side HTML sanitization** -- AI-generated policy HTML is sanitized with `sanitize-html` server-side (in `app/lib/policy-generator.server.ts`) before being stored, then sanitized again with `dompurify` client-side (in `PolicyGenerationCard.tsx`) before rendering. We switched off `isomorphic-dompurify` on 2026-05-21 after a prod outage: it pulls `jsdom`, whose transitive tree (`@exodus/bytes`, `@asamuzakjp/css-color` → `@csstools/css-calc`) ships ESM-only files that Vercel's Rust-based Node runtime can't `require()`. `sanitize-html` is pure JS with a small CJS-only dep tree. Never reintroduce `jsdom` (or any `isomorphic-*` package that wraps it) into the server bundle — use `sanitize-html` or a pure regex sanitizer instead.
+* **Reproducible builds on Vercel** -- `vercel.json` sets `installCommand: "npm ci"` so Vercel respects `package-lock.json` exactly. Without this, Vercel runs `npm install` which re-resolves caret ranges on every build; that's how the 2026-05-21 outage happened (a transitive `@exodus/bytes` metadata refresh in npm broke an unchanged code commit). If you ever bump a dep, run `npm install` locally, commit the lock, push — never edit `package.json` without committing the regenerated lockfile.
 * **Theme block name 25-char limit** -- Shopify validation rejects theme block `name` strings longer than 25 characters. When adding or renaming `extensions/*/blocks/*.liquid` schema blocks, count the chars before deploy. See commit `f3bd7bd` for the rename pass that brought the v2 blocks under the limit.
 * **Brand fallback chain (JSON-LD)** -- Resolution order for the Product schema `brand.name` field is: `product.metafields.custom.brand` -> `product.vendor` -> `shop.name`. Implemented in `extensions/json-ld-schema/blocks/product-schema.liquid`. The same chain is enforced server-side in `app/lib/schema/merchant-listings-enricher.server.ts`; keep both call sites in sync when changing the order.
 * **Paid nav links tier-gated** -- `app/routes/app.tsx` loader reads `merchants.tier` and the layout conditionally renders nav entries via `hasMonitoringAccess(tier)` (for `/app/pro-settings` + `/app/bots/toggle`) and `hasRecoveryAccess(tier)` (for `/app/appeal-letter` + `/app/gtin-fill`). Free merchants don't see paid-only entries; Monitoring merchants don't see Recovery-only entries. Route-level guards in those files remain the source of truth on enforcement.

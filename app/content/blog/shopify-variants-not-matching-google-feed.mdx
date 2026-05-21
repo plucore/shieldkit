@@ -12,7 +12,7 @@ export const frontmatter = {
   ],
 };
 
-[Variant mismatches between Shopify and Google](/fix/variants-not-matching-feed) produce item-level disapprovals that scatter across your catalog — five products here, twelve products there, no obvious pattern from the GMC dashboard. Five specific issues cause 90% of these: variant prices that differ from the feed price, variant inventory inconsistencies between feed and live page, variant identifiers (GTIN/MPN) that exist at the product level but not the variant level, size attribute naming that doesn't match Google's expected taxonomy, and color attribute spellings that differ across variants of the same product. The fix is per-issue but the diagnostic flow is the same: filter GMC item issues by the affected SKU, cross-check Shopify's [feed XML against the live variant page](/fix/feed-not-matching-website), and fix at the variant level (not the product level).
+Variant mismatches between Shopify and Google produce item-level disapprovals that scatter across your catalog — five products here, twelve products there, no obvious pattern from the GMC dashboard. Five specific issues cause 90% of these: variant prices that differ from the feed price, variant inventory inconsistencies between feed and live page, variant identifiers (GTIN/MPN) that exist at the product level but not the variant level, size attribute naming that doesn't match Google's expected taxonomy, and color attribute spellings that differ across variants of the same product. The fix is per-issue but the diagnostic flow is the same: filter GMC item issues by the affected SKU, cross-check Shopify's feed XML against the live variant page, and fix at the variant level (not the product level).
 
 This post is the diagnostic flow and the per-issue fix.
 
@@ -33,7 +33,7 @@ In rough order of frequency.
 
 ### Issue 1: Variant prices differ from feed price
 
-Each Shopify variant has its own price. The Google channel app pushes that variant price to the feed. If the variant price is different from the product's "default" price (e.g., a "size XXL" upcharge), the feed shows the variant-specific price — but if the live product page shows the default price unless the customer selects the variant, the [mismatch is real](/fix/price-mismatch).
+Each Shopify variant has its own price. The Google channel app pushes that variant price to the feed. If the variant price is different from the product's "default" price (e.g., a "size XXL" upcharge), the feed shows the variant-specific price — but if the live product page shows the default price unless the customer selects the variant, the mismatch is real.
 
 **Detection:** open the product page. Note the displayed price. Click through to the XXL variant. If the price changes visibly, that's normal. If the page price doesn't update when the variant is selected (theme bug), the price the customer sees is stale.
 
@@ -41,7 +41,7 @@ Each Shopify variant has its own price. The Google channel app pushes that varia
 
 ### Issue 2: Variant inventory says in-stock but live page shows sold out
 
-Shopify's [inventory sync between the storefront and the Google channel can lag](/fix/availability-mismatch), especially when third-party inventory apps are in the picture. The feed gets pushed with one inventory state; by the time Google's crawler fetches the live page, the variant has sold out (or vice versa).
+Shopify's inventory sync between the storefront and the Google channel can lag, especially when third-party inventory apps are in the picture. The feed gets pushed with one inventory state; by the time Google's crawler fetches the live page, the variant has sold out (or vice versa).
 
 **Detection:** GMC → Items issues → filter for "Availability mismatch." The flagged variants are the ones with stale inventory data.
 
@@ -49,7 +49,7 @@ Shopify's [inventory sync between the storefront and the Google channel can lag]
 
 ### Issue 3: Variant GTIN/MPN missing but product-level has them
 
-Common pattern: a merchant sets the [GTIN](/fix/missing-gtin) and MPN at the product level but doesn't propagate to variants. The Google feed pulls per-variant identifiers; product-level identifiers don't fall through.
+Common pattern: a merchant sets the GTIN and MPN at the product level but doesn't propagate to variants. The Google feed pulls per-variant identifiers; product-level identifiers don't fall through.
 
 **Detection:** Shopify Admin → [Product] → Variants → click any variant → check the Barcode (GTIN) field. If empty across variants but populated at product level, you have the issue.
 

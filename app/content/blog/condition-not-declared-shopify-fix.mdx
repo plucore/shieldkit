@@ -12,7 +12,7 @@ export const frontmatter = {
   ],
 };
 
-"[Condition not declared](/fix/condition-not-declared)" in your Shopify Google channel feed means Google can't tell whether your product is new, used, or refurbished — and without that signal, [products are blocked from Shopping](/fix/products-not-showing) until resolved. The trap is that most merchants assume Shopify is sending "new" automatically because everything they sell is new. It isn't. Shopify's default product schema doesn't include the `condition` attribute at all, so Google sees the field as missing rather than defaulting to new. The fix is either a single setting in your Google channel app (for stores selling only new products) or a metafield (for mixed catalogs that include refurbished or used items).
+"Condition not declared" in your Shopify Google channel feed means Google can't tell whether your product is new, used, or refurbished — and without that signal, products are blocked from Shopping until resolved. The trap is that most merchants assume Shopify is sending "new" automatically because everything they sell is new. It isn't. Shopify's default product schema doesn't include the `condition` attribute at all, so Google sees the field as missing rather than defaulting to new. The fix is either a single setting in your Google channel app (for stores selling only new products) or a metafield (for mixed catalogs that include refurbished or used items).
 
 This post walks both paths and the verification steps.
 
@@ -70,7 +70,7 @@ The metafield approach is more durable than the default-rule approach because it
 
 ## When to use which condition value
 
-The three values aren't interchangeable. Google's reviewers spot-check randomly, and miscategorized condition is a [misrepresentation trigger](/fix/account-suspension-misrepresentation).
+The three values aren't interchangeable. Google's reviewers spot-check randomly, and miscategorized condition is a misrepresentation trigger.
 
 - **`new`** — never used. In original packaging or equivalent. No signs of wear or repair. Excludes open-box items even if functionally new.
 - **`used`** — secondhand. Includes anything with prior ownership, light use, or reconditioning by you (the seller). Open-box items go here unless explicitly authorized as refurbished.

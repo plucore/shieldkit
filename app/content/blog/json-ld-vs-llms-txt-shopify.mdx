@@ -74,7 +74,7 @@ What Shopify ships:
 
 What Shopify doesn't ship:
 
-- Merchant Listings extensions in JSON-LD (no [`gtin`](/fix/missing-gtin), [`brand`](/fix/missing-brand), [`mpn`](/fix/missing-mpn) by default — your theme has to add them, usually from product metafields)
+- Merchant Listings extensions in JSON-LD (no `gtin`, `brand`, `mpn` by default — your theme has to add them, usually from product metafields)
 - llms.txt at site root
 - FAQ schema on product pages
 - Organization or WebSite schema on the homepage
@@ -106,8 +106,6 @@ Three patterns we see when auditing AI search readiness:
 - **Using both but with conflicting product data.** Feed says one price, product page JSON-LD says another. AI engines flag the inconsistency and downweight the product. Both surfaces have to agree.
 
 For the upstream feed cleanup that prevents the conflicting-data case, see [why "missing GTIN" shows on your Shopify Google channel](/blog/missing-gtin-shopify-fix). For verifying that crawlers can actually access your schema, see [how to track AI crawler visits on your Shopify store](/blog/track-ai-crawlers-shopify). For the broader AI search visibility stack, see [making your Shopify store visible in ChatGPT, Gemini, and Perplexity](/blog/shopify-store-ai-search-visible).
-
-Not sure which schema your store already has? Run a free scan at [shieldkit.app/scan](/scan) to see your current Product JSON-LD, the Merchant Listings extensions you're missing, and whether llms.txt is served at the right path.
 
 ## FAQ
 

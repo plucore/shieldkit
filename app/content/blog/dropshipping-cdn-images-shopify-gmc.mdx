@@ -12,16 +12,16 @@ export const frontmatter = {
   ],
 };
 
-If your [Shopify product images are hot-linked from AliExpress, Alibaba, Oberlo, DSers, Spocket, or similar dropshipping CDNs](/fix/dropshipping-cdn-images), Google's AI crawler flags your store under the misrepresentation policy — even when the products themselves are legitimate. The trust signal Google looks for is "store owns its content." Hot-linked supplier images fail that signal. The fix is mechanical: download every image, re-upload to Shopify (which serves from `cdn.shopify.com`), and replace the URLs in your product records. For a 200-product store this takes 1-2 hours via Shopify's bulk methods or 15 minutes via Matrixify.
+If your Shopify product images are hot-linked from AliExpress, Alibaba, Oberlo, DSers, Spocket, or similar dropshipping CDNs, Google's AI crawler flags your store under the misrepresentation policy — even when the products themselves are legitimate. The trust signal Google looks for is "store owns its content." Hot-linked supplier images fail that signal. The fix is mechanical: download every image, re-upload to Shopify (which serves from `cdn.shopify.com`), and replace the URLs in your product records. For a 200-product store this takes 1-2 hours via Shopify's bulk methods or 15 minutes via Matrixify.
 
 This post explains why Google penalizes the pattern, how to detect it on your store, and the bulk-fix path.
 
 ## Why Google penalizes dropshipping CDN images
 
-Three reasons, all under the [misrepresentation policy umbrella](/fix/account-suspension-misrepresentation):
+Three reasons, all under the misrepresentation policy umbrella:
 
 - **Trust signal.** Google's heuristic: a real merchant uploads their own product imagery. A reseller pulling images directly from supplier CDNs is signaling "I haven't differentiated this product from the supplier" — which Google treats as a misrepresentation risk because the merchant likely doesn't have direct supplier relationships, doesn't own the imagery, and may not control product quality.
-- **Image authenticity.** Hot-linked images can change. If AliExpress updates the supplier's image and you're hot-linking, your product page silently changes too. Google's crawler flags any product page where the image differs from a recent crawl as [potentially deceptive — and a missing or unreliable product image](/fix/missing-product-image) is a separate item-level violation.
+- **Image authenticity.** Hot-linked images can change. If AliExpress updates the supplier's image and you're hot-linking, your product page silently changes too. Google's crawler flags any product page where the image differs from a recent crawl as potentially deceptive.
 - **Content ownership.** Google's spam policies treat "thin content" — including pages that lean entirely on borrowed assets — as low-quality. Stores hot-linking supplier images often get the broader "low-value site" demotion alongside the misrepresentation flag.
 
 Important nuance: **dropshipping itself isn't banned.** What Google penalizes is the pattern of using stock supplier images and supplier descriptions verbatim, which signals you haven't built a real merchant operation around the products. Drop ship all you want — just own your imagery.

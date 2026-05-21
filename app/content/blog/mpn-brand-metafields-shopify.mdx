@@ -12,7 +12,7 @@ export const frontmatter = {
   ],
 };
 
-When your products genuinely have no GTIN, Google's fallback identifier path is **[MPN](/fix/missing-mpn) + [brand](/fix/missing-brand) together**. Both fields are required as a pair — populating only one is treated the same as populating neither. On Shopify, you add them as product-scoped metafields under the `custom` namespace (`custom.mpn` and `custom.brand`), define them once in Settings → Custom data, and bulk-populate via the Bulk Editor or a CSV importer like Matrixify. The whole setup takes about 20 minutes for the first product and minutes per hundred after that.
+When your products genuinely have no GTIN, Google's fallback identifier path is **MPN + brand together**. Both fields are required as a pair — populating only one is treated the same as populating neither. On Shopify, you add them as product-scoped metafields under the `custom` namespace (`custom.mpn` and `custom.brand`), define them once in Settings → Custom data, and bulk-populate via the Bulk Editor or a CSV importer like Matrixify. The whole setup takes about 20 minutes for the first product and minutes per hundred after that.
 
 This post is the step-by-step. It assumes you've already decided MPN+brand is the right path — if you haven't, read [why "missing GTIN" shows on your Shopify Google channel](/blog/missing-gtin-shopify-fix) first to confirm.
 
@@ -20,9 +20,9 @@ This post is the step-by-step. It assumes you've already decided MPN+brand is th
 
 GTIN is the global standard. MPN+brand is the fallback when no global entry exists. Google's identifier hierarchy:
 
-1. **[GTIN](/fix/missing-gtin)** — preferred. Required for branded resale.
+1. **GTIN** — preferred. Required for branded resale.
 2. **MPN + brand together** — accepted substitute when GTIN doesn't exist. Both must be populated.
-3. **[`identifier_exists=false`](/fix/missing-identifier-exists)** — last resort, only for genuinely unidentified products (handmade, custom).
+3. **`identifier_exists=false`** — last resort, only for genuinely unidentified products (handmade, custom).
 
 The MPN+brand path applies to private-label products, manufacturer-direct sales of items that pre-date global catalog entries, and small-run products with manufacturer codes but no GS1-assigned GTINs. If you're selling Acme-brand sneakers you bought wholesale from Acme's distributor, you're in the GTIN path (Path A in [the missing GTIN post](/blog/missing-gtin-shopify-fix)). If you make your own products under your own brand and assign your own SKUs, you're in this MPN+brand path.
 

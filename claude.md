@@ -532,20 +532,11 @@ The digest renderer formula is `60% schema coverage + 30% llms.txt freshness + 1
 
 | Route File | URL Path | Behavior |
 |-----------|----------|----------|
-| `_index/route.tsx` | `/` | Landing page with 3 pricing cards (Free, Monitoring $30/mo or $290/yr, Recovery $150/yr annual-only). H1 is the keyword-rich "Fix Your Google Merchant Center Suspension Before It Costs You Sales." Emits Organization + FAQPage JSON-LD (FAQPage source-of-truth is the `HOMEPAGE_FAQ` constant; keep visible accordion answers in sync). If `?shop` param present, redirects to `/app`. |
-| `scan.tsx` | `/scan` | Public 8-point compliance scanner. Emits WebApplication JSON-LD. POST runs scan; second POST (intent=unlock) captures lead email. |
-| `explainer.tsx` | `/explainer` | Long-form GMC misrepresentation explainer. Emits Article JSON-LD. |
-| `blog._index.tsx` | `/blog` | Blog listing pulled from `app/content/blog/*.mdx`. |
-| `blog.$slug.tsx` | `/blog/:slug` | Individual blog post. Emits BlogPosting JSON-LD. |
-| `fix._index.tsx` | `/fix` | Fix Library index — 7 categories grouping all 30 `/fix/:slug` pages. Emits ItemList JSON-LD. Linked from the marketing nav (between Blog and Explainer) and the homepage hero subtext. |
-| `fix.$slug.tsx` | `/fix/:slug` | Individual programmatic-SEO fix page (one per entry in `app/content/fixes.ts`). Emits HowTo + FAQPage JSON-LD. |
+| `_index/route.tsx` | `/` | Landing page with 3 pricing cards (Free, Monitoring $30/mo or $290/yr, Recovery $150/yr annual-only). If `?shop` param present, redirects to `/app`. Login form submits to `/auth/login`. |
 | `auth.login/route.tsx` | `/auth/login` | Shop domain form. Uses `login()` from shopify.server. Submit button uses `useWebComponentClick` + `form.requestSubmit()`. |
 | `auth.$.tsx` | `/auth/*` | Catch-all OAuth callback. |
 | `privacy.tsx` | `/privacy` | Public, no auth. Privacy policy required for App Store listing. No last-updated stamp rendered. |
 | `terms.tsx` | `/terms` | Public, no auth. Terms of service required for App Store listing. No last-updated stamp rendered. |
-| `sitemap[.]xml.tsx` | `/sitemap.xml` | Generated from static page list + blog MDX registry + fix registry. Static entries (/, /scan, /explainer, /blog) omit `<lastmod>` — using `new Date()` everywhere trained Google to ignore the signal. `/fix` index uses a module-load-time date as initial lastmod. |
-| `robots[.]txt.tsx` | `/robots.txt` | Allow all marketing crawlers; disallow `/app`, `/api`, `/auth`, `/webhooks`. |
-| `llms[.]txt.tsx` | `/llms.txt` | Curated markdown content map for AI crawlers. |
 
 ### Webhook routes (all use `authenticate.webhook` for HMAC verification)
 See Section 3 for full details.

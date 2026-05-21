@@ -40,7 +40,6 @@ function MarketingNav() {
           <Link to="/" className="hover:opacity-70">Home</Link>
           <Link to="/scan" className="hover:opacity-70">Scan</Link>
           <Link to="/blog" className="hover:opacity-70">Blog</Link>
-          <Link to="/fix" className="hover:opacity-70">Fix Library</Link>
           <Link to="/explainer" className="hover:opacity-70">Explainer</Link>
           <a
             href={SITE.installUrl}
@@ -81,7 +80,6 @@ function MarketingFooter() {
         </FooterCol>
         <FooterCol title="Resources">
           <Link to="/blog" className="hover:underline">Blog</Link>
-          <Link to="/fix" className="hover:underline">Fix library</Link>
           <Link to="/explainer" className="hover:underline">GMC explainer</Link>
         </FooterCol>
         <FooterCol title="Legal">

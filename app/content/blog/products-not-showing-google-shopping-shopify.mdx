@@ -12,7 +12,7 @@ export const frontmatter = {
   ],
 };
 
-Clean GMC diagnostics doesn't mean your [products will appear in Google Shopping](/fix/products-not-showing). They're three separate steps — feed sync (Shopify → GMC), catalog matching (GMC → Google's catalog), and ranking (Google's catalog → search results) — and a product can pass the first two and silently fail the third. Most "products not showing" cases on Shopify fall into one of five buckets: feed sync delay, title matching gaps, account quality issues, crawler access problems, or AI search format gaps. This post walks the diagnostic flow that resolves each.
+Clean GMC diagnostics doesn't mean your products will appear in Google Shopping. They're three separate steps — feed sync (Shopify → GMC), catalog matching (GMC → Google's catalog), and ranking (Google's catalog → search results) — and a product can pass the first two and silently fail the third. Most "products not showing" cases on Shopify fall into one of five buckets: feed sync delay, title matching gaps, account quality issues, crawler access problems, or AI search format gaps. This post walks the diagnostic flow that resolves each.
 
 If GMC Diagnostics is showing actual errors, that's a different problem and easier — start with [why "missing GTIN" shows on your Shopify Google channel](/blog/missing-gtin-shopify-fix) or work through [the 12-point compliance checklist](/blog/gmc-suspension-shopify-checklist). This post is for the harder case where diagnostics are clean.
 
@@ -21,7 +21,7 @@ If GMC Diagnostics is showing actual errors, that's a different problem and easi
 Three steps, one of which has no diagnostic surface:
 
 - **Feed sync.** Shopify pushes the product to GMC. GMC Diagnostics shows item issues if anything is wrong here.
-- **Catalog matching.** GMC matches your product to Google's master catalog. Diagnostics shows match failures ([missing GTIN](/fix/missing-gtin), low-confidence match, brand mismatch).
+- **Catalog matching.** GMC matches your product to Google's master catalog. Diagnostics shows match failures (missing GTIN, low-confidence match, brand mismatch).
 - **Ranking.** Google decides which products to show for which queries. **No diagnostic surface here.** A product can be perfectly matched and still rank too low to appear.
 
 The third step is where silent failures happen. Five buckets cover almost all of them.
@@ -63,7 +63,7 @@ Fixes for account quality are slow — there's no shortcut for "build organic tr
 
 ## Bucket 4: Crawler access problems
 
-Even when your feed is clean, Google still crawls your live product pages to verify the feed data matches what shoppers see. If the [crawler can't access pages](/fix/landing-page-not-working), products silently disappear from Shopping.
+Even when your feed is clean, Google still crawls your live product pages to verify the feed data matches what shoppers see. If the crawler can't access pages, products silently disappear from Shopping.
 
 - **`robots.txt` blocking Googlebot from product paths.** Audit your `robots.txt` and `theme.liquid`'s robots block. Look for `Disallow: /products` (catastrophic), `Disallow: /collections` (also bad), or any rule that blocks Googlebot specifically.
 - **Server returning 5xx errors during crawl.** Spotty hosting or aggressive rate limits can return 5xx to Googlebot specifically (Googlebot crawls in bursts). Check your server logs for Googlebot 5xx responses.

@@ -12,7 +12,7 @@ export const frontmatter = {
   ],
 };
 
-If your products genuinely have no [GTIN](/fix/missing-gtin), [MPN](/fix/missing-mpn), or [brand](/fix/missing-brand) — handmade goods, custom-order products, private-label below the GTIN threshold — you have to [tell Google explicitly with `identifier_exists=false`](/fix/missing-identifier-exists). Skipping this step doesn't make Google ignore the missing identifier; it surfaces "missing GTIN" errors against your account and, in 2026, can [escalate to suspension under the misrepresentation policy](/fix/account-suspension-misrepresentation). The fix is a one-time metafield definition plus a bulk pass via CSV import. Most Shopify stores can clear hundreds of products in 30 minutes once the setup is right.
+If your products genuinely have no GTIN, MPN, or brand — handmade goods, custom-order products, private-label below the GTIN threshold — you have to tell Google explicitly with `identifier_exists=false`. Skipping this step doesn't make Google ignore the missing identifier; it surfaces "missing GTIN" errors against your account and, in 2026, can escalate to suspension under the misrepresentation policy. The fix is a one-time metafield definition plus a bulk pass via CSV import. Most Shopify stores can clear hundreds of products in 30 minutes once the setup is right.
 
 This post is the bulk-edit playbook. It assumes you've already determined `identifier_exists=false` is the right answer for these products — if not, [why "missing GTIN" shows on your Shopify Google channel](/blog/missing-gtin-shopify-fix) walks the decision tree.
 

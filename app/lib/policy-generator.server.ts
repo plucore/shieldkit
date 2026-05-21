@@ -9,7 +9,7 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
-import DOMPurify from "isomorphic-dompurify";
+import sanitizeHtml from "sanitize-html";
 import type { ShopInfo } from "./shopify-api.server";
 
 const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
@@ -123,7 +123,17 @@ export async function generatePolicy(
   const textBlock = message.content.find((block) => block.type === "text");
   const rawBody = textBlock?.text ?? "";
   // Defense-in-depth: sanitize at the source before the HTML is stored.
-  const body = DOMPurify.sanitize(rawBody);
+  // Use sanitize-html (pure JS, no jsdom) instead of DOMPurify on the server.
+  // Vercel's Rust-based Node runtime doesn't support require()-ing ESM modules,
+  // and jsdom's transitive dep tree triggers that error chain. The client still
+  // runs DOMPurify before rendering as a second layer.
+  const body = sanitizeHtml(rawBody, {
+    allowedTags: sanitizeHtml.defaults.allowedTags.concat(["h1", "h2"]),
+    allowedAttributes: {
+      ...sanitizeHtml.defaults.allowedAttributes,
+      "*": ["class", "id"],
+    },
+  });
 
   return {
     type,

@@ -12,7 +12,7 @@ export const frontmatter = {
   ],
 };
 
-"Missing GTIN" in your Shopify Google channel feed means Google can't match your product to its global catalog — and as of 2026 that's a hard requirement for branded products, not a soft warning. The fix path forks based on whether your products actually have GTINs available. If they do, populate them via the variant Barcode field (Shopify maps Barcode → GTIN automatically in the Google channel). If they don't — handmade, custom, private-label — you set `identifier_exists` to false. The wrong fix is doing nothing or inventing fake GTINs, both of which suspend accounts.
+"[Missing GTIN](/fix/missing-gtin)" in your Shopify Google channel feed means Google can't match your product to its global catalog — and as of 2026 that's a hard requirement for branded products, not a soft warning. The fix path forks based on whether your products actually have GTINs available. If they do, populate them via the variant Barcode field (Shopify maps Barcode → GTIN automatically in the Google channel). If they don't — handmade, custom, private-label — you set `identifier_exists` to false. The wrong fix is doing nothing or inventing fake GTINs, both of which suspend accounts.
 
 This post walks the decision tree, the bulk-edit methods, and the 24-72 hour sync window you have to wait through before you'll see the error clear.
 
@@ -31,7 +31,7 @@ If Shopify is showing "missing GTIN" in your Google channel feed, it means the v
 Three paths, depending on your catalog:
 
 - **Path A: products HAVE GTINs but the field is empty.** Branded resale, dropshipped name brands, anything with a manufacturer-supplied barcode on the box. You populate the Barcode field on each variant.
-- **Path B: products are unique, handmade, or private-label.** Your own brand, no global catalog entry exists. You set `identifier_exists` to false.
+- **Path B: products are unique, handmade, or private-label.** Your own brand, no global catalog entry exists. You [set `identifier_exists` to false](/fix/missing-identifier-exists).
 - **Path C: dropshipped or wholesale products where the supplier won't share GTINs.** Awkward middle ground — three sub-options with different trade-offs.
 
 Pick the right path before doing any bulk edits. Mixing paths on the same product (setting `identifier_exists=false` while populating GTIN, for example) creates contradictory data that Google flags worse than the original error.
@@ -62,7 +62,7 @@ Two methods:
 
 Some Google channel app versions look for a different namespace — `mc_google_offer.identifier_exists` — instead of `custom.identifier_exists`. Check which your version uses by populating one product, syncing, and inspecting the resulting feed entry in GMC. If the value didn't propagate, switch namespaces.
 
-**Important rule:** setting `identifier_exists=false` requires you to **omit GTIN, MPN, and brand** for that product, OR to provide brand+MPN as a substitute. You can't have it both ways. Setting `identifier_exists=false` while still populating brand or MPN sends contradictory data and gets flagged.
+**Important rule:** setting `identifier_exists=false` requires you to **omit GTIN, [MPN](/fix/missing-mpn), and [brand](/fix/missing-brand)** for that product, OR to provide brand+MPN as a substitute. You can't have it both ways. Setting `identifier_exists=false` while still populating brand or MPN sends contradictory data and gets flagged.
 
 For the brand+MPN substitute path, see [how to add MPN and brand metafields to Shopify products](/blog/mpn-brand-metafields-shopify).
 

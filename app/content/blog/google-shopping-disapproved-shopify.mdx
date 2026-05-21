@@ -31,9 +31,9 @@ The first thing to do when ad delivery stops: open Merchant Center → Diagnosti
 
 Product disapprovals are the easier case. Merchant Center → Products → Diagnostics gives you a per-product list of what's wrong. The most common reasons on Shopify stores:
 
-**Missing GTIN.** Google requires GTINs for branded products in most categories. If you're selling someone else's brand (e.g. you're a Nike retailer), you need real GTINs from the manufacturer. If you're a private-label brand selling your own products, you can submit `identifier_exists: false` in the feed — Shopify's Google channel handles this, but you have to enable it.
+**[Missing GTIN](/fix/missing-gtin).** Google requires GTINs for branded products in most categories. If you're selling someone else's brand (e.g. you're a Nike retailer), you need real GTINs from the manufacturer. If you're a private-label brand selling your own products, you can submit `identifier_exists: false` in the feed — Shopify's Google channel handles this, but you have to enable it.
 
-**Missing or bad image.** Images must be 100x100 minimum (Apparel: 250x250), under 16MB, on a white or transparent background, no text overlays, no watermarks. Shopify's automatic feed sync uses your product's main image — if that image has a "Limited Time!" overlay, it fails.
+**[Missing or bad image](/fix/missing-product-image).** Images must be 100x100 minimum (Apparel: 250x250), under 16MB, on a white or transparent background, no text overlays, no watermarks. Shopify's automatic feed sync uses your product's main image — if that image has a "Limited Time!" overlay, it fails.
 
 **Image accessibility.** If the image URL returns a 4xx or redirects through a CDN that requires authentication, Google can't pull it. Re-host on Shopify's CDN.
 
@@ -45,15 +45,15 @@ Product disapprovals are the easier case. Merchant Center → Products → Diagn
 
 ## Account-Level Disapprovals (a.k.a. Suspensions)
 
-This is the harder case and the one most blog posts conflate with product disapprovals. If Merchant Center diagnostics says "account suspended for misrepresentation," your problem isn't a missing GTIN — it's a trust signal Google computes about your storefront as a whole.
+This is the harder case and the one most blog posts conflate with product disapprovals. If Merchant Center diagnostics says "[account suspended for misrepresentation](/fix/account-suspension-misrepresentation)," your problem isn't a missing GTIN — it's a trust signal Google computes about your storefront as a whole.
 
 The most common account-level triggers:
 
-1. **Insufficient contact information.** Less than 2 of 3 contact methods publicly visible.
-2. **Missing or incomplete refund policy.** Return window, item condition, or refund method missing.
+1. **[Insufficient contact information](/fix/missing-contact-information).** Less than 2 of 3 contact methods publicly visible.
+2. **[Missing or incomplete refund policy](/fix/missing-refund-policy).** Return window, item condition, or refund method missing.
 3. **Hidden fees not disclosed in policy.** Cart shows handling fee that's absent from shipping policy.
 4. **Storefront password gate enabled.** Crawler can't reach products.
-5. **Drop-shipper-hosted images** combined with thin product descriptions.
+5. **[Drop-shipper-hosted images](/fix/dropshipping-cdn-images)** combined with thin product descriptions.
 6. **Missing structured data.** No JSON-LD Product schema on product pages.
 
 We cover all of these in detail in our [12-point Shopify checklist](/blog/gmc-suspension-shopify-checklist) and the [GMC explainer](/explainer). The recovery path is the same: audit, fix, document, request review.

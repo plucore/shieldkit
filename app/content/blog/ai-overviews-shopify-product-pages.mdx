@@ -40,7 +40,7 @@ Required fields for AI Overview eligibility:
 - `aggregateRating` and `review` blocks where applicable
 - Merchant Listings extensions: `gtin`, `mpn`, `material`, `pattern`, `color`, `size`
 
-Most Shopify themes emit the basic Product schema but skip the Merchant Listings extensions. Adding them is high-leverage — a product without `gtin` or `brand` doesn't get cited even when its description is perfect.
+Most Shopify themes emit the basic Product schema but skip the Merchant Listings extensions. Adding them is high-leverage — a product without [`gtin`](/fix/missing-gtin), [`mpn`](/fix/missing-mpn), or [`brand`](/fix/missing-brand) doesn't get cited even when its description is perfect.
 
 ### Factor 2: First-person, factual product descriptions
 
@@ -144,6 +144,8 @@ Three checks:
 - **Monitor referrals.** GA4 → Acquisition → Traffic acquisition → segment by `google.com` referrers, then sub-filter for AI Overview-attributed traffic. The traffic source shows up as `google.com` but with a unique `_gl` parameter signature for AI Overview clicks.
 
 For the broader question of which AI search formats matter most, see [JSON-LD vs llms.txt for Shopify](/blog/json-ld-vs-llms-txt-shopify). For tracking which AI engines are actually crawling your store, see [how to track AI crawler visits on your Shopify store](/blog/track-ai-crawlers-shopify). And for the upstream merchant feed cleanup that improves AI eligibility too, see [why "missing GTIN" shows on your Shopify Google channel](/blog/missing-gtin-shopify-fix).
+
+Want to check whether your product pages already meet the schema bar for AI Overview citations? Run a free scan at [shieldkit.app/scan](/scan) — it surfaces the missing Merchant Listings extensions, weak product titles, and structured-data gaps that keep stores out of AI answers.
 
 ## FAQ
 

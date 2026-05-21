@@ -63,7 +63,7 @@ import AIVisibilityCard from "../components/AIVisibilityCard";
 // ─── Asset preloading ─────────────────────────────────────────────────────────
 
 export const links: LinksFunction = () => [
-  { rel: "preload", href: "/logo-main.webp", as: "image", type: "image/webp" },
+  { rel: "preload", href: "/logo-main.png", as: "image" },
   { rel: "stylesheet", href: styles },
 ];
 
@@ -850,7 +850,7 @@ export default function Index() {
 
           <div style={{ textAlign: "center", padding: "28px 0 8px" }}>
             <img
-              src="/logo-main.webp"
+              src="/logo-main.png"
               alt="ShieldKit Logo"
               loading="eager"
               fetchpriority="high"

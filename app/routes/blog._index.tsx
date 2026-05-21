@@ -1,14 +1,8 @@
 import type {
-  HeadersFunction,
   LinksFunction,
   LoaderFunctionArgs,
   MetaFunction,
 } from "react-router";
-
-// Cache blog index at Vercel's edge for 24h, stale-while-revalidate for 7 days.
-export const headers: HeadersFunction = () => ({
-  "Cache-Control": "public, max-age=0, s-maxage=86400, stale-while-revalidate=604800",
-});
 import { Link, useLoaderData } from "react-router";
 
 import { MarketingLayout } from "../components/marketing/MarketingLayout";

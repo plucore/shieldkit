@@ -1,16 +1,8 @@
 import type {
-  HeadersFunction,
   LinksFunction,
   LoaderFunctionArgs,
   MetaFunction,
 } from "react-router";
-
-// Cache fix pages at Vercel's edge for 24h, stale-while-revalidate for 7 days.
-// Fix content is effectively static — sourced from app/content/fixes.ts and
-// only changes on redeploy, which busts the CDN cache automatically.
-export const headers: HeadersFunction = () => ({
-  "Cache-Control": "public, max-age=0, s-maxage=86400, stale-while-revalidate=604800",
-});
 import { useLoaderData, isRouteErrorResponse, useRouteError } from "react-router";
 
 import { MarketingLayout } from "../components/marketing/MarketingLayout";

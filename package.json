@@ -79,7 +79,11 @@
     "@shopify/plugin-cloudflare"
   ],
   "overrides": {
-    "p-map": "^4.0.0"
+    "p-map": "^4.0.0",
+    "jsdom": "27.0.0",
+    "isomorphic-dompurify": {
+      "jsdom": "27.0.0"
+    }
   },
   "author": "am"
 }

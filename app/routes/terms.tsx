@@ -5,7 +5,16 @@
  * ShieldKit terms of service.
  */
 
+import type { HeadersFunction } from "react-router";
+
 import { SITE } from "../lib/brand";
+
+// Cache the terms of service at Vercel's edge for 24h, stale-while-revalidate
+// for 7 days. The page changes only on legal review, which is rare enough
+// that 7 days of staleness is acceptable. Cuts Fast Origin Transfer.
+export const headers: HeadersFunction = () => ({
+  "Cache-Control": "public, max-age=0, s-maxage=86400, stale-while-revalidate=604800",
+});
 
 export const meta = () => {
   const title = "Terms of Service — ShieldKit";

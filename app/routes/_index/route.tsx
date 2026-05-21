@@ -1,5 +1,5 @@
 import type { LoaderFunctionArgs, MetaFunction, LinksFunction } from "react-router";
-import { redirect, useLoaderData } from "react-router";
+import { redirect } from "react-router";
 
 import { MarketingLayout } from "../../components/marketing/MarketingLayout";
 import { MarketingButton } from "../../components/marketing/Button";
@@ -12,6 +12,47 @@ export const links: LinksFunction = () => [
   { rel: "stylesheet", href: marketingStyles },
 ];
 
+/**
+ * Homepage FAQ — single source of truth for the visible accordion AND the
+ * FAQPage JSON-LD block.
+ *
+ * Each entry has `q` (displayed question), `a` (React node rendered in the
+ * accordion), and `aPlain` (plain-text answer for structured data). Per
+ * Google's FAQPage requirements, `aPlain` MUST match what's visible to the
+ * user, so keep both in sync.
+ */
+const HOMEPAGE_FAQ: { q: string; aPlain: string }[] = [
+  {
+    q: "How does the scan work?",
+    aPlain:
+      "ShieldKit performs a read-only crawl of your storefront, your shop policies via the Shopify Admin API, and a sample of your product pages. We never make changes — only diagnose.",
+  },
+  {
+    q: "Do you write anything to my store?",
+    aPlain:
+      "No. We request read-only scopes (read_products, read_content, read_legal_policies) and never write back to Shopify.",
+  },
+  {
+    q: "What does GMC misrepresentation actually mean?",
+    aPlain:
+      "It's the most common cause of Google Merchant Center suspensions — Google believes your storefront is missing trust signals (contact info, policies, transparent pricing). Read the full explainer at /explainer.",
+  },
+  {
+    q: "How fast can I recover from a suspension?",
+    aPlain:
+      "With clean fixes documented in your re-review request, most merchants are reinstated in 3–7 days. Repeat offenses or unclear fixes can extend that.",
+  },
+  {
+    q: "Is the free plan really free?",
+    aPlain: "Yes — 1 scan/month, no card required.",
+  },
+  {
+    q: "What's the difference between Monitoring and Recovery?",
+    aPlain:
+      "Monitoring ($30/mo or $290/yr) keeps your store compliant going forward — weekly automated scans, the weekly digest, AI search visibility (AI Overviews, ChatGPT shopping), structured data for new products, and AI crawler controls. Recovery ($150/yr) adds everything you need to get reinstated fast when something has already gone wrong: AI-written policies, the GMC re-review appeal letter generator, bulk product data fixes (GTIN/MPN/brand), and unlimited on-demand scans.",
+  },
+];
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
 
@@ -21,12 +62,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     throw redirect(`/app?${url.searchParams.toString()}`);
   }
 
-  // Default to v2 (recurring $14/$39 pricing). Set MARKETING_VERSION=v1 in
-  // Vercel env to roll back to the v1 one-time-$29 pricing copy if needed.
-  const marketingVersion =
-    process.env.MARKETING_VERSION === "v1" ? "v1" : "v2";
-
-  return { marketingVersion };
+  return null;
 };
 
 export const meta: MetaFunction = () => {
@@ -52,9 +88,6 @@ export const meta: MetaFunction = () => {
 };
 
 export default function HomePage() {
-  const { marketingVersion } = useLoaderData<typeof loader>();
-  const isV2 = marketingVersion === "v2";
-
   const orgJsonLd = {
     "@context": "https://schema.org",
     "@type": "Organization",
@@ -65,22 +98,35 @@ export default function HomePage() {
       "GMC compliance and AI search visibility tools for Shopify merchants.",
   };
 
+  // FAQPage structured data mirrors the visible FAQ accordion below. Question
+  // and answer text MUST match the rendered JSX verbatim (Google requirement).
+  const faqJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: HOMEPAGE_FAQ.map((it) => ({
+      "@type": "Question",
+      name: it.q,
+      acceptedAnswer: { "@type": "Answer", text: it.aPlain },
+    })),
+  };
+
   return (
     <MarketingLayout mainLabel="ShieldKit homepage">
       <JsonLd data={orgJsonLd} />
-      {isV2 ? <HeroV2 /> : <HeroV1 />}
+      <JsonLd data={faqJsonLd} />
+      <Hero />
       <HowItWorks />
       <FeatureGrid />
-      <div id="pricing">{isV2 ? <PricingV2 /> : <PricingV1 />}</div>
-      <FAQ isV2={isV2} />
-      <FinalCta isV2={isV2} />
+      <div id="pricing"><Pricing /></div>
+      <FAQ />
+      <FinalCta />
     </MarketingLayout>
   );
 }
 
-/* ─────────────────────────────────────────────────────────── HEROES ── */
+/* ───────────────────────────────────────────────────────────── HERO ── */
 
-function HeroV1() {
+function Hero() {
   return (
     <section className="mx-auto max-w-6xl px-4 sm:px-6 pt-16 sm:pt-24 pb-16 sm:pb-24">
       <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
@@ -92,7 +138,7 @@ function HeroV1() {
             Fix Your Google Merchant Center Suspension Before It Costs You Sales
           </h1>
           <p className="mt-6 text-lg sm:text-xl text-brand-gray-text leading-relaxed max-w-xl">
-            10-point compliance audit + AI-powered policy generation for
+            12-point compliance audit + AI-powered policy generation for
             Shopify stores. Diagnose what Google flags, fix it fast, get back
             to selling.
           </p>
@@ -105,43 +151,11 @@ function HeroV1() {
             </MarketingButton>
           </div>
           <p className="mt-4 text-sm text-brand-gray-text">
-            No credit card. Read-only — we never write to your store.
-          </p>
-        </div>
-        <div className="lg:pl-8">
-          <HeroMock />
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function HeroV2() {
-  return (
-    <section className="mx-auto max-w-6xl px-4 sm:px-6 pt-16 sm:pt-24 pb-16 sm:pb-24">
-      <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
-        <div>
-          <span className="inline-flex items-center rounded-full bg-white/70 border border-brand-card-border px-3 py-1 text-xs font-bold uppercase tracking-wider text-brand-navy">
-            Trust + Visibility for Shopify
-          </span>
-          <h1 className="mt-5 text-4xl sm:text-5xl lg:text-6xl font-extrabold text-brand-navy leading-[1.05]">
-            The Trust Layer for Shopify
-          </h1>
-          <p className="mt-6 text-lg sm:text-xl text-brand-gray-text leading-relaxed max-w-xl">
-            Stay compliant with Google. Be findable in AI search. Continuous
-            monitoring, weekly reports, and AI-ready product schema — from
-            $14/month.
-          </p>
-          <div className="mt-8 flex flex-wrap gap-3">
-            <MarketingButton href={SITE.installUrl} size="lg">
-              Start Free
-            </MarketingButton>
-            <MarketingButton to="/scan" variant="secondary" size="lg">
-              Run Free Compliance Scan
-            </MarketingButton>
-          </div>
-          <p className="mt-4 text-sm text-brand-gray-text">
-            Free plan available. Cancel anytime.
+            No credit card. Read-only — we never write to your store. Or{" "}
+            <a href="/fix" className="underline font-semibold text-brand-navy">
+              browse 30+ specific fixes for common GMC errors
+            </a>
+            .
           </p>
         </div>
         <div className="lg:pl-8">
@@ -269,55 +283,12 @@ function FeatureGrid() {
 
 /* ───────────────────────────────────────────────────────── PRICING ── */
 
-function PricingV1() {
-  return (
-    <section className="bg-white/40 border-y border-brand-card-border/60">
-      <div className="mx-auto max-w-6xl px-4 sm:px-6 py-16 sm:py-24">
-        <h2 className="text-3xl sm:text-4xl font-extrabold text-brand-navy text-center">
-          Simple, fair pricing
-        </h2>
-        <p className="mt-3 text-brand-gray-text text-center">
-          Start free. Upgrade once if you need more.
-        </p>
-        <div className="mt-12 grid sm:grid-cols-2 gap-6 max-w-3xl mx-auto">
-          <PricingCard
-            name="Free"
-            price="$0"
-            features={[
-              "1 compliance scan",
-              "Fix instructions for top issues",
-              "Free JSON-LD structured data theme block",
-              "Compliance score & threat assessment",
-            ]}
-            cta="Install on Shopify"
-            ctaHref={SITE.installUrl}
-          />
-          <PricingCard
-            name="Pro"
-            price="$29"
-            interval="one-time"
-            highlight
-            features={[
-              "Everything in Free",
-              "Unlimited compliance re-scans",
-              "AI-powered policy generator (refund, shipping, privacy, terms)",
-              "Priority support",
-            ]}
-            cta="Install on Shopify"
-            ctaHref={SITE.installUrl}
-          />
-        </div>
-      </div>
-    </section>
-  );
-}
-
 /**
- * V2 pricing uses two hidden radio inputs as the source of truth for the
+ * Pricing uses two hidden radio inputs as the source of truth for the
  * monthly|annual toggle. Sibling combinator CSS in marketing.css flips
  * which price spans show. No JS, no hydration.
  */
-function PricingV2() {
+function Pricing() {
   return (
     <section className="bg-white/40 border-y border-brand-card-border/60">
       <div className="mx-auto max-w-6xl px-4 sm:px-6 py-16 sm:py-24">
@@ -511,7 +482,13 @@ function PricingCard({
 
 /* ───────────────────────────────────────────────────────────── FAQ ── */
 
-function FAQ({ isV2 }: { isV2: boolean }) {
+/**
+ * Visible homepage FAQ accordion. The HOMEPAGE_FAQ constant below holds the
+ * same Q&A pairs in a JSON-LD-friendly shape (plain-text answers); FAQPage
+ * schema rendered in the parent component reads from that source so the
+ * structured data matches what shoppers see (Google requirement).
+ */
+function FAQ() {
   const items: { q: string; a: React.ReactNode }[] = [
     {
       q: "How does the scan work?",
@@ -556,33 +533,23 @@ function FAQ({ isV2 }: { isV2: boolean }) {
     },
     {
       q: "Is the free plan really free?",
-      a: <>Yes — 1 scan{isV2 ? "/month" : ""}, no card required.</>,
+      a: <>Yes — 1 scan/month, no card required.</>,
     },
-    isV2
-      ? {
-          q: "What's the difference between Monitoring and Recovery?",
-          a: (
-            <>
-              Monitoring ($30/mo or $290/yr) keeps your store compliant going
-              forward — weekly automated scans, the weekly digest, AI search
-              visibility (AI Overviews, ChatGPT shopping), structured data
-              for new products, and AI crawler controls. Recovery ($150/yr)
-              adds everything you need to get reinstated fast when something
-              has already gone wrong: AI-written policies, the GMC re-review
-              appeal letter generator, bulk product data fixes (GTIN/MPN/
-              brand), and unlimited on-demand scans.
-            </>
-          ),
-        }
-      : {
-          q: "Can I cancel anytime?",
-          a: (
-            <>
-              Pro is a one-time $29 charge — there's nothing to cancel. You
-              own the unlock for the life of your install.
-            </>
-          ),
-        },
+    {
+      q: "What's the difference between Monitoring and Recovery?",
+      a: (
+        <>
+          Monitoring ($30/mo or $290/yr) keeps your store compliant going
+          forward — weekly automated scans, the weekly digest, AI search
+          visibility (AI Overviews, ChatGPT shopping), structured data
+          for new products, and AI crawler controls. Recovery ($150/yr)
+          adds everything you need to get reinstated fast when something
+          has already gone wrong: AI-written policies, the GMC re-review
+          appeal letter generator, bulk product data fixes (GTIN/MPN/
+          brand), and unlimited on-demand scans.
+        </>
+      ),
+    },
   ];
   return (
     <section className="mx-auto max-w-3xl px-4 sm:px-6 py-16 sm:py-24">
@@ -611,14 +578,12 @@ function FAQ({ isV2 }: { isV2: boolean }) {
 
 /* ─────────────────────────────────────────────────────── FINAL CTA ── */
 
-function FinalCta({ isV2 }: { isV2: boolean }) {
+function FinalCta() {
   return (
     <section className="mx-auto max-w-6xl px-4 sm:px-6 py-16 sm:py-20">
       <div className="rounded-3xl bg-brand-navy text-white p-10 sm:p-14 text-center shadow-card">
         <h2 className="text-3xl sm:text-4xl font-extrabold !text-white">
-          {isV2
-            ? "Ready to get found by Google and AI?"
-            : "Ready to fix your suspension?"}
+          Ready to fix your suspension?
         </h2>
         <p className="mt-3 text-white/80 max-w-xl mx-auto">
           Run a free compliance scan in under two minutes. No install required

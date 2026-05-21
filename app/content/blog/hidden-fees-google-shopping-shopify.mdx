@@ -12,7 +12,7 @@ export const frontmatter = {
   ],
 };
 
-Google considers any fee a customer pays at checkout that wasn't disclosed before checkout a "hidden fee," and it's one of the top misrepresentation triggers for Shopify stores in 2026. The anchor rule: the price in your feed plus standard shipping must equal what customers actually pay — handling fees, currency conversion margins, app-injected line items, restocking fees buried in fine print, and tax surprises all violate it. Eight specific patterns hit Shopify stores. Most are theme-level or app-level fixes that take under an hour once identified. The hard part is finding them; ShieldKit's automated [hidden fee scan](/scan) was built specifically for this category because manual auditing of your own checkout misses 30-40% of the triggers.
+Google considers [any fee a customer pays at checkout that wasn't disclosed before checkout a "hidden fee"](/fix/hidden-fees), and it's one of the top misrepresentation triggers for Shopify stores in 2026. The anchor rule: the price in your feed plus standard shipping must equal what customers actually pay — handling fees, currency conversion margins, app-injected line items, restocking fees buried in fine print, and tax surprises all violate it. Eight specific patterns hit Shopify stores. Most are theme-level or app-level fixes that take under an hour once identified. The hard part is finding them; ShieldKit's automated [hidden fee scan](/scan) was built specifically for this category because manual auditing of your own checkout misses 30-40% of the triggers.
 
 This post is the full trigger list and the fix per type.
 
@@ -22,7 +22,7 @@ The rule, in plain language: any cost that appears at checkout but wasn't visibl
 
 Everything else has to be disclosed. Not just disclosed in your fine-print policy page — disclosed visibly, before the customer enters checkout.
 
-The penalty for hidden fees lands in the misrepresentation policy bucket. That can mean a Shopping disapproval (products stop running) or, in repeat or severe cases, an account suspension. See [why GMC suspends accounts in 2026](/blog/gmc-suspension-reasons-shopify) for where this lands in the full reason map.
+The penalty for hidden fees lands in the [misrepresentation policy bucket](/fix/account-suspension-misrepresentation). That can mean a Shopping disapproval (products stop running) or, in repeat or severe cases, an account suspension. See [why GMC suspends accounts in 2026](/blog/gmc-suspension-reasons-shopify) for where this lands in the full reason map.
 
 ## The 8 hidden-fee triggers on Shopify
 
@@ -95,7 +95,7 @@ Three methods, increasing in coverage:
 
 **Method 1: Walk through your own checkout as a real customer.** Open an incognito window. Add a representative product to cart. Note every fee, surcharge, or line item between the product page and the order confirmation. Each one not visible on the product page is suspect.
 
-**Method 2: Read the Disapproval Reasons in GMC.** GMC → Diagnostics → Item issues. Filter for "Misrepresentation" or "Inaccurate price." The flagged products tell you which fees are tripping Google's crawler.
+**Method 2: Read the Disapproval Reasons in GMC.** GMC → Diagnostics → Item issues. Filter for "Misrepresentation" or "[Inaccurate price](/fix/price-mismatch)." The flagged products tell you which fees are tripping Google's crawler.
 
 **Method 3: Run an automated scan.** ShieldKit's [free compliance scan](/scan) detects hidden fees by comparing your displayed product prices to the prices in your feed and at checkout. It catches the cases manual auditing misses — especially app-injected fees that only appear under specific conditions.
 

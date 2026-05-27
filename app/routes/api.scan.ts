@@ -14,26 +14,19 @@
  *   5. Decrement scans_remaining for quota-limited merchants.
  *   6. Return the complete scan + violations as JSON.
  *
- * ─── REQUIRED DB MIGRATIONS ────────────────────────────────────────────────
- * Run the following in your Supabase SQL editor before using this route:
+ * ─── DB SHAPE EXPECTED ─────────────────────────────────────────────────────
+ * See supabase/schema.sql for the live shape. The relevant pieces for this
+ * route:
  *
- *   -- 1. Add quota columns to merchants
- *   ALTER TABLE merchants
- *     ADD COLUMN IF NOT EXISTS scans_remaining INTEGER DEFAULT 1,
- *     ADD COLUMN IF NOT EXISTS tier TEXT NOT NULL DEFAULT 'free'
- *       CHECK (tier IN ('free', 'pro'));
+ *   merchants.tier        CHECK (tier IN ('free','shield','pro','monitoring','recovery'))
+ *                         (widened by migration 20260514150228 — pre-v3 the
+ *                          constraint was the narrower 'free','pro' pair)
+ *   merchants.scans_remaining  INTEGER; NULL on paid tiers (unlimited),
+ *                              0 when exhausted, n>0 when allowed.
+ *   violations.severity    CHECK (severity IN ('critical','warning','info','error'))
  *
- *   -- 2. Backfill existing installed merchants with 1 free scan
- *   UPDATE merchants
- *   SET scans_remaining = 1
- *   WHERE scans_remaining IS NULL AND uninstalled_at IS NULL;
- *
- *   -- 3. Allow "error" severity in violations (for checks that throw unexpectedly)
- *   ALTER TABLE violations
- *     DROP CONSTRAINT IF EXISTS violations_severity_check;
- *   ALTER TABLE violations
- *     ADD CONSTRAINT violations_severity_check
- *     CHECK (severity IN ('critical', 'warning', 'info', 'error'));
+ * decrement_scan_quota(p_merchant_id UUID) is the atomic-decrement RPC
+ * called below; defined in schema.sql.
  * ────────────────────────────────────────────────────────────────────────────
  */
 

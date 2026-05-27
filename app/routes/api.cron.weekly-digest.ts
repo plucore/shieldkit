@@ -3,8 +3,9 @@
  *
  * POST /api/cron/weekly-digest
  *
- * Vercel Cron, Mondays 13:00 UTC. For every active paid merchant
- * (tier IN ('shield','pro')) we:
+ * Vercel Cron, Mondays 13:00 UTC. For every active monitoring-access
+ * merchant (MONITORING_TIERS = monitoring + recovery + grandfathered pro
+ * — gated via hasMonitoringAccess) we:
  *   1. Pull the most recent two scans from the last ~14 days.
  *   2. Diff their failed-violations sets to derive new_issues_count
  *      and fixes_confirmed_count.

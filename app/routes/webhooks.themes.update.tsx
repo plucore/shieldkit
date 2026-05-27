@@ -4,9 +4,11 @@
  * Phase 7.3 — Theme-change scan trigger.
  *
  * Subscribes to themes/update + themes/publish. On any delivery from a
- * paid merchant (tier IN ('shield','pro')) we insert a pending_scan_triggers
- * row, dedup'd to one open trigger per merchant per 24h. The cron route
- * api.cron.process-scan-triggers drains the queue daily.
+ * monitoring-access merchant (MONITORING_TIERS = monitoring + recovery +
+ * grandfathered pro — gated via hasMonitoringAccess) we insert a
+ * pending_scan_triggers row, dedup'd to one open trigger per merchant per
+ * 24h. The cron route api.cron.process-scan-triggers drains the queue
+ * (one merchant per tick via GitHub Actions every 30 min).
  *
  * Always acks 200. Webhook errors are logged but never thrown.
  */

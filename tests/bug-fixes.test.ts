@@ -646,6 +646,51 @@ describe("JSON-LD activation verification", () => {
   });
 });
 
+// ─── Onboarding wizard 4-step + 10→12 (Fix 5) ───────────────────────────────
+
+describe("Onboarding wizard 4 steps including JSON-LD", () => {
+  it("wizard now has 4 numbered steps", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "routes/app._index.tsx"),
+      "utf-8"
+    );
+    // Numeric step markers in the wizard's static step array.
+    expect(src).toMatch(/num:\s*1\b/);
+    expect(src).toMatch(/num:\s*2\b/);
+    expect(src).toMatch(/num:\s*3\b/);
+    expect(src).toMatch(/num:\s*4\b/);
+  });
+
+  it("wizard step 2 is the Enable JSON-LD step", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "routes/app._index.tsx"),
+      "utf-8"
+    );
+    expect(src).toContain("Enable Free Structured Data");
+    expect(src).toContain("Enable JSON-LD on my theme");
+    expect(src).toContain("isJsonLdStep");
+  });
+
+  it("wizard step 2 shows pending/verified state from clicked_at/verified_at", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "routes/app._index.tsx"),
+      "utf-8"
+    );
+    // The conditional UI in the JSON-LD wizard step.
+    expect(src).toMatch(/json_ld_verified_at[\s\S]*?Enabled ✓/);
+    expect(src).toMatch(/json_ld_enable_clicked_at[\s\S]*?Pending verification/);
+  });
+
+  it("no hard-coded '10-point' references remain in app._index.tsx", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "routes/app._index.tsx"),
+      "utf-8"
+    );
+    expect(src).not.toContain("10-point");
+    expect(src).toContain("12-point");
+  });
+});
+
 // ─── Uninstall webhook reliability + reconciler (Fix 4) ─────────────────────
 
 describe("Uninstall webhook reliability", () => {

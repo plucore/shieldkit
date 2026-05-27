@@ -4,10 +4,11 @@
  * ShieldKit — GMC Compliance Command Center
  *
  *  1. ONBOARDING (latestScan === null)
- *     Logo + vertical 3-step wizard + full-width "Run Free Scan" CTA.
+ *     Logo + vertical 4-step wizard (welcome → enable JSON-LD → why it
+ *     matters → run scan) + full-width "Run Free Scan" CTA.
  *
  *  2. DASHBOARD (latestScan !== null)
- *     Score banner -> KPI metric cards (4-up) -> 10-point audit checklist
+ *     Score banner -> KPI metric cards (4-up) -> 12-point audit checklist
  *     with full fix instructions exposed.
  *
  *  ASIDE (both states)
@@ -955,22 +956,34 @@ export default function Index() {
               margin: "28px 0 24px",
             }}
           >
+            {/* 4-step wizard. Step 2 = Enable JSON-LD (Fix 5 — surface
+                structured-data before the merchant ever scans, so the
+                activation rate can climb above the pre-fix 38%). The CTA
+                in step 2 wires to the same enableJsonLd action as the
+                aside card, so the verifier picks the click up identically. */}
             {[
               {
                 num: 1,
                 bg: "var(--p-color-bg-surface-info, #e8f6fe)",
                 title: "Welcome to ShieldKit",
-                text: "ShieldKit runs a full 10-point audit of your Shopify store against every requirement that causes Google Merchant Center account suspensions — and shows you exactly how to fix each one.",
+                text: "ShieldKit runs a full 12-point audit of your Shopify store against every requirement that causes Google Merchant Center account suspensions — and shows you exactly how to fix each one.",
               },
               {
                 num: 2,
+                bg: "var(--p-color-bg-surface-success, #f1f8f5)",
+                title: "Enable Free Structured Data",
+                text: "Adds Google-required Product schema to every product page. Free, runs forever, no scan required.",
+                isJsonLdStep: true,
+              },
+              {
+                num: 3,
                 bg: "var(--p-color-bg-surface-warning, #fff5ea)",
                 title: "Why GMC Compliance Matters",
                 text: "Google frequently suspends Shopify stores for vague policy violations like \"Misrepresentation\", instantly cutting off your Google Shopping traffic. Worse, Google only gives you a limited number of appeals before a permanent ban. You must fix all trust signals before requesting a review.",
               },
               {
-                num: 3,
-                bg: "var(--p-color-bg-surface-success, #f1f8f5)",
+                num: 4,
+                bg: "var(--p-color-bg-surface-info, #e8f6fe)",
                 title: "Run Your Free Compliance Scan",
                 text: "Get a complete compliance audit in under 60 seconds. ShieldKit identifies exactly which issues to fix to protect your Google Shopping revenue before Google flags your store.",
               },
@@ -1004,7 +1017,7 @@ export default function Index() {
                 >
                   {step.num}
                 </div>
-                <div>
+                <div style={{ flex: 1 }}>
                   <div
                     style={{
                       fontSize: "17px",
@@ -1025,6 +1038,70 @@ export default function Index() {
                   >
                     {step.text}
                   </p>
+
+                  {step.isJsonLdStep && (
+                    <div style={{ marginTop: "14px" }}>
+                      {merchant?.json_ld_verified_at ? (
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            fontSize: "14px",
+                            fontWeight: 600,
+                            color: "#1a9e5c",
+                          }}
+                        >
+                          <s-icon
+                            type="check-circle-filled"
+                            tone="success"
+                            size="base"
+                          />
+                          Enabled ✓
+                        </div>
+                      ) : merchant?.json_ld_enable_clicked_at ? (
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            fontSize: "14px",
+                            fontWeight: 600,
+                            color: "#e8820c",
+                          }}
+                        >
+                          <s-icon type="clock" tone="caution" size="base" />
+                          Pending verification — we&rsquo;ll confirm within an hour
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            jsonLdFetcher.submit(
+                              { action: "enableJsonLd" },
+                              { method: "POST" },
+                            );
+                            window.open(
+                              `https://${shopDomain}/admin/themes/current/editor?context=apps&activateAppId=071fc51ee1ef7f358cdaed5f95922498/product-schema`,
+                              "_top",
+                            );
+                          }}
+                          style={{
+                            fontSize: "14px",
+                            fontWeight: 600,
+                            color: "#fff",
+                            background: "#0f172a",
+                            border: "none",
+                            borderRadius: "8px",
+                            padding: "8px 16px",
+                            cursor: "pointer",
+                          }}
+                        >
+                          Enable JSON-LD on my theme
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -1153,7 +1230,7 @@ export default function Index() {
             </s-section>
           )}
 
-          {/* ── 10-point audit checklist ── */}
+          {/* ── 12-point audit checklist ── */}
           <AuditChecklist
             sortedChecks={sortedChecks}
             totalChecks={totalChecks}

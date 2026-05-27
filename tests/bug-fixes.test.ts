@@ -646,6 +646,66 @@ describe("JSON-LD activation verification", () => {
   });
 });
 
+// ─── Uninstall webhook reliability + reconciler (Fix 4) ─────────────────────
+
+describe("Uninstall webhook reliability", () => {
+  it("uninstall webhook inserts webhook_failures row on Supabase write failure", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "routes/webhooks.app.uninstalled.tsx"),
+      "utf-8"
+    );
+    expect(src).toContain("recordWebhookFailure");
+    expect(src).toContain("webhook_failures");
+    // Must wrap the failure insert in its own try/catch (insertion failure
+    // must NEVER break the webhook ACK upstream).
+    expect(src).toMatch(/try\s*\{[\s\S]*webhook_failures[\s\S]*\}\s*catch/);
+  });
+
+  it("uninstall webhook always returns 200 (preserved contract)", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "routes/webhooks.app.uninstalled.tsx"),
+      "utf-8"
+    );
+    expect(src).toContain("return new Response()");
+    expect(src).not.toMatch(/throw\s+new\s+/);
+  });
+
+  it("webhook_failures migration creates table + unresolved index", () => {
+    const src = fs.readFileSync(
+      path.join(ROOT_DIR, "supabase/migrations/20260527193253_webhook_failures.sql"),
+      "utf-8"
+    );
+    expect(src).toMatch(/CREATE TABLE IF NOT EXISTS webhook_failures/i);
+    expect(src).toMatch(/idx_webhook_failures_unresolved/i);
+    expect(src).toMatch(/WHERE resolved_at IS NULL/i);
+  });
+
+  it("reconcile-installs cron probes Shopify Admin API + back-fills uninstalled_at", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "routes/api.cron.reconcile-installs.ts"),
+      "utf-8"
+    );
+    expect(src).toContain("CRON_SECRET");
+    expect(src).toContain("createAdminClient");
+    // Treats 401/403 from Shopify as definitive uninstall signal.
+    expect(src).toMatch(/HTTP 401/);
+    // Audit row insert into webhook_failures with resolved_at set.
+    expect(src).toContain("webhook_failures");
+    expect(src).toMatch(/resolved_at:\s*nowIso/);
+  });
+
+  it("vercel.json schedules reconcile-installs daily at 03:00 UTC", () => {
+    const vercel = JSON.parse(
+      fs.readFileSync(path.join(ROOT_DIR, "vercel.json"), "utf-8")
+    );
+    const cron = vercel.crons.find(
+      (c: { path: string }) => c.path === "/api/cron/reconcile-installs"
+    );
+    expect(cron).toBeDefined();
+    expect(cron.schedule).toBe("0 3 * * *");
+  });
+});
+
 // ─── Policy detection: Page-hosted fallback ─────────────────────────────────
 
 describe("Policy detection Page fallback", () => {

@@ -652,6 +652,67 @@ describe("JSON-LD activation verification", () => {
   });
 });
 
+// ─── schema.sql cumulative state (Fix 10) ───────────────────────────────────
+
+describe("schema.sql matches production cumulative state", () => {
+  const schema = fs.readFileSync(
+    path.join(ROOT_DIR, "supabase/schema.sql"),
+    "utf-8"
+  );
+
+  it("tier CHECK admits v3 values + grandfathered shield/pro", () => {
+    expect(schema).toMatch(
+      /CHECK\s*\(\s*tier\s+IN\s*\(\s*'free',\s*'shield',\s*'pro',\s*'monitoring',\s*'recovery'/
+    );
+  });
+
+  it("merchants has the v2 billing columns", () => {
+    expect(schema).toContain("billing_cycle");
+    expect(schema).toContain("subscription_started_at");
+    expect(schema).toContain("shopify_subscription_id");
+    expect(schema).toContain("scans_reset_at");
+    expect(schema).toContain("pro_settings");
+  });
+
+  it("merchants has the Fix 3 JSON-LD verification columns", () => {
+    expect(schema).toContain("json_ld_enable_clicked_at");
+    expect(schema).toContain("json_ld_verified_at");
+    expect(schema).toContain("json_ld_verification_attempts");
+  });
+
+  it("merchants has the opportunistically-refreshed Shopify metadata columns", () => {
+    expect(schema).toContain("shop_name");
+    expect(schema).toContain("shop_owner_name");
+    expect(schema).toContain("primary_domain");
+    expect(schema).toContain("shop_metadata_refreshed_at");
+    expect(schema).toContain("llms_txt_last_served_at");
+  });
+
+  it("declares the v2 tables (digest_emails, appeal_letters, schema_enrichments)", () => {
+    expect(schema).toMatch(/CREATE TABLE IF NOT EXISTS digest_emails/);
+    expect(schema).toMatch(/CREATE TABLE IF NOT EXISTS appeal_letters/);
+    expect(schema).toMatch(/CREATE TABLE IF NOT EXISTS schema_enrichments/);
+  });
+
+  it("declares the phase 7 tables (enrichment_webhook_log, llms_txt_requests)", () => {
+    expect(schema).toMatch(/CREATE TABLE IF NOT EXISTS enrichment_webhook_log/);
+    expect(schema).toMatch(/CREATE TABLE IF NOT EXISTS llms_txt_requests/);
+  });
+
+  it("declares pending_scan_triggers with week_iso + payload + unique index (Fixes 8/9)", () => {
+    expect(schema).toMatch(/pending_scan_triggers/);
+    expect(schema).toMatch(/week_iso\s+TEXT/);
+    expect(schema).toMatch(/payload\s+JSONB/);
+    expect(schema).toMatch(/uq_pending_scan_triggers_week/);
+  });
+
+  it("declares webhook_failures table with unresolved partial index (Fix 4)", () => {
+    expect(schema).toMatch(/CREATE TABLE IF NOT EXISTS webhook_failures/);
+    expect(schema).toMatch(/idx_webhook_failures_unresolved/);
+    expect(schema).toMatch(/WHERE resolved_at IS NULL/);
+  });
+});
+
 // ─── GTIN enrichment off webhook hot path (Fix 9) ───────────────────────────
 
 describe("GTIN enrichment off webhook hot path", () => {

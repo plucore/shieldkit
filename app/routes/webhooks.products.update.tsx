@@ -3,31 +3,30 @@
  *
  * Phase 7.1 — Continuous GTIN/MPN/brand enrichment.
  * Phase 7.3 — Doubles as a "scan trigger" for storefront monitoring.
+ * Fix 9 (2026-05-27) — Enrichment moved off the webhook hot path. The
+ *   webhook now enqueues a pending_scan_triggers row with
+ *   trigger_type='enrichment'; the drainer
+ *   (api.cron.process-scan-triggers.ts) runs the actual enrichment with
+ *   the full 60s Vercel function ceiling.
  *
  * Subscribes to: products/create + products/update.
  *
- * Behavior:
+ * Behaviour:
  *   1. authenticate.webhook(request) — HMAC verified by Shopify SDK.
  *   2. Look up merchant by shop domain. Bail (200 OK) on no match.
- *   3. Insert pending_scan_triggers row — gated by hasMonitoringAccess
- *      (monitoring + recovery + grandfathered pro) with a 24h dedup window.
- *   4. Tier gate: hasMonitoringAccess for ongoing GTIN enrichment on the
- *      newly-updated product. Bulk fill on the existing catalog is gated
- *      separately by hasRecoveryAccess in app.gtin-fill.tsx.
- *   5. Scope gate: SCOPES env must include write_products.
- *   6. Dedup: skip if schema_enrichments has a row for this product
- *      within the last 24h.
- *   7. Run enrichProductMetafields with a 3s safety budget.
- *   8. ALWAYS ack 200 — never let webhook errors bubble.
+ *   3. Tier gate: hasMonitoringAccess.
+ *   4. Insert pending_scan_triggers row for trigger_type='product_update'
+ *      (24h-deduped — drives the storefront scan).
+ *   5. Insert pending_scan_triggers row for trigger_type='enrichment' with
+ *      the product gid as payload (24h-deduped against schema_enrichments).
+ *   6. ALWAYS ack 200 — never let webhook errors bubble.
  */
 
 import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
-import { enrichProductMetafields, gidToNumericId } from "../lib/enrichment/gtin-enrichment.server";
 import { hasMonitoringAccess } from "../lib/billing/plans";
 
-const SAFETY_BUDGET_MS = 3000;
 const ENRICHMENT_DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 function ack(): Response {
@@ -69,6 +68,7 @@ async function maybeRecordScanTrigger(opts: {
       .from("pending_scan_triggers")
       .select("id")
       .eq("merchant_id", opts.merchantId)
+      .eq("trigger_type", "product_update")
       .is("processed_at", null)
       .gte("trigger_at", cutoff)
       .limit(1);
@@ -90,9 +90,108 @@ async function maybeRecordScanTrigger(opts: {
   }
 }
 
+/**
+ * Enqueue an enrichment job for the drainer. Same 24h dedup pattern as the
+ * scan trigger but keyed against schema_enrichments so we don't re-enqueue
+ * for a product we already enriched recently.
+ */
+async function maybeEnqueueEnrichment(opts: {
+  merchantId: string;
+  numericProductId: string;
+  productGid: string;
+  topic: string;
+}): Promise<void> {
+  // Dedup against the historical record so we don't enqueue a job for a
+  // product we successfully enriched within the last 24h.
+  try {
+    const cutoff = new Date(Date.now() - ENRICHMENT_DEDUP_WINDOW_MS).toISOString();
+    const { data: existing } = await supabase
+      .from("schema_enrichments")
+      .select("enriched_at")
+      .eq("merchant_id", opts.merchantId)
+      .eq("product_id", opts.numericProductId)
+      .order("enriched_at", { ascending: false })
+      .limit(1);
+    if (existing && existing[0] && existing[0].enriched_at >= cutoff) {
+      await logOutcome({
+        merchantId: opts.merchantId,
+        productId: opts.numericProductId,
+        topic: opts.topic,
+        outcome: "skip_dedup",
+      });
+      return;
+    }
+  } catch (err) {
+    // Non-fatal: better a duplicate enrichment than a silent drop.
+    console.warn(
+      "[webhooks.products.update] enrichment dedup check failed, enqueuing anyway:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  // Also dedup against an already-queued unprocessed enrichment trigger
+  // for the same product — a flurry of webhook deliveries shouldn't
+  // generate dozens of identical queue rows.
+  try {
+    const { data: queued } = await supabase
+      .from("pending_scan_triggers")
+      .select("id")
+      .eq("merchant_id", opts.merchantId)
+      .eq("trigger_type", "enrichment")
+      .is("processed_at", null)
+      .contains("payload", { numeric_product_id: opts.numericProductId })
+      .limit(1);
+    if (queued && queued.length > 0) {
+      await logOutcome({
+        merchantId: opts.merchantId,
+        productId: opts.numericProductId,
+        topic: opts.topic,
+        outcome: "skip_already_queued",
+      });
+      return;
+    }
+  } catch (err) {
+    // Non-fatal — fall through to insert. Postgres @> on jsonb is cheap
+    // but the dedup itself is best-effort, not load-bearing.
+    console.warn(
+      "[webhooks.products.update] enrichment queue dedup failed:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  const { error: insertErr } = await supabase
+    .from("pending_scan_triggers")
+    .insert({
+      merchant_id: opts.merchantId,
+      trigger_type: "enrichment",
+      payload: {
+        product_gid: opts.productGid,
+        numeric_product_id: opts.numericProductId,
+      },
+    });
+
+  if (insertErr) {
+    await logOutcome({
+      merchantId: opts.merchantId,
+      productId: opts.numericProductId,
+      topic: opts.topic,
+      outcome: "error",
+      errorMessage: `enqueue_failed: ${insertErr.message}`,
+    });
+    return;
+  }
+
+  await logOutcome({
+    merchantId: opts.merchantId,
+    productId: opts.numericProductId,
+    topic: opts.topic,
+    outcome: "enqueued",
+  });
+}
+
 export const action = async ({ request }: ActionFunctionArgs) => {
   // 1. HMAC verification — throws 401 Response on failure.
-  const { shop, payload, topic, admin } = await authenticate.webhook(request);
+  const { shop, payload, topic } = await authenticate.webhook(request);
 
   // 2. Look up merchant.
   const { data: merchant } = await supabase
@@ -103,24 +202,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   if (!merchant) {
     // skip_no_merchant — race between OAuth and first webhook delivery, or
-    // stale subscription on an uninstalled shop. Deterministic from a single
-    // SELECT; logging removed 2026-05-20 to cut Supabase write volume on the
-    // hot path. See git history if you need to bring it back for debugging.
+    // stale subscription on an uninstalled shop. Logging removed 2026-05-20.
     return ack();
   }
 
-  // Uninstalled merchants must not trigger any future write — neither a
-  // pending_scan_triggers insert nor GTIN enrichment. Shopify revokes the
-  // OAuth token on uninstall so `admin` is usually null already, but that's
-  // a practical coincidence, not a contract: queued retries and in-flight
-  // deliveries can still land here. This guard is the durable answer.
-  // Note: existing GTIN/MPN/brand metafields on the merchant's products are
-  // intentionally NOT touched — they belong to the merchant.
+  // Uninstalled merchants must not trigger any future write. (skip_uninstalled)
+  // Guarded before maybeRecordScanTrigger and the tier/scope gates.
   if (merchant.uninstalled_at) {
-    // skip_uninstalled — Shopify revokes the OAuth token on uninstall so
-    // `admin` is usually null already, but queued retries and in-flight
-    // deliveries can still land here. Deterministic from a single column;
-    // logging removed 2026-05-20.
     return ack();
   }
 
@@ -134,21 +222,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   // Phase 7.3 — record scan trigger (independent of GTIN enrichment).
   await maybeRecordScanTrigger({ merchantId: merchant.id, tier: merchant.tier });
 
-  // 3. Tier gate — *ongoing* GTIN enrichment on newly-updated products is a
-  // Monitoring-level feature. Bulk fill on the existing catalog is gated
-  // separately in app.gtin-fill.tsx via hasRecoveryAccess.
+  // 3. Tier gate (skip_tier) — ongoing GTIN enrichment on newly-updated
+  // products is a Monitoring-level feature. Bulk fill on the existing
+  // catalog is gated separately in app.gtin-fill.tsx via hasRecoveryAccess.
   if (!hasMonitoringAccess(merchant.tier)) {
-    // skip_tier — free/shield merchants never get enrichment. Deterministic
-    // from merchants.tier; this was the largest source of Supabase write
-    // volume from the webhook hot path. Logging removed 2026-05-20.
     return ack();
   }
 
-  // 4. Scope gate.
+  // 4. Scope gate (skip_scope).
   if (!(process.env.SCOPES ?? "").includes("write_products")) {
-    // skip_scope — flips uniformly when the write_products scope grant
-    // lands via App Store re-review. Deterministic from env; logging
-    // removed 2026-05-20.
     return ack();
   }
 
@@ -162,105 +244,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return ack();
   }
 
-  // 5. Dedup — skip if we enriched this product in the last 24h.
-  try {
-    const cutoff = new Date(Date.now() - ENRICHMENT_DEDUP_WINDOW_MS).toISOString();
-    const { data: existing } = await supabase
-      .from("schema_enrichments")
-      .select("enriched_at")
-      .eq("merchant_id", merchant.id)
-      .eq("product_id", numericId)
-      .order("enriched_at", { ascending: false })
-      .limit(1);
-    if (existing && existing[0] && existing[0].enriched_at >= cutoff) {
-      await logOutcome({
-        merchantId: merchant.id,
-        productId: numericId,
-        topic,
-        outcome: "skip_dedup",
-      });
-      return ack();
-    }
-  } catch (err) {
-    // Dedup failure is non-fatal — better to risk a duplicate write than
-    // silently drop on a transient DB hiccup.
-    console.warn(
-      "[webhooks.products.update] dedup check failed, proceeding:",
-      err instanceof Error ? err.message : err,
-    );
-  }
-
-  if (!admin) {
-    // No session means we can't talk to the Admin API. Still ack so Shopify
-    // doesn't retry indefinitely.
-    await logOutcome({
-      merchantId: merchant.id,
-      productId: numericId,
-      topic,
-      outcome: "skip_no_admin",
-    });
-    return ack();
-  }
-
-  // 6. Run with a safety budget.
-  const enrichmentPromise = enrichProductMetafields(admin, productGid);
-  const timeoutPromise = new Promise<{ ok: false; written: never[]; skipped: never[]; error: string }>(
-    (resolve) =>
-      setTimeout(
-        () => resolve({ ok: false, written: [], skipped: [], error: "timeout_3s" }),
-        SAFETY_BUDGET_MS,
-      ),
-  );
-
-  try {
-    const result = await Promise.race([enrichmentPromise, timeoutPromise]);
-
-    if (result.ok && result.written.length > 0) {
-      try {
-        await supabase
-          .from("schema_enrichments")
-          .upsert(
-            {
-              merchant_id: merchant.id,
-              product_id: numericId,
-              enriched_fields: result.written,
-              metafield_values: {},
-              enriched_at: new Date().toISOString(),
-            },
-            { onConflict: "merchant_id,product_id" },
-          );
-      } catch (err) {
-        console.warn(
-          "[webhooks.products.update] schema_enrichments upsert failed:",
-          err instanceof Error ? err.message : err,
-        );
-      }
-    }
-
-    await logOutcome({
-      merchantId: merchant.id,
-      productId: numericId,
-      topic,
-      outcome: result.ok
-        ? result.written.length > 0
-          ? "enriched"
-          : "noop"
-        : "error",
-      written: result.written,
-      errorMessage: result.ok ? undefined : result.error,
-    });
-  } catch (err) {
-    await logOutcome({
-      merchantId: merchant.id,
-      productId: numericId,
-      topic,
-      outcome: "error",
-      errorMessage: err instanceof Error ? err.message : String(err),
-    });
-  }
-
-  // Suppress unused-warning when caller doesn't read the gid helper.
-  void gidToNumericId;
+  // 5. Enqueue the enrichment job. Returns fast (<1s total webhook ACK).
+  await maybeEnqueueEnrichment({
+    merchantId: merchant.id,
+    numericProductId: numericId,
+    productGid,
+    topic,
+  });
 
   return ack();
 };

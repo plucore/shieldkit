@@ -77,11 +77,20 @@ describe("api.cron.process-scan-triggers", () => {
     expect(src).toContain('startsWith("Bearer ")');
   });
 
-  it("groups multiple triggers per merchant into a single scan", () => {
-    expect(src).toContain("triggersByMerchant");
+  it("groups multiple scan-class triggers per merchant into a single scan", () => {
+    // Post-Fix-9 the drainer splits scan-class vs enrichment trigger types.
+    // Scan-class are still coalesced per merchant; enrichment is per-product.
+    expect(src).toContain("scanRowsByMerchant");
     expect(src).toContain("runComplianceScan");
-    // single Map keyed by merchant_id; each merchant scanned once
-    expect(src).toMatch(/triggersByMerchant\.set\(/);
+    expect(src).toMatch(/scanRowsByMerchant\.set\(/);
+  });
+
+  it("processes enrichment triggers individually with payload.product_gid", () => {
+    // Fix 9 — webhook enqueues enrichment as trigger_type='enrichment' with
+    // the product gid in the payload column; the drainer handles them.
+    expect(src).toContain("enrichmentRows");
+    expect(src).toContain('row.trigger_type === "enrichment"');
+    expect(src).toContain("enrichProductMetafields");
   });
 
   it("marks processed_at on completion", () => {

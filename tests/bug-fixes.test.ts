@@ -652,6 +652,48 @@ describe("JSON-LD activation verification", () => {
   });
 });
 
+// ─── GTIN enrichment off webhook hot path (Fix 9) ───────────────────────────
+
+describe("GTIN enrichment off webhook hot path", () => {
+  it("webhook handler enqueues instead of running inline", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "routes/webhooks.products.update.tsx"),
+      "utf-8"
+    );
+    // Inline call site + SAFETY_BUDGET_MS race are gone.
+    expect(src).not.toContain("SAFETY_BUDGET_MS");
+    expect(src).not.toMatch(/Promise\.race\(\[enrichmentPromise/);
+    expect(src).not.toContain("enrichProductMetafields");
+    // New behaviour: enqueue trigger_type='enrichment' with payload.
+    expect(src).toContain("trigger_type: \"enrichment\"");
+    expect(src).toMatch(/payload:\s*\{/);
+    expect(src).toContain("product_gid");
+  });
+
+  it("migration adds pending_scan_triggers.payload column", () => {
+    const src = fs.readFileSync(
+      path.join(
+        ROOT_DIR,
+        "supabase/migrations/20260527194459_enrichment_triggers.sql",
+      ),
+      "utf-8"
+    );
+    expect(src).toMatch(/ADD COLUMN IF NOT EXISTS payload JSONB/i);
+    expect(src).toMatch(/trigger_type.*enrichment/i);
+  });
+
+  it("drainer routes enrichment triggers to enrichProductMetafields", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "routes/api.cron.process-scan-triggers.ts"),
+      "utf-8"
+    );
+    expect(src).toContain('row.trigger_type === "enrichment"');
+    expect(src).toContain("enrichProductMetafields");
+    // Drainer must read payload.product_gid from each enrichment row.
+    expect(src).toContain("payload?.product_gid");
+  });
+});
+
 // ─── Idempotent weekly-scan enqueue (Fix 8) ─────────────────────────────────
 
 describe("Weekly-scan enqueue idempotency", () => {

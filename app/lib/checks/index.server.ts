@@ -159,13 +159,13 @@ export async function runComplianceScan(
           checkContactInformation(pages, shopInfo)
         ),
         safeCheck("refund_return_policy", () =>
-          checkRefundPolicy(shopPolicies)
+          checkRefundPolicy(shopPolicies, pages)
         ),
         safeCheck("shipping_policy", () =>
-          checkShippingPolicy(shopPolicies)
+          checkShippingPolicy(shopPolicies, pages)
         ),
         safeCheck("privacy_and_terms", () =>
-          checkPrivacyAndTerms(shopPolicies)
+          checkPrivacyAndTerms(shopPolicies, pages)
         ),
         safeCheck("product_data_quality", () =>
           checkProductDataQuality(products)

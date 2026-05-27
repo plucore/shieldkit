@@ -6,6 +6,30 @@
 
 import dns from "node:dns/promises";
 import { PRIVATE_IP_PATTERNS } from "./constants";
+import type { Page } from "../shopify-api.server";
+
+/**
+ * Search a list of online-store Pages for one whose handle or title matches
+ * the given pattern, returning the first non-blank-body match.
+ *
+ * Used by the policy checks (refund/return, shipping, privacy, terms) to
+ * cover the common case where a merchant has the policy as a Shopify Page
+ * (e.g. /pages/shipping) but never registered it in Settings → Policies.
+ * Without this fallback the policy checks generate false-positive critical
+ * failures for legitimate shops.
+ */
+export function findPolicyPage(
+  pages: Page[],
+  pattern: RegExp,
+): Page | null {
+  for (const page of pages) {
+    if (!page.body?.trim()) continue;
+    if (pattern.test(page.handle) || pattern.test(page.title)) {
+      return page;
+    }
+  }
+  return null;
+}
 
 /** Strips all HTML tags from a string and collapses whitespace. */
 export function stripHtml(html: string): string {

@@ -563,6 +563,61 @@ describe("Branding hygiene", () => {
   });
 });
 
+// ─── Policy detection: Page-hosted fallback ─────────────────────────────────
+
+describe("Policy detection Page fallback", () => {
+  it("refund check accepts a Page when no Settings → Policies entry exists", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "lib/checks/refund-return-policy.server.ts"),
+      "utf-8"
+    );
+    expect(src).toContain("findPolicyPage");
+    expect(src).toMatch(/REFUND_PAGE_PATTERN\s*=\s*\/refund\|return\/i/);
+    expect(src).toContain('"Policy detected on page, not in Settings → Policies"');
+    // checkRefundPolicy must accept pages as a second arg
+    expect(src).toMatch(/export function checkRefundPolicy\(\s*policies:[^,]+,\s*pages/);
+  });
+
+  it("shipping check accepts a Page when no Settings → Policies entry exists", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "lib/checks/shipping-policy.server.ts"),
+      "utf-8"
+    );
+    expect(src).toContain("findPolicyPage");
+    expect(src).toMatch(/SHIPPING_PAGE_PATTERN\s*=\s*\/shipping\|delivery\/i/);
+    expect(src).toMatch(/export function checkShippingPolicy\(\s*policies:[^,]+,\s*pages/);
+  });
+
+  it("privacy_and_terms searches privacy and terms independently in Pages", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "lib/checks/privacy-and-terms.server.ts"),
+      "utf-8"
+    );
+    expect(src).toContain("findPolicyPage");
+    expect(src).toMatch(/PRIVACY_PAGE_PATTERN\s*=\s*\/privacy\/i/);
+    expect(src).toMatch(/TERMS_PAGE_PATTERN\s*=\s*\/terms\|tos\|conditions\/i/);
+    expect(src).toMatch(/export function checkPrivacyAndTerms\(\s*policies:[^,]+,\s*pages/);
+  });
+
+  it("orchestrator passes pages into all three policy checks", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "lib/checks/index.server.ts"),
+      "utf-8"
+    );
+    expect(src).toMatch(/checkRefundPolicy\(shopPolicies,\s*pages\)/);
+    expect(src).toMatch(/checkShippingPolicy\(shopPolicies,\s*pages\)/);
+    expect(src).toMatch(/checkPrivacyAndTerms\(shopPolicies,\s*pages\)/);
+  });
+
+  it("findPolicyPage helper is exported from helpers.server.ts", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "lib/checks/helpers.server.ts"),
+      "utf-8"
+    );
+    expect(src).toContain("export function findPolicyPage");
+  });
+});
+
 // ─── JSON-LD deep link uses client_id ───────────────────────────────────────
 
 describe("JSON-LD deep link", () => {

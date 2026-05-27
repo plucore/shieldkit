@@ -5,6 +5,9 @@ import { createReadableStreamFromReadable } from "@react-router/node";
 import { type EntryContext } from "react-router";
 import { isbot } from "isbot";
 import { addDocumentResponseHeaders } from "./shopify.server";
+// Side-effect import: initialises Sentry once on first server module load.
+// No-op when SENTRY_DSN is unset.
+import "./lib/sentry.server";
 
 export const streamTimeout = 5000;
 

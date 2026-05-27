@@ -120,15 +120,42 @@ describe("app.billing.confirm.tsx — Partner API primary path", () => {
     expect(src).toContain('searchParams.get("charge_id")');
   });
 
-  it("marks billing.check() as a legacy fallback removable after April 28", () => {
-    expect(src).toMatch(/REMOVE AFTER 2026-04-28/);
+  it("no longer references billing.check() (legacy fallback removed)", () => {
+    // The legacy `billing.check()` fallback was removed on the 2026-05-27 bug
+    // sweep. Partner API is the only path. References to billing.check,
+    // intervalToCycle, or pricingDetails would indicate a regression that
+    // reintroduces the dead code that drove paying-merchant downgrades when
+    // Shopify deprecated managed-pricing data on the Admin billing endpoint.
+    expect(src).not.toMatch(/billing\.check\(/);
+    expect(src).not.toContain("intervalToCycle");
+    expect(src).not.toContain("pricingDetails");
+    expect(src).not.toMatch(/REMOVE AFTER 2026-04-28/);
   });
 
   it("never writes tier when Partner API status is 'unknown' or 'pending'", () => {
     // The branch that writes tier only fires for status === "active".
     expect(src).toMatch(/sub\.status === "active"/);
-    // The "unknown" path must fall through (legacy backstop) — never demote.
-    expect(src).toContain("inconclusive");
+    // Unknown / pending / frozen / no-charge_id flows now render the
+    // "confirming subscription" pending page rather than redirecting to
+    // ?billing=cancelled. The pending page lets the merchant refresh once
+    // events propagate; cancelled redirect would have falsely demoted them.
+    expect(src).toContain('state: "pending"');
+    expect(src).not.toMatch(/status === "unknown".*redirect.*cancelled/s);
+  });
+
+  it("only redirects to ?billing=cancelled on explicit terminal status", () => {
+    // The pre-fix bug: ?billing=cancelled was the fallback for ANY non-active
+    // status, including `unknown` (which means "Shopify hasn't propagated
+    // events yet"). Post-fix, only explicit cancelled / declined / expired
+    // hits that redirect path.
+    expect(src).toMatch(/sub\.status === "cancelled"/);
+    expect(src).toMatch(/sub\.status === "declined"/);
+    expect(src).toMatch(/sub\.status === "expired"/);
+  });
+
+  it("emits Sentry breadcrumbs at each Partner API branch", () => {
+    expect(src).toContain('import { sentry }');
+    expect(src).toContain('partner_api_status=${sub.status}');
   });
 });
 

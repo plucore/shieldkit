@@ -2,164 +2,251 @@
  * app/routes/app.billing.confirm.tsx
  * Route: /app/billing/confirm
  *
- * Landing route after Shopify Managed Pricing's hosted approval page.
- * The founder configures this URL as the "Welcome link" in the Partner
- * Dashboard listing UI; Shopify redirects merchants here after they approve
- * (or cancel) a managed-pricing subscription, appending the new charge ID
- * as a `?charge_id={numeric}` query param.
+ * Landing route after Shopify Managed Pricing's hosted approval page. The
+ * founder configures this URL as the "Welcome link" in the Partner Dashboard
+ * listing UI; Shopify redirects merchants here after they approve (or cancel)
+ * a managed-pricing subscription, appending `?charge_id={numeric}`.
  *
- * Primary path (post-April-28 canonical): query the Partner API for the
- * charge's most recent AppSubscriptionEvent, derive tier/cycle from plan
- * name, persist on "active".
+ * Path (canonical post-2026-04-28): query the Partner API for the charge's
+ * most recent AppSubscriptionEvent, derive tier/cycle from plan name, persist
+ * on "active".
  *
- * Legacy fallback (pre-April-28 only): billing.check() against the Admin
- * API. Shopify is removing this for managed-pricing apps on April 28, 2026
- * — after that date this fallback is dead code and should be deleted. The
- * APP_SUBSCRIPTIONS_UPDATE webhook is a separate reconciliation backstop
- * (see webhooks.app_subscriptions.update.tsx) that also expires April 28.
+ * Status handling:
+ *   - active                       → write tier + redirect /app
+ *   - cancelled / declined / expired → redirect /app?billing=cancelled
+ *   - unknown / pending / frozen / no charge_id → render "confirming…" page
+ *                                  with manual Refresh. NEVER redirect to
+ *                                  cancelled on uncertainty — that was the
+ *                                  pre-fix bug that lost paying merchants.
  *
- * On approval, persists to merchants:
- *   - tier                       (shield | pro)
- *   - billing_cycle              (monthly | annual)
- *   - subscription_started_at    (Partner API activatedAt, else now)
- *   - shopify_subscription_id    (GraphQL gid)
- *   - scans_remaining = NULL     (unlimited on paid plans)
- *
- * Fail-safe contract: when both the Partner API and billing.check() fail
- * or return ambiguous results, we DO NOT demote tier. We redirect to
- * /app?billing=error so the merchant ends up on the dashboard rather than
- * a blank page, and the founder can reconcile manually.
+ * Fail-safe contract: do not demote on uncertainty. If we cannot positively
+ * confirm cancellation, keep the merchant on the confirming page so a refresh
+ * can resolve it as soon as Shopify's events catch up.
  */
 
-import { redirect } from "react-router";
+import { redirect, useLoaderData, useNavigate } from "react-router";
 import type { LoaderFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
 import {
-  PLAN_NAME_TO_TIER,
-  intervalToCycle,
-  type PlanName,
-} from "../lib/billing/plans";
-import {
   buildAppSubscriptionGid,
   getActiveSubscriptionByChargeId,
 } from "../lib/billing/partner-api.server";
+import { sentry } from "../lib/sentry.server";
+
+interface PendingResponse {
+  state: "pending";
+  reason: string;
+  chargeId: string | null;
+  shop: string;
+}
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { billing, session } = await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
+
+  sentry.addBreadcrumb({
+    category: "billing.confirm",
+    message: "loader_entered",
+    level: "info",
+    data: { shop: session.shop },
+  });
   console.log(`[billing/confirm] loader entered for shop=${session.shop}`);
 
-  // Shopify appends ?charge_id={numericId} to the welcome URL on approve.
   const url = new URL(request.url);
   const chargeIdParam = url.searchParams.get("charge_id");
 
-  // ── Primary: Partner API ─────────────────────────────────────────────────
-  if (chargeIdParam) {
-    const chargeGid = buildAppSubscriptionGid(chargeIdParam);
-    const sub = await getActiveSubscriptionByChargeId(chargeGid);
-    console.log(
-      `[billing/confirm] partner-api status=${sub.status} plan="${sub.planName}" tier=${sub.tier} cycle=${sub.cycle} reason=${sub.reason ?? ""}`,
-    );
-
-    if (sub.status === "active" && sub.tier && sub.tier !== "free") {
-      const { error } = await supabase
-        .from("merchants")
-        .update({
-          tier: sub.tier,
-          billing_cycle: sub.cycle,
-          subscription_started_at: sub.activatedAt ?? new Date().toISOString(),
-          shopify_subscription_id: sub.subscriptionGid,
-          scans_remaining: null,
-        })
-        .eq("shopify_domain", session.shop);
-
-      if (error) {
-        console.error(
-          `[billing/confirm] Supabase update FAILED for ${session.shop}: ${error.message}`,
-        );
-      }
-      return redirect("/app");
-    }
-
-    if (
-      sub.status === "cancelled" ||
-      sub.status === "declined" ||
-      sub.status === "expired"
-    ) {
-      // Merchant declined or cancelled on the hosted page.
-      return redirect("/app?billing=cancelled");
-    }
-
-    // status === "unknown" or "pending" or "frozen" — fall through to the
-    // legacy billing.check() path. Never demote on uncertainty.
-    console.warn(
-      `[billing/confirm] partner-api inconclusive (status=${sub.status}); falling back to billing.check()`,
-    );
-  } else {
-    console.warn(
-      "[billing/confirm] no charge_id URL param; falling back to billing.check()",
-    );
-  }
-
-  // ── Legacy fallback: billing.check() — REMOVE AFTER 2026-04-28 ───────────
-  // Shopify stops returning subscription data via Admin billing.check() for
-  // managed-pricing apps after April 28, 2026. This entire block is dead
-  // code after that date and should be deleted then.
-  let billingCheck;
-  try {
-    billingCheck = await billing.check({
-      isTest: process.env.NODE_ENV !== "production",
-      returnObject: true,
+  // ── No charge_id → confirming page ───────────────────────────────────────
+  // Shopify *should* always supply charge_id on the Welcome-link redirect.
+  // Missing it means we can't query Partner API; show the pending page so
+  // the merchant can refresh once the redirect URL is correctly populated.
+  if (!chargeIdParam) {
+    sentry.addBreadcrumb({
+      category: "billing.confirm",
+      message: "partner_api_status=missing_charge_id",
+      level: "warning",
+      data: { shop: session.shop },
     });
-    console.log(
-      `[billing/confirm] LEGACY billing.check hasActivePayment=${billingCheck.hasActivePayment}`,
-    );
-  } catch (err) {
     console.warn(
-      "[billing/confirm] LEGACY billing.check threw — treating as no active plan:",
-      err,
+      `[billing/confirm] no charge_id URL param for ${session.shop}`,
     );
-    billingCheck = { hasActivePayment: false, appSubscriptions: [] } as never;
+    return pending({
+      reason: "missing_charge_id",
+      chargeId: null,
+      shop: session.shop,
+    });
   }
 
-  if (billingCheck.hasActivePayment) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sub = billingCheck.appSubscriptions?.[0] as any;
-    const activeName = (sub?.name ?? "") as PlanName;
+  const chargeGid = buildAppSubscriptionGid(chargeIdParam);
 
-    const tier = PLAN_NAME_TO_TIER[activeName];
-    const interval = sub?.lineItems?.[0]?.plan?.pricingDetails?.interval;
-    const cycle = intervalToCycle(interval);
+  let sub;
+  try {
+    sub = await getActiveSubscriptionByChargeId(chargeGid);
+  } catch (err) {
+    // getActiveSubscriptionByChargeId is documented to never throw, but be
+    // defensive — capture & render the pending page rather than crashing.
+    sentry.captureException(err, {
+      tags: { area: "billing.confirm", branch: "partner_api_threw" },
+      extra: { shop: session.shop, chargeId: chargeIdParam },
+    });
+    console.error(
+      `[billing/confirm] partner-api threw for ${session.shop}:`,
+      err instanceof Error ? err.message : err,
+    );
+    return pending({
+      reason: "partner_api_error",
+      chargeId: chargeIdParam,
+      shop: session.shop,
+    });
+  }
 
-    if (!tier || tier === "free") {
-      console.error(
-        `[billing/confirm] LEGACY active subscription "${activeName}" for ${session.shop} did not map to a paid tier`,
-      );
-      return redirect("/app?billing=error");
-    }
+  sentry.addBreadcrumb({
+    category: "billing.confirm",
+    message: `partner_api_status=${sub.status}`,
+    level: sub.status === "active" ? "info" : "warning",
+    data: {
+      shop: session.shop,
+      chargeId: chargeIdParam,
+      planName: sub.planName,
+      tier: sub.tier,
+      cycle: sub.cycle,
+      reason: sub.reason ?? null,
+    },
+  });
+  console.log(
+    `[billing/confirm] partner-api status=${sub.status} plan="${sub.planName}" tier=${sub.tier} cycle=${sub.cycle} reason=${sub.reason ?? ""}`,
+  );
 
-    const subscriptionId = sub?.id ?? null;
-    const startedAt = sub?.createdAt ?? new Date().toISOString();
-
+  // ── Active → write tier + redirect dashboard ─────────────────────────────
+  if (sub.status === "active" && sub.tier && sub.tier !== "free") {
     const { error } = await supabase
       .from("merchants")
       .update({
-        tier,
-        billing_cycle: cycle,
-        subscription_started_at: startedAt,
-        shopify_subscription_id: subscriptionId,
+        tier: sub.tier,
+        billing_cycle: sub.cycle,
+        subscription_started_at: sub.activatedAt ?? new Date().toISOString(),
+        shopify_subscription_id: sub.subscriptionGid,
         scans_remaining: null,
       })
       .eq("shopify_domain", session.shop);
 
     if (error) {
+      sentry.captureException(error, {
+        tags: { area: "billing.confirm", branch: "supabase_update_failed" },
+        extra: { shop: session.shop, tier: sub.tier },
+      });
       console.error(
-        `[billing/confirm] LEGACY Supabase update FAILED for ${session.shop}: ${error.message}`,
+        `[billing/confirm] Supabase update FAILED for ${session.shop}: ${error.message}`,
       );
     }
-
     return redirect("/app");
   }
 
-  return redirect("/app?billing=cancelled");
+  // ── Explicit terminal cancellation → cancelled banner ────────────────────
+  if (
+    sub.status === "cancelled" ||
+    sub.status === "declined" ||
+    sub.status === "expired"
+  ) {
+    return redirect("/app?billing=cancelled");
+  }
+
+  // ── Anything else (unknown / pending / frozen / active-but-no-tier) ──────
+  // Do NOT redirect to cancelled. Show the pending page; let the merchant
+  // refresh once events propagate. Frozen is a payment-failure recoverable
+  // state, not a cancellation.
+  return pending({
+    reason: sub.status,
+    chargeId: chargeIdParam,
+    shop: session.shop,
+  });
 };
+
+function pending(args: {
+  reason: string;
+  chargeId: string | null;
+  shop: string;
+}): PendingResponse {
+  return {
+    state: "pending",
+    reason: args.reason,
+    chargeId: args.chargeId,
+    shop: args.shop,
+  };
+}
+
+// ─── Component (only rendered on "pending" loader result) ────────────────────
+
+export default function BillingConfirmPending() {
+  const data = useLoaderData<PendingResponse>();
+  const navigate = useNavigate();
+
+  // If the loader ever returns a non-pending payload, render nothing —
+  // redirect() above prevents that case in practice.
+  if (!data || data.state !== "pending") return null;
+
+  return (
+    <s-page heading="Confirming your subscription…">
+      <s-section>
+        <s-card>
+          <div style={{ padding: "20px 0", maxWidth: 540 }}>
+            <s-paragraph>
+              We&rsquo;re confirming your subscription with Shopify. This
+              usually takes 30 seconds.
+            </s-paragraph>
+            <s-paragraph>
+              If this page is still here in a minute, click Refresh below.
+              We will not downgrade your plan while we&rsquo;re waiting on
+              Shopify&rsquo;s confirmation.
+            </s-paragraph>
+
+            <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => navigate(0)}
+                style={{
+                  fontSize: 14,
+                  fontWeight: 600,
+                  color: "#fff",
+                  background: "#0f172a",
+                  border: "none",
+                  borderRadius: 6,
+                  padding: "8px 16px",
+                  cursor: "pointer",
+                }}
+              >
+                Refresh
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate("/app")}
+                style={{
+                  fontSize: 14,
+                  fontWeight: 600,
+                  color: "#0f172a",
+                  background: "#f1f5f9",
+                  border: "1px solid #cbd5e1",
+                  borderRadius: 6,
+                  padding: "8px 16px",
+                  cursor: "pointer",
+                }}
+              >
+                Back to dashboard
+              </button>
+            </div>
+
+            <div
+              style={{
+                marginTop: 16,
+                fontSize: 12,
+                color: "var(--p-color-text-subdued, #6d7175)",
+              }}
+            >
+              Status: {data.reason}
+              {data.chargeId ? ` · charge ${data.chargeId}` : ""}
+            </div>
+          </div>
+        </s-card>
+      </s-section>
+    </s-page>
+  );
+}

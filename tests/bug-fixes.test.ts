@@ -471,14 +471,12 @@ describe("Shopify Managed Pricing", () => {
     expect(content).not.toContain("lineItems");
   });
 
-  it("billing-confirm loader uses Partner API primary + legacy billing.check fallback", () => {
-    // Primary path: Partner API (post-April-28 canonical). Reads charge_id
-    // from the URL appended by Shopify's managed-pricing welcome redirect,
-    // resolves via getActiveSubscriptionByChargeId, never demotes on
-    // status='unknown'.
-    //
-    // Legacy fallback: billing.check() + intervalToCycle + pricingDetails —
-    // dead code after April 28, kept for the transition window only.
+  it("billing-confirm loader uses Partner API only (legacy billing.check fallback removed)", () => {
+    // Post 2026-05-27 sweep: Partner API is the only path. The legacy
+    // billing.check() fallback was deleted because Shopify deprecated the
+    // managed-pricing data on the Admin API endpoint; the dead fallback
+    // was silently redirecting paying merchants to ?billing=cancelled when
+    // Partner API returned status='unknown'.
     const content = fs.readFileSync(
       path.join(APP_DIR, "routes/app.billing.confirm.tsx"),
       "utf-8"
@@ -488,11 +486,13 @@ describe("Shopify Managed Pricing", () => {
     expect(content).toContain("buildAppSubscriptionGid");
     expect(content).toContain('searchParams.get("charge_id")');
     expect(content).toMatch(/sub\.status === "active"/);
-    // Legacy fallback still wired
-    expect(content).toContain("intervalToCycle");
-    expect(content).toContain("pricingDetails");
-    // Removable-on-April-28 marker
-    expect(content).toMatch(/REMOVE AFTER 2026-04-28/);
+    // Legacy fallback fully removed
+    expect(content).not.toMatch(/billing\.check\(/);
+    expect(content).not.toContain("intervalToCycle");
+    expect(content).not.toContain("pricingDetails");
+    expect(content).not.toMatch(/REMOVE AFTER 2026-04-28/);
+    // Unknown/pending now render a pending page, not a cancelled redirect
+    expect(content).toContain('state: "pending"');
   });
 
   it("billing-confirm writes the full billing column set on Partner API success", () => {

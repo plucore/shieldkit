@@ -15,7 +15,7 @@
  *     Security Status card + About ShieldKit card.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   ActionFunctionArgs,
   HeadersFunction,
@@ -85,69 +85,21 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     .eq("shopify_domain", shopDomain)
     .maybeSingle();
 
-  let merchant = merchantRow as Merchant | null;
+  const merchant = merchantRow as Merchant | null;
 
-  // ── Billing self-heal ────────────────────────────────────────────────────
-  // Reconcile DB against the Partner API (the canonical post-April-28 source
-  // of truth). Detects drift on tier, billing_cycle, AND
-  // shopify_subscription_id — not just tier — so a monthly→annual swap (same
-  // tier) still updates the cycle field.
+  // ── Billing self-heal: moved off the critical render path (Fix 6) ────────
+  // Previously this loader synchronously called Partner API on every
+  // paid-merchant dashboard render, blocking page paint on an external
+  // GraphQL roundtrip (300ms–3.5s with backoff). The work is identical
+  // but now runs in a post-mount useEffect via the `selfHealBilling`
+  // action defined below, so the dashboard paints from cached DB state
+  // immediately and reconciles in the background.
   //
-  // Fail-safe contract: if the Partner API call fails or returns "unknown",
-  // we DO NOT write any change to the DB. Never demote on uncertainty —
-  // the worst case is a delayed tier upgrade, never a premature downgrade.
+  // The action returns { healed, newTier? }; on healed=true the component
+  // calls revalidator.revalidate() to pull the new tier into the loader.
   //
-  // Free-tier merchants have no shopify_subscription_id stored; we skip the
-  // self-heal entirely for them. A free→paid promotion is reconciled by
-  // /app/billing/confirm, not here.
-  if (merchant && (merchant as any).shopify_subscription_id) {
-    try {
-      const sub = await getActiveSubscriptionByChargeId(
-        (merchant as any).shopify_subscription_id as string,
-      );
-
-      if (sub.status === "unknown") {
-        console.warn(
-          `[app._index] self-heal: partner-api status=unknown for ${shopDomain} reason=${sub.reason ?? ""} — leaving DB untouched`,
-        );
-      } else if (sub.status === "active" && sub.tier && sub.tier !== "free") {
-        const drift =
-          merchant.tier !== sub.tier ||
-          (merchant as any).billing_cycle !== sub.cycle ||
-          (merchant as any).shopify_subscription_id !== sub.subscriptionGid ||
-          merchant.scans_remaining !== null;
-
-        if (drift) {
-          await supabase
-            .from("merchants")
-            .update({
-              tier: sub.tier,
-              billing_cycle: sub.cycle,
-              shopify_subscription_id: sub.subscriptionGid,
-              subscription_started_at:
-                sub.activatedAt ?? new Date().toISOString(),
-              scans_remaining: null,
-            })
-            .eq("id", merchant.id);
-          merchant = {
-            ...merchant,
-            tier: sub.tier,
-            scans_remaining: null,
-          };
-        }
-      }
-      // Terminal statuses (cancelled / declined / expired / frozen) are
-      // intentionally NOT acted on here — the demote path runs in the
-      // APP_SUBSCRIPTIONS_UPDATE webhook (pre-April-28) and will move to a
-      // separate scheduled reconciliation job (post-April-28) so this
-      // user-blocking loader never makes a downgrade decision.
-    } catch (err) {
-      console.error(
-        `[app._index] self-heal: partner-api threw for ${shopDomain}:`,
-        err,
-      );
-    }
-  }
+  // /app/billing/confirm still self-heals inline because that path is
+  // already user-facing post-approval and the 1–2s wait is the right UX.
 
   if (!merchant) {
     return {
@@ -490,6 +442,91 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     );
   }
 
+  // ── Self-heal billing action (Fix 6) ──────────────────────────────────────
+  // Fires once on dashboard mount via useEffect when tier !== 'free'. Same
+  // contract as the old inline loader block: reconcile against Partner API,
+  // never demote on uncertainty, only act on status=active.
+  if (actionType === "selfHealBilling") {
+    const { data: merchant } = await supabase
+      .from("merchants")
+      .select(
+        "id, tier, billing_cycle, scans_remaining, shopify_subscription_id",
+      )
+      .eq("shopify_domain", shopDomain)
+      .maybeSingle();
+
+    if (!merchant || !merchant.shopify_subscription_id) {
+      return new Response(
+        JSON.stringify({ success: true, healed: false, reason: "no_subscription" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    try {
+      const sub = await getActiveSubscriptionByChargeId(
+        merchant.shopify_subscription_id as string,
+      );
+
+      if (sub.status === "unknown") {
+        console.warn(
+          `[self-heal] partner-api status=unknown for ${shopDomain} reason=${sub.reason ?? ""} — leaving DB untouched`,
+        );
+        return new Response(
+          JSON.stringify({ success: true, healed: false, reason: "unknown" }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      if (sub.status === "active" && sub.tier && sub.tier !== "free") {
+        const drift =
+          merchant.tier !== sub.tier ||
+          (merchant as { billing_cycle?: string }).billing_cycle !== sub.cycle ||
+          merchant.shopify_subscription_id !== sub.subscriptionGid ||
+          merchant.scans_remaining !== null;
+
+        if (drift) {
+          await supabase
+            .from("merchants")
+            .update({
+              tier: sub.tier,
+              billing_cycle: sub.cycle,
+              shopify_subscription_id: sub.subscriptionGid,
+              subscription_started_at:
+                sub.activatedAt ?? new Date().toISOString(),
+              scans_remaining: null,
+            })
+            .eq("id", merchant.id);
+
+          return new Response(
+            JSON.stringify({
+              success: true,
+              healed: true,
+              newTier: sub.tier,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+      }
+
+      // Terminal statuses (cancelled / declined / expired / frozen) are
+      // NOT acted on here — that's the reconcile-subscriptions cron's job.
+      // Dashboards must never demote.
+      return new Response(
+        JSON.stringify({ success: true, healed: false, reason: sub.status }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    } catch (err) {
+      console.error(
+        `[self-heal] partner-api threw for ${shopDomain}:`,
+        err instanceof Error ? err.message : err,
+      );
+      return new Response(
+        JSON.stringify({ success: true, healed: false, reason: "error" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+  }
+
   // ── Verify JSON-LD now action ─────────────────────────────────────────────
   // Inline verifier run for the "Verify now" button in the pending state.
   // Gives the merchant immediate feedback rather than waiting up to 2h for
@@ -688,6 +725,12 @@ export default function Index() {
     verified?: boolean;
     reason?: string;
   }>();
+  const selfHealFetcher = useFetcher<{
+    success: boolean;
+    healed: boolean;
+    newTier?: string;
+    reason?: string;
+  }>();
   const reviewFetcher  = useFetcher();
   const revalidator    = useRevalidator();
   const navigate      = useNavigate();
@@ -764,6 +807,30 @@ export default function Index() {
       shopify.toast.show("Policy generated");
     }
   }, [policyFetcher.state, policyFetcher.data, shopify]);
+
+  // Fire selfHealBilling once on mount for paid merchants (Fix 6). The
+  // useRef guard prevents re-firing on re-renders or revalidations.
+  // Skipped for free tier — they have no shopify_subscription_id and the
+  // action would no-op anyway.
+  const selfHealFiredRef = useRef(false);
+  useEffect(() => {
+    if (selfHealFiredRef.current) return;
+    if (!merchant || merchant.tier === "free") return;
+    selfHealFiredRef.current = true;
+    selfHealFetcher.submit(
+      { action: "selfHealBilling" },
+      { method: "POST" },
+    );
+  }, [merchant, selfHealFetcher]);
+
+  // When self-heal reports drift was fixed, revalidate so the dashboard
+  // re-renders with the new tier / scans_remaining values.
+  useEffect(() => {
+    if (selfHealFetcher.state !== "idle" || !selfHealFetcher.data) return;
+    if (selfHealFetcher.data.healed) {
+      revalidator.revalidate();
+    }
+  }, [selfHealFetcher.state, selfHealFetcher.data, revalidator]);
 
   // Handle "Verify now" response — refresh loader on positive so the card
   // flips to "Active ✓". Negative responses display the inline hint.

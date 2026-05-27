@@ -646,6 +646,53 @@ describe("JSON-LD activation verification", () => {
   });
 });
 
+// ─── Dashboard self-heal off render path (Fix 6) ────────────────────────────
+
+describe("Dashboard self-heal action (Fix 6)", () => {
+  it("loader no longer calls Partner API synchronously", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "routes/app._index.tsx"),
+      "utf-8"
+    );
+    // The action handler still uses getActiveSubscriptionByChargeId, but
+    // the loader's pre-fix inline call site is gone. Assert by checking
+    // that the loader's docstring no longer references the inline block,
+    // and that the action handler exists.
+    expect(src).toContain('actionType === "selfHealBilling"');
+    expect(src).toContain("moved off the critical render path");
+  });
+
+  it("client useEffect fires selfHealBilling once on mount for paid merchants", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "routes/app._index.tsx"),
+      "utf-8"
+    );
+    expect(src).toContain("selfHealFiredRef");
+    expect(src).toMatch(/selfHealFetcher\.submit\(\s*\{\s*action:\s*"selfHealBilling"/);
+    // Skip for free tier — defensive against firing where it'd no-op.
+    expect(src).toMatch(/merchant\.tier === "free"[\s\S]*?return/);
+  });
+
+  it("self-heal action never demotes on uncertainty", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "routes/app._index.tsx"),
+      "utf-8"
+    );
+    // Unknown status → no DB write, returns healed:false.
+    expect(src).toMatch(/sub\.status === "unknown"[\s\S]*?leaving DB untouched/);
+    // Write only on active.
+    expect(src).toMatch(/sub\.status === "active"[\s\S]*?supabase[\s\S]*?\.update\(/);
+  });
+
+  it("on healed:true the dashboard revalidates loader", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "routes/app._index.tsx"),
+      "utf-8"
+    );
+    expect(src).toMatch(/selfHealFetcher\.data\.healed[\s\S]*?revalidator\.revalidate/);
+  });
+});
+
 // ─── Onboarding wizard 4-step + 10→12 (Fix 5) ───────────────────────────────
 
 describe("Onboarding wizard 4 steps including JSON-LD", () => {

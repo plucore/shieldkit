@@ -249,9 +249,15 @@ describe("JSON-LD extension visibility", () => {
 
   it("JSON-LD section has one-click enable button with deep link", () => {
     expect(dashContent).toContain("Enable JSON-LD");
-    expect(dashContent).toContain("activateAppId");
-    // Deep link uses block filename (product-schema), not extension handle
-    expect(dashContent).toContain("product-schema");
+    // Post-Fix-7 the URL is built by the centralised helper, not inlined.
+    expect(dashContent).toContain("getJsonLdThemeEditorUrl");
+    // The helper itself encodes the activateAppId + product-schema block.
+    const helper = fs.readFileSync(
+      path.join(APP_DIR, "lib/json-ld-deep-link.ts"),
+      "utf-8"
+    );
+    expect(helper).toContain("activateAppId=");
+    expect(helper).toContain("product-schema");
   });
 
   it("JSON-LD section is in the aside (visible to all tiers)", () => {
@@ -856,16 +862,34 @@ describe("Policy detection Page fallback", () => {
 // ─── JSON-LD deep link uses client_id ───────────────────────────────────────
 
 describe("JSON-LD deep link", () => {
-  it("uses app client_id and block filename (not extension UID or extension handle) in activateAppId", () => {
+  it("app._index.tsx uses the centralised getJsonLdThemeEditorUrl helper", () => {
     const content = fs.readFileSync(
       path.join(APP_DIR, "routes/app._index.tsx"),
       "utf-8"
     );
-    // Should use client_id + block liquid filename (product-schema from blocks/product-schema.liquid)
-    expect(content).toContain("activateAppId=071fc51ee1ef7f358cdaed5f95922498/product-schema");
-    // Should NOT use the old extension UID
+    // Post-Fix-7: literal client_id removed; uses helper instead.
+    expect(content).toContain("getJsonLdThemeEditorUrl");
+    expect(content).not.toContain("071fc51ee1ef7f358cdaed5f95922498");
+  });
+
+  it("helper module builds the URL from SHOPIFY_API_KEY env, not a hard-coded id", () => {
+    const helper = fs.readFileSync(
+      path.join(APP_DIR, "lib/json-ld-deep-link.ts"),
+      "utf-8"
+    );
+    expect(helper).toContain("process.env.SHOPIFY_API_KEY");
+    expect(helper).toContain("activateAppId=");
+    expect(helper).toContain("getJsonLdThemeEditorUrl");
+    // Must throw rather than silently emit a broken URL.
+    expect(helper).toMatch(/throw\s+new\s+Error/);
+  });
+
+  it("never emits the old extension UID or extension handle", () => {
+    const content = fs.readFileSync(
+      path.join(APP_DIR, "routes/app._index.tsx"),
+      "utf-8"
+    );
     expect(content).not.toContain("5f84566a-b42f-516d-7eec-00f7f6b2169e317fee21");
-    // Should NOT use the extension handle (json-ld-schema) — must use block filename
     expect(content).not.toMatch(/activateAppId=.*\/json-ld-schema/);
   });
 });

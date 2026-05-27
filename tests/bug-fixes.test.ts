@@ -652,6 +652,44 @@ describe("JSON-LD activation verification", () => {
   });
 });
 
+// ─── Idempotent weekly-scan enqueue (Fix 8) ─────────────────────────────────
+
+describe("Weekly-scan enqueue idempotency", () => {
+  it("migration adds week_iso column + partial unique index", () => {
+    const src = fs.readFileSync(
+      path.join(
+        ROOT_DIR,
+        "supabase/migrations/20260527194303_pending_scan_triggers_idempotency.sql",
+      ),
+      "utf-8"
+    );
+    expect(src).toMatch(/ADD COLUMN IF NOT EXISTS week_iso/i);
+    expect(src).toMatch(/CREATE UNIQUE INDEX IF NOT EXISTS uq_pending_scan_triggers_week/i);
+    // Partial predicate matters — event-driven inserts must stay
+    // unconstrained.
+    expect(src).toMatch(/WHERE week_iso IS NOT NULL/i);
+  });
+
+  it("weekly-scan cron upserts with ignoreDuplicates on the composite key", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "routes/api.cron.weekly-scan.ts"),
+      "utf-8"
+    );
+    expect(src).toContain("upsert(rows");
+    expect(src).toContain('onConflict: "merchant_id,trigger_type,week_iso"');
+    expect(src).toContain("ignoreDuplicates: true");
+  });
+
+  it("cron stamps week_iso on every row + computes ISO week inline", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "routes/api.cron.weekly-scan.ts"),
+      "utf-8"
+    );
+    expect(src).toMatch(/week_iso:\s*weekIso/);
+    expect(src).toContain("function isoWeekKey");
+  });
+});
+
 // ─── Dashboard self-heal off render path (Fix 6) ────────────────────────────
 
 describe("Dashboard self-heal action (Fix 6)", () => {

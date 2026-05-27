@@ -7,17 +7,21 @@
  *
  * Vercel Hobby tier caps function duration at 60s, so this route does NOT
  * run the scans itself. Instead it enqueues one `pending_scan_triggers` row
- * per active paid merchant. The actual scans are drained by
+ * per active monitoring-access merchant (MONITORING_TIERS = monitoring,
+ * recovery, grandfathered pro). The actual scans are drained by
  * `api.cron.process-scan-triggers.ts`, which a GitHub Actions workflow
- * curls every 5 minutes (one merchant per invocation, ~12s each).
+ * curls every 30 minutes (one merchant per invocation, ~12s each).
  *
  * Flow:
  *   1. Verify CRON_SECRET bearer token.
- *   2. Fetch all active paid merchants (tier IN ('shield','pro')).
- *   3. Bulk-insert one trigger row per merchant with trigger_type='weekly_scan'.
+ *   2. Fetch active merchants whose tier is in MONITORING_TIERS.
+ *   3. Upsert one trigger row per merchant with trigger_type='weekly_scan'
+ *      and week_iso = current ISO week. The (merchant_id, trigger_type,
+ *      week_iso) partial unique index makes a double-fire a no-op rather
+ *      than a duplicate-scan storm (Fix 8 — 2026-05-27 audit).
  *   4. Return count of triggers queued.
  *
- * This completes in 1–3 seconds even at 1000 merchants.
+ * Completes in 1–3 seconds even at 1000 merchants.
  */
 
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
@@ -73,17 +77,29 @@ export async function action({ request }: ActionFunctionArgs) {
     return json({ triggers_queued: 0 });
   }
 
-  // ── 3. Enqueue one trigger per merchant ─────────────────────────────────────
-  const now = new Date().toISOString();
-  const rows = merchants.map((m) => ({
+  // ── 3. Enqueue one trigger per merchant (idempotent on ISO week) ────────────
+  // week_iso stamps every weekly-cron row. The partial unique index on
+  // (merchant_id, trigger_type, week_iso) WHERE week_iso IS NOT NULL means
+  // a Vercel retry or manual replay within the same ISO week is a no-op
+  // rather than a duplicate scan storm. Event-driven inserts (theme update,
+  // product update, enrichment) leave week_iso NULL and use their own dedup.
+  const nowDate = new Date();
+  const now = nowDate.toISOString();
+  const weekIso = isoWeekKey(nowDate);
+
+  const rows = merchants.map((m: { id: string }) => ({
     merchant_id: m.id,
     trigger_type: "weekly_scan",
     trigger_at: now,
+    week_iso: weekIso,
   }));
 
   const { error: insertError } = await supabase
     .from("pending_scan_triggers")
-    .insert(rows);
+    .upsert(rows, {
+      onConflict: "merchant_id,trigger_type,week_iso",
+      ignoreDuplicates: true,
+    });
 
   if (insertError) {
     console.error(
@@ -93,5 +109,29 @@ export async function action({ request }: ActionFunctionArgs) {
     return json({ error: "database_error", message: insertError.message }, 500);
   }
 
-  return json({ triggers_queued: rows.length });
+  return json({ triggers_queued: rows.length, week_iso: weekIso });
+}
+
+/**
+ * ISO week key like "2026-W22". Inline because date-fns isn't a dep and a
+ * single-purpose helper is cheaper than pulling one in (per CLAUDE.md's
+ * 2026-05-21 outage retrospective on transitive dep bloat).
+ *
+ * Computes ISO-8601 week number: weeks start Monday, week 1 contains the
+ * year's first Thursday. The algorithm is the standard "find Thursday in
+ * the same week, then count Thursdays from Jan 4".
+ */
+function isoWeekKey(d: Date): string {
+  // Clone so we don't mutate caller's Date.
+  const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  // ISO weeks: day 1 = Monday, day 7 = Sunday. Shift Sunday from 0 to 7.
+  const dayNum = date.getUTCDay() || 7;
+  // Set to the nearest Thursday: current date + 4 - current day number.
+  date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+  // Year of that Thursday is the ISO-week year.
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil(
+    ((date.getTime() - yearStart.getTime()) / 86_400_000 + 1) / 7,
+  );
+  return `${date.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
 }

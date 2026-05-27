@@ -563,6 +563,89 @@ describe("Branding hygiene", () => {
   });
 });
 
+// ─── JSON-LD activation verification (Fix 3 — 2026-05-27 audit) ─────────────
+
+describe("JSON-LD activation verification", () => {
+  it("enableJsonLd action sets clicked_at, not enabled", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "routes/app._index.tsx"),
+      "utf-8"
+    );
+    // Pre-fix bug: action set json_ld_enabled=true on click. Post-fix, only
+    // the verifier flips enabled; the click sets clicked_at.
+    expect(src).toContain('actionType === "enableJsonLd"');
+    expect(src).toMatch(/json_ld_enable_clicked_at:\s*new Date\(\)\.toISOString\(\)/);
+    expect(src).not.toMatch(/actionType === "enableJsonLd"[\s\S]*?json_ld_enabled:\s*true[\s\S]*?actionType === "verifyJsonLdNow"/);
+  });
+
+  it("verifyJsonLdNow action invokes the verifier inline", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "routes/app._index.tsx"),
+      "utf-8"
+    );
+    expect(src).toContain('actionType === "verifyJsonLdNow"');
+    expect(src).toContain("verifyJsonLdForMerchant");
+  });
+
+  it("aside card renders three states from clicked_at / verified_at", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "routes/app._index.tsx"),
+      "utf-8"
+    );
+    expect(src).toContain("json_ld_verified_at");
+    expect(src).toContain("json_ld_enable_clicked_at");
+    expect(src).toContain("JSON-LD Active ✓");
+    expect(src).toContain("Verification pending");
+    expect(src).toContain("Verify now");
+  });
+
+  it("verifier module exists with the verifyJsonLdForMerchant export", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "lib/json-ld-verifier.server.ts"),
+      "utf-8"
+    );
+    expect(src).toContain("export async function verifyJsonLdForMerchant");
+    expect(src).toContain("shieldkit-jsonld-v1");
+  });
+
+  it("Liquid block emits the verification marker", () => {
+    const src = fs.readFileSync(
+      path.join(ROOT_DIR, "extensions/json-ld-schema/blocks/product-schema.liquid"),
+      "utf-8"
+    );
+    expect(src).toContain("shieldkit-jsonld-v1");
+  });
+
+  it("cron route + vercel.json schedule wired", () => {
+    const cronSrc = fs.readFileSync(
+      path.join(APP_DIR, "routes/api.cron.verify-json-ld.ts"),
+      "utf-8"
+    );
+    expect(cronSrc).toContain("verifyJsonLdForMerchant");
+    expect(cronSrc).toContain("CRON_SECRET");
+
+    const vercel = JSON.parse(
+      fs.readFileSync(path.join(ROOT_DIR, "vercel.json"), "utf-8")
+    );
+    const cron = vercel.crons.find(
+      (c: { path: string }) => c.path === "/api/cron/verify-json-ld"
+    );
+    expect(cron).toBeDefined();
+    expect(cron.schedule).toBe("0 */2 * * *");
+  });
+
+  it("migration adds three columns and backfills currently-enabled rows", () => {
+    const src = fs.readFileSync(
+      path.join(ROOT_DIR, "supabase/migrations/20260527192823_json_ld_verification.sql"),
+      "utf-8"
+    );
+    expect(src).toContain("json_ld_enable_clicked_at");
+    expect(src).toContain("json_ld_verified_at");
+    expect(src).toContain("json_ld_verification_attempts");
+    expect(src).toMatch(/UPDATE\s+merchants/i);
+  });
+});
+
 // ─── Policy detection: Page-hosted fallback ─────────────────────────────────
 
 describe("Policy detection Page fallback", () => {

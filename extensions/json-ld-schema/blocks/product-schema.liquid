@@ -20,6 +20,8 @@
   {% assign shieldkit_brand = product.metafields.custom.brand %}
   {% assign shieldkit_identifier_exists = product.metafields.custom.identifier_exists %}
 
+{%- comment %} shieldkit-jsonld-v1 — verification marker for app/lib/json-ld-verifier.server.ts {% endcomment -%}
+<!-- shieldkit-jsonld-v1 -->
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",

@@ -342,7 +342,10 @@ CREATE INDEX IF NOT EXISTS idx_schema_enrich_merchant
 -- ============================================================
 CREATE TABLE IF NOT EXISTS enrichment_webhook_log (
   id            BIGSERIAL    PRIMARY KEY,
-  merchant_id   UUID         REFERENCES merchants(id),
+  -- CASCADE so GDPR shop/redact can hard-delete the merchant row cleanly
+  -- (the redact webhook has no retry budget — see webhooks.shop.redact.tsx).
+  -- Applied to live DB by migration 20260528160000.
+  merchant_id   UUID         REFERENCES merchants(id) ON DELETE CASCADE,
   product_id    TEXT,
   topic         TEXT,
   outcome       TEXT,
@@ -364,7 +367,9 @@ CREATE INDEX IF NOT EXISTS idx_enrichment_log_merchant_created
 CREATE TABLE IF NOT EXISTS llms_txt_requests (
   id           BIGSERIAL    PRIMARY KEY,
   shop_domain  TEXT         NOT NULL,
-  merchant_id  UUID         REFERENCES merchants(id),
+  -- CASCADE for GDPR shop/redact (see enrichment_webhook_log note above).
+  -- Applied to live DB by migration 20260528160000.
+  merchant_id  UUID         REFERENCES merchants(id) ON DELETE CASCADE,
   user_agent   TEXT,
   crawler_name TEXT,
   ip_hash      TEXT,
@@ -394,7 +399,9 @@ CREATE INDEX IF NOT EXISTS idx_llms_requests_shop_created
 -- ============================================================
 CREATE TABLE IF NOT EXISTS pending_scan_triggers (
   id           BIGSERIAL    PRIMARY KEY,
-  merchant_id  UUID         REFERENCES merchants(id),
+  -- CASCADE for GDPR shop/redact (see enrichment_webhook_log note above).
+  -- Applied to live DB by migration 20260528160000.
+  merchant_id  UUID         REFERENCES merchants(id) ON DELETE CASCADE,
   trigger_type TEXT,
   week_iso     TEXT,
   payload      JSONB,

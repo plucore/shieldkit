@@ -1301,3 +1301,40 @@ describe("GTIN Auto-Fill button surfaces zero-work outcome", () => {
     expect(src).toMatch(/ref=\{enrichRef\}/);
   });
 });
+
+// ─── FK cascades for GDPR shop/redact (cleanup batch §8) ────────────────────
+
+describe("Child FKs to merchants all CASCADE for GDPR shop/redact", () => {
+  it("migration drops + recreates the three NO ACTION FKs with CASCADE", () => {
+    const src = fs.readFileSync(
+      path.join(
+        ROOT_DIR,
+        "supabase/migrations/20260528160000_cascade_fks_for_shop_redact.sql",
+      ),
+      "utf-8",
+    );
+    for (const tbl of ["enrichment_webhook_log", "llms_txt_requests", "pending_scan_triggers"]) {
+      expect(src).toMatch(new RegExp(`ALTER TABLE\\s+${tbl}`));
+      expect(src).toMatch(
+        new RegExp(`${tbl}_merchant_id_fkey[\\s\\S]*?ON DELETE CASCADE`),
+      );
+    }
+  });
+
+  it("schema.sql declares CASCADE on the three formerly-NO-ACTION tables", () => {
+    const schema = fs.readFileSync(
+      path.join(ROOT_DIR, "supabase/schema.sql"),
+      "utf-8",
+    );
+    // Each of the three child tables now declares the FK with CASCADE.
+    expect(schema).toMatch(
+      /CREATE TABLE IF NOT EXISTS enrichment_webhook_log[\s\S]*?REFERENCES merchants\(id\) ON DELETE CASCADE/,
+    );
+    expect(schema).toMatch(
+      /CREATE TABLE IF NOT EXISTS llms_txt_requests[\s\S]*?REFERENCES merchants\(id\) ON DELETE CASCADE/,
+    );
+    expect(schema).toMatch(
+      /CREATE TABLE IF NOT EXISTS pending_scan_triggers[\s\S]*?REFERENCES merchants\(id\) ON DELETE CASCADE/,
+    );
+  });
+});

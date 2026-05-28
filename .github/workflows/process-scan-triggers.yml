@@ -1,9 +1,11 @@
 name: Process scan triggers
 
-# Drains pending_scan_triggers one merchant per invocation. Pairs with the
-# Vercel Cron weekly-scan enqueue (Mondays 08:00 UTC). Vercel Hobby tier
-# caps function duration at 60s and disallows sub-daily crons, so the
-# every-5-minute polling lives in GitHub Actions instead.
+# Drains pending_scan_triggers one merchant per invocation. After v4
+# (2026-05-28) the only trigger type that does real work is `enrichment`
+# (per-product GTIN/MPN/brand metafield writes, enqueued by the
+# products/update webhook). Vercel Hobby tier disallows sub-daily crons,
+# so the every-30-minute polling lives in GitHub Actions instead; Vercel
+# Cron daily 12:00 UTC is the safety net.
 #
 # Manual setup: add CRON_SECRET to the repo's Actions secrets (must match
 # the value set on Vercel for the same env var).

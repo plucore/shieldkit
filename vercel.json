@@ -2,14 +2,6 @@
   "installCommand": "npm ci",
   "crons": [
     {
-      "path": "/api/cron/weekly-scan",
-      "schedule": "0 8 * * 1"
-    },
-    {
-      "path": "/api/cron/weekly-digest",
-      "schedule": "0 13 * * 1"
-    },
-    {
       "path": "/api/cron/reconcile-subscriptions",
       "schedule": "0 4 * * *"
     },

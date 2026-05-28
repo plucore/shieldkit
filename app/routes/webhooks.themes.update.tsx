@@ -1,75 +1,27 @@
 /**
  * app/routes/webhooks.themes.update.tsx
  *
- * Phase 7.3 — Theme-change scan trigger.
+ * Subscribes to themes/update + themes/publish via shopify.app.toml. The
+ * subscription is preserved so Shopify's webhook registration stays valid
+ * (removing it would require a scope re-review push), but the handler is
+ * a no-op since v4 dropped automated scans on theme changes — paid plans
+ * are now strictly on-demand re-scans.
  *
- * Subscribes to themes/update + themes/publish. On any delivery from a
- * monitoring-access merchant (MONITORING_TIERS = monitoring + recovery +
- * grandfathered pro — gated via hasMonitoringAccess) we insert a
- * pending_scan_triggers row, dedup'd to one open trigger per merchant per
- * 24h. The cron route api.cron.process-scan-triggers drains the queue
- * (one merchant per tick via GitHub Actions every 30 min).
- *
- * Always acks 200. Webhook errors are logged but never thrown.
+ * Always returns 200. HMAC is verified by authenticate.webhook so invalid
+ * deliveries return 401 automatically.
  */
 
 import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
-import { supabase } from "../supabase.server";
-import { hasPaidAccess } from "../lib/billing/plans";
-
-const DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000;
-
-function ack(): Response {
-  return new Response();
-}
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   // HMAC verify — throws 401 Response on failure.
   const { shop, topic } = await authenticate.webhook(request);
 
-  try {
-    const { data: merchant } = await supabase
-      .from("merchants")
-      .select("id, tier")
-      .eq("shopify_domain", shop)
-      .maybeSingle();
+  // v4 no-op: dropped storefront-monitoring scan triggers. The webhook
+  // subscription stays so Shopify keeps registering the URL, but we just
+  // log + ACK.
+  console.log(`[webhooks.themes.update] noop ack: topic=${topic} shop=${shop}`);
 
-    if (!merchant) {
-      console.warn(`[webhooks.themes.update] unknown shop ${shop}`);
-      return ack();
-    }
-
-    // Tier gate — monitoring-access only (skip_tier).
-    if (!hasPaidAccess(merchant.tier)) {
-      return ack();
-    }
-
-    // 24h dedup — skip if there's already an unprocessed trigger.
-    const cutoff = new Date(Date.now() - DEDUP_WINDOW_MS).toISOString();
-    const { data: existing } = await supabase
-      .from("pending_scan_triggers")
-      .select("id")
-      .eq("merchant_id", merchant.id)
-      .is("processed_at", null)
-      .gte("trigger_at", cutoff)
-      .limit(1);
-
-    if (existing && existing.length > 0) {
-      // Already queued.
-      return ack();
-    }
-
-    await supabase.from("pending_scan_triggers").insert({
-      merchant_id: merchant.id,
-      trigger_type: topic === "themes/publish" ? "theme_publish" : "theme_update",
-    });
-  } catch (err) {
-    console.error(
-      `[webhooks.themes.update] handler failed for ${shop}:`,
-      err instanceof Error ? err.message : err,
-    );
-  }
-
-  return ack();
+  return new Response();
 };

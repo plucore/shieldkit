@@ -4,7 +4,7 @@
  * and lib/checks/public-scanner.server.ts (computeRiskScore).
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { computeRiskScore } from "../app/lib/checks/public-risk-score";
 
@@ -97,15 +97,20 @@ describe("Phase 7 quick win 1 — aiReadinessScore", () => {
     expect(botConfigShareFromPrefs({})).toBe(0);
   });
 
-  it("api.cron.weekly-digest references real freshness sources (no hardcoded zeros)", () => {
-    const src = readFileSync(
-      join(__dirname, "..", "app", "routes", "api.cron.weekly-digest.ts"),
-      "utf8",
-    );
-    expect(src).toContain("llms_txt_last_served_at");
-    expect(src).toContain("bot_preferences");
-    expect(src).not.toMatch(/llmsFreshShare\s*=\s*0;/);
-    expect(src).not.toMatch(/botConfigShare\s*=\s*0;/);
+  it("api.cron.weekly-digest is removed in v4 (digest dropped)", () => {
+    // v4 §4 deleted the weekly-digest cron and the lib/emails/weekly-digest
+    // renderer. The aiReadinessScore math above is kept in this test file
+    // as a pure function reference; it no longer ships in production code.
+    expect(
+      existsSync(
+        join(__dirname, "..", "app", "routes", "api.cron.weekly-digest.ts"),
+      ),
+    ).toBe(false);
+    expect(
+      existsSync(
+        join(__dirname, "..", "app", "lib", "emails", "weekly-digest.ts"),
+      ),
+    ).toBe(false);
   });
 
   it("scan.tsx renders RiskScoreBanner above the findings list", () => {

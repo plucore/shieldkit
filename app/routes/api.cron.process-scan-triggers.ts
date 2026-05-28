@@ -1,32 +1,36 @@
 /**
  * app/routes/api.cron.process-scan-triggers.ts
  *
- * Drains pending_scan_triggers one merchant per invocation. A scan runs
- * ~10–15s; the Vercel Hobby tier function ceiling is 60s, so we cap each
- * invocation at a single merchant to stay safely under the limit.
+ * Drains pending_scan_triggers, one merchant per invocation. The Vercel
+ * Hobby tier function ceiling is 60s; a single-row batch keeps us safely
+ * under it.
  *
- * Trigger-type vocabulary:
+ * Trigger-type vocabulary (v4 — 2026-05-28):
+ *   - enrichment   → run enrichProductMetafields against the product gid
+ *                    carried in the trigger row's payload column. This is
+ *                    the only trigger type the drainer acts on after v4
+ *                    dropped weekly auto-scans + theme/product scan triggers.
  *   - weekly_scan / theme_update / theme_publish / product_update
- *       → run runComplianceScan for the merchant. Multiple of these for the
- *         same merchant in one tick are coalesced into a single scan.
- *   - enrichment   (Fix 9 — 2026-05-27)
- *       → run enrichProductMetafields against the product gid carried in
- *         the trigger row's payload column. Processed individually because
- *         each enrichment is per-product, not per-merchant.
+ *                  → legacy types. The webhooks/crons that enqueued these
+ *                    were removed in v4 §3-§4; if any historical rows still
+ *                    exist in the table the drainer marks them processed
+ *                    without acting on them (no-op + advance).
  *
  * Invocation cadence: a GitHub Actions workflow
  * (.github/workflows/process-scan-triggers.yml) curls this endpoint every
- * 30 minutes. Auth: bearer CRON_SECRET, mirrors api.cron.weekly-scan.ts.
+ * 30 minutes; Vercel Cron daily 12:00 UTC is the safety net.
+ *
+ * Auth: bearer CRON_SECRET.
  */
 
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { supabase } from "../supabase.server";
-import { runComplianceScan } from "../lib/compliance-scanner.server";
 import { createAdminClient } from "../lib/shopify-api.server";
 import { enrichProductMetafields } from "../lib/enrichment/gtin-enrichment.server";
 
-// One merchant per invocation. With a ~12s scan, this stays well under the
-// 60s Vercel Hobby ceiling and leaves room for transient slow GraphQL calls.
+// One merchant per invocation. Each enrichment touches one product gid
+// and Shopify metafieldsSet usually returns in <2s; the BATCH_SIZE=1 cap
+// inherited from the v3 scan-drain pattern stays for safety.
 const BATCH_SIZE = 1;
 
 function json<T>(body: T, status = 200): Response {
@@ -83,13 +87,41 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 
   if (!rows || rows.length === 0) {
-    return json({ merchants_scanned: 0, enrichments_processed: 0, triggers_processed: 0 });
+    return json({ enrichments_processed: 0, legacy_skipped: 0, triggers_processed: 0 });
   }
 
   const triggerRows = rows as TriggerRow[];
 
-  // Look up shopify_domain + status for all merchants referenced.
-  const merchantIds = Array.from(new Set(triggerRows.map((r) => r.merchant_id)));
+  // Look up shopify_domain + uninstalled_at for merchants referenced by
+  // active enrichment rows. Legacy-type rows don't need it (they're just
+  // being advanced).
+  const enrichmentRows = triggerRows.filter((r) => r.trigger_type === "enrichment");
+  const legacyRows = triggerRows.filter((r) => r.trigger_type !== "enrichment");
+
+  let enrichmentsProcessed = 0;
+  let legacySkipped = 0;
+  let errors = 0;
+  let triggersProcessed = 0;
+
+  // Advance legacy rows without doing any work — they're holdovers from
+  // pre-v4 weekly_scan / theme / product_update enqueues.
+  for (const row of legacyRows) {
+    if (await markProcessed([row.id])) {
+      triggersProcessed += 1;
+      legacySkipped += 1;
+    }
+  }
+
+  if (enrichmentRows.length === 0) {
+    return json({
+      enrichments_processed: 0,
+      legacy_skipped: legacySkipped,
+      triggers_processed: triggersProcessed,
+      errors,
+    });
+  }
+
+  const merchantIds = Array.from(new Set(enrichmentRows.map((r) => r.merchant_id)));
   const { data: merchantRows } = await supabase
     .from("merchants")
     .select("id, shopify_domain, tier, uninstalled_at")
@@ -112,53 +144,7 @@ export async function action({ request }: ActionFunctionArgs) {
     });
   }
 
-  let merchantsScanned = 0;
-  let enrichmentsProcessed = 0;
-  let errors = 0;
-  let triggersProcessed = 0;
-
-  // Split scan-class vs enrichment triggers. Scan-class get coalesced per
-  // merchant (one scan covers all change events). Enrichments are per-product.
-  const scanRowsByMerchant = new Map<string, TriggerRow[]>();
-  const enrichmentRows: TriggerRow[] = [];
-
-  for (const row of triggerRows) {
-    if (row.trigger_type === "enrichment") {
-      enrichmentRows.push(row);
-    } else {
-      const list = scanRowsByMerchant.get(row.merchant_id) ?? [];
-      list.push(row);
-      scanRowsByMerchant.set(row.merchant_id, list);
-    }
-  }
-
-  // ── Scan-class triggers ────────────────────────────────────────────────────
-  for (const [merchantId, mRows] of scanRowsByMerchant) {
-    const ids = mRows.map((r) => r.id);
-    const merchant = merchantsById.get(merchantId);
-
-    if (!merchant || merchant.uninstalled_at) {
-      // Defensive: still mark processed so triggers don't accumulate.
-      await markProcessed(ids);
-      triggersProcessed += ids.length;
-      continue;
-    }
-
-    try {
-      await runComplianceScan(merchantId, merchant.shopify_domain, "automated");
-      merchantsScanned++;
-    } catch (err) {
-      errors++;
-      console.error(
-        `[cron/process-scan-triggers] scan failed for ${merchant.shopify_domain}:`,
-        err instanceof Error ? err.message : err,
-      );
-    }
-
-    if (await markProcessed(ids)) triggersProcessed += ids.length;
-  }
-
-  // ── Enrichment triggers (Fix 9) ───────────────────────────────────────────
+  // ── Enrichment triggers ─────────────────────────────────────────────────
   for (const row of enrichmentRows) {
     const merchant = merchantsById.get(row.merchant_id);
     const productGid = row.payload?.product_gid;
@@ -210,8 +196,8 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 
   return json({
-    merchants_scanned: merchantsScanned,
     enrichments_processed: enrichmentsProcessed,
+    legacy_skipped: legacySkipped,
     triggers_processed: triggersProcessed,
     errors,
   });

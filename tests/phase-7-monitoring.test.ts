@@ -1,6 +1,14 @@
 /**
- * Phase 7.3 — Storefront monitoring (scan-on-change) tests.
- * File-content assertions over the new webhook + cron route plus
+ * Phase 7.3 — Storefront monitoring (originally scan-on-change) tests.
+ *
+ * v4 (2026-05-28) dropped the automated scan-on-change behavior. The
+ * webhook subscription stays (so Shopify keeps the URL registered), and
+ * the products/update webhook still enqueues `enrichment` triggers for
+ * the GTIN/MPN/brand auto-filler. The themes/update webhook is now a
+ * no-op ACK. The cron drainer (process-scan-triggers) only does
+ * enrichment work.
+ *
+ * File-content assertions over the v4 shape of these handlers + cron +
  * the wiring in shopify.app.toml and vercel.json.
  */
 import { describe, it, expect } from "vitest";
@@ -9,41 +17,27 @@ import { join } from "node:path";
 
 const root = join(__dirname, "..");
 
-describe("webhooks.themes.update", () => {
+describe("webhooks.themes.update (v4 no-op ACK)", () => {
   const src = readFileSync(
     join(root, "app", "routes", "webhooks.themes.update.tsx"),
     "utf8",
   );
 
-  it("exports an action", () => {
+  it("exports an action that HMAC-verifies and ACKs 200", () => {
     expect(src).toMatch(/export const action/);
-  });
-
-  it("uses the shared HMAC pattern", () => {
     expect(src).toContain("authenticate.webhook(request)");
+    expect(src).toContain("return new Response()");
   });
 
-  it("acks 200 on free tier (skip_tier branch)", () => {
-    // v3 — gate routed through hasPaidAccess helper. Helper returns
-    // true for monitoring + recovery + grandfathered pro.
-    expect(src).toContain("hasPaidAccess");
-    expect(src).toMatch(/if\s*\(\s*!hasPaidAccess\(merchant\.tier\)\s*\)/);
-  });
-
-  it("inserts pending_scan_triggers row for paid tiers", () => {
-    expect(src).toContain('from("pending_scan_triggers")');
-    expect(src).toContain(".insert(");
-    expect(src).toContain("trigger_type");
-  });
-
-  it("dedups within a 24h window of unprocessed triggers", () => {
-    expect(src).toContain("DEDUP_WINDOW_MS");
-    expect(src).toContain("24 * 60 * 60 * 1000");
-    expect(src).toContain('.is("processed_at", null)');
+  it("no longer enqueues a scan trigger or runs tier gating", () => {
+    expect(src).not.toContain("pending_scan_triggers");
+    expect(src).not.toContain("hasPaidAccess");
+    expect(src).not.toContain("hasMonitoringAccess");
+    expect(src).not.toContain("DEDUP_WINDOW_MS");
   });
 });
 
-describe("webhooks.products.update — also enqueues scan triggers", () => {
+describe("webhooks.products.update — still enqueues triggers (scan + enrichment)", () => {
   const src = readFileSync(
     join(root, "app", "routes", "webhooks.products.update.tsx"),
     "utf8",
@@ -55,7 +49,6 @@ describe("webhooks.products.update — also enqueues scan triggers", () => {
   });
 
   it("scan-trigger gate is routed through hasPaidAccess helper", () => {
-    // v3 — accepts monitoring + recovery + grandfathered pro.
     expect(src).toContain("hasPaidAccess");
     expect(src).toMatch(/if\s*\(\s*!hasPaidAccess\(opts\.tier\)\s*\)/);
   });
@@ -66,7 +59,7 @@ describe("webhooks.products.update — also enqueues scan triggers", () => {
   });
 });
 
-describe("api.cron.process-scan-triggers", () => {
+describe("api.cron.process-scan-triggers (v4 enrichment-only drainer)", () => {
   const src = readFileSync(
     join(root, "app", "routes", "api.cron.process-scan-triggers.ts"),
     "utf8",
@@ -77,20 +70,17 @@ describe("api.cron.process-scan-triggers", () => {
     expect(src).toContain('startsWith("Bearer ")');
   });
 
-  it("groups multiple scan-class triggers per merchant into a single scan", () => {
-    // Post-Fix-9 the drainer splits scan-class vs enrichment trigger types.
-    // Scan-class are still coalesced per merchant; enrichment is per-product.
-    expect(src).toContain("scanRowsByMerchant");
-    expect(src).toContain("runComplianceScan");
-    expect(src).toMatch(/scanRowsByMerchant\.set\(/);
+  it("processes enrichment triggers individually with payload.product_gid", () => {
+    expect(src).toContain("enrichmentRows");
+    expect(src).toMatch(/trigger_type === "enrichment"/);
+    expect(src).toContain("enrichProductMetafields");
   });
 
-  it("processes enrichment triggers individually with payload.product_gid", () => {
-    // Fix 9 — webhook enqueues enrichment as trigger_type='enrichment' with
-    // the product gid in the payload column; the drainer handles them.
-    expect(src).toContain("enrichmentRows");
-    expect(src).toContain('row.trigger_type === "enrichment"');
-    expect(src).toContain("enrichProductMetafields");
+  it("advances legacy non-enrichment trigger rows without scanning", () => {
+    // v4 removed scan-class handling — runComplianceScan is no longer
+    // imported or called here.
+    expect(src).not.toContain("runComplianceScan");
+    expect(src).toContain("legacyRows");
   });
 
   it("marks processed_at on completion", () => {
@@ -100,23 +90,20 @@ describe("api.cron.process-scan-triggers", () => {
   });
 
   it("processes one merchant per invocation to stay under Vercel Hobby's 60s function ceiling", () => {
-    // The original enqueue/drain refactor replaced an in-process sleep between
-    // merchants (MERCHANT_DELAY_MS) with one-merchant-per-invocation batching.
-    // Pacing is now external: GitHub Actions cron polls every 5 minutes.
     expect(src).toMatch(/const\s+BATCH_SIZE\s*=\s*1\b/);
     expect(src).toContain(".limit(BATCH_SIZE)");
   });
 });
 
 describe("config wiring", () => {
-  it("shopify.app.toml subscribes to themes/update + themes/publish", () => {
+  it("shopify.app.toml still subscribes to themes/update + themes/publish (subscription kept for registration)", () => {
     const toml = readFileSync(join(root, "shopify.app.toml"), "utf8");
     expect(toml).toMatch(/themes\/update/);
     expect(toml).toMatch(/themes\/publish/);
     expect(toml).toContain('uri = "/webhooks/themes/update"');
   });
 
-  it("vercel.json schedules process-scan-triggers daily", () => {
+  it("vercel.json schedules process-scan-triggers daily (safety net for GH Actions)", () => {
     const vc = JSON.parse(readFileSync(join(root, "vercel.json"), "utf8"));
     const found = vc.crons.find(
       (c: { path: string }) => c.path === "/api/cron/process-scan-triggers",

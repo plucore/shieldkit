@@ -746,53 +746,77 @@ describe("GTIN enrichment off webhook hot path", () => {
     expect(src).toMatch(/trigger_type.*enrichment/i);
   });
 
-  it("drainer routes enrichment triggers to enrichProductMetafields", () => {
+  it("drainer routes enrichment triggers to enrichProductMetafields (v4: enrichment-only)", () => {
     const src = fs.readFileSync(
       path.join(APP_DIR, "routes/api.cron.process-scan-triggers.ts"),
       "utf-8"
     );
-    expect(src).toContain('row.trigger_type === "enrichment"');
+    expect(src).toContain('r.trigger_type === "enrichment"');
     expect(src).toContain("enrichProductMetafields");
-    // Drainer must read payload.product_gid from each enrichment row.
     expect(src).toContain("payload?.product_gid");
+    // v4 dropped scan-class branches. The drainer should have NO call to
+    // runComplianceScan from process-scan-triggers anymore.
+    expect(src).not.toContain("runComplianceScan");
+  });
+
+  it("legacy non-enrichment trigger rows are advanced without scanning", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "routes/api.cron.process-scan-triggers.ts"),
+      "utf-8"
+    );
+    expect(src).toContain("legacyRows");
+    expect(src).toContain("legacy_skipped");
   });
 });
 
-// ─── Idempotent weekly-scan enqueue (Fix 8) ─────────────────────────────────
+// ─── Weekly auto-scan + digest infra removed in v4 §4 ──────────────────────
 
-describe("Weekly-scan enqueue idempotency", () => {
-  it("migration adds week_iso column + partial unique index", () => {
-    const src = fs.readFileSync(
-      path.join(
-        ROOT_DIR,
-        "supabase/migrations/20260527194303_pending_scan_triggers_idempotency.sql",
-      ),
-      "utf-8"
-    );
-    expect(src).toMatch(/ADD COLUMN IF NOT EXISTS week_iso/i);
-    expect(src).toMatch(/CREATE UNIQUE INDEX IF NOT EXISTS uq_pending_scan_triggers_week/i);
-    // Partial predicate matters — event-driven inserts must stay
-    // unconstrained.
-    expect(src).toMatch(/WHERE week_iso IS NOT NULL/i);
+describe("Weekly auto-scan + digest infra removed (v4 §4)", () => {
+  it("api.cron.weekly-scan.ts no longer exists", () => {
+    expect(
+      fs.existsSync(path.join(APP_DIR, "routes/api.cron.weekly-scan.ts")),
+    ).toBe(false);
   });
 
-  it("weekly-scan cron upserts with ignoreDuplicates on the composite key", () => {
-    const src = fs.readFileSync(
-      path.join(APP_DIR, "routes/api.cron.weekly-scan.ts"),
-      "utf-8"
-    );
-    expect(src).toContain("upsert(rows");
-    expect(src).toContain('onConflict: "merchant_id,trigger_type,week_iso"');
-    expect(src).toContain("ignoreDuplicates: true");
+  it("api.cron.weekly-digest.ts no longer exists", () => {
+    expect(
+      fs.existsSync(path.join(APP_DIR, "routes/api.cron.weekly-digest.ts")),
+    ).toBe(false);
   });
 
-  it("cron stamps week_iso on every row + computes ISO week inline", () => {
+  it("lib/emails/weekly-digest.ts no longer exists", () => {
+    expect(
+      fs.existsSync(path.join(APP_DIR, "lib/emails/weekly-digest.ts")),
+    ).toBe(false);
+  });
+
+  it("lib/emails/send.server.ts no longer exists (only consumer was digest)", () => {
+    expect(
+      fs.existsSync(path.join(APP_DIR, "lib/emails/send.server.ts")),
+    ).toBe(false);
+  });
+
+  it("vercel.json has no weekly-scan or weekly-digest cron entries", () => {
+    const vercel = JSON.parse(
+      fs.readFileSync(path.join(ROOT_DIR, "vercel.json"), "utf-8"),
+    );
+    const paths = (vercel.crons ?? []).map((c: { path: string }) => c.path);
+    expect(paths).not.toContain("/api/cron/weekly-scan");
+    expect(paths).not.toContain("/api/cron/weekly-digest");
+    expect(paths).not.toContain("/api/cron/monthly-reset");
+  });
+
+  it("webhooks.themes.update.tsx is a no-op ACK", () => {
     const src = fs.readFileSync(
-      path.join(APP_DIR, "routes/api.cron.weekly-scan.ts"),
+      path.join(APP_DIR, "routes/webhooks.themes.update.tsx"),
       "utf-8"
     );
-    expect(src).toMatch(/week_iso:\s*weekIso/);
-    expect(src).toContain("function isoWeekKey");
+    expect(src).toContain("authenticate.webhook");
+    expect(src).toContain("return new Response()");
+    // No more enqueue, no helper imports, no DB writes from this handler.
+    expect(src).not.toContain("pending_scan_triggers");
+    expect(src).not.toContain("hasPaidAccess");
+    expect(src).not.toContain("hasMonitoringAccess");
   });
 });
 

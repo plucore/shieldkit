@@ -1016,16 +1016,37 @@ describe("JSON-LD deep link", () => {
     expect(content).not.toContain("071fc51ee1ef7f358cdaed5f95922498");
   });
 
-  it("helper module builds the URL from SHOPIFY_API_KEY env, not a hard-coded id", () => {
+  it("helper accepts apiKey as a parameter (no process.env read — Vite doesn't expose it client-side)", () => {
     const helper = fs.readFileSync(
       path.join(APP_DIR, "lib/json-ld-deep-link.ts"),
       "utf-8"
     );
-    expect(helper).toContain("process.env.SHOPIFY_API_KEY");
+    // The helper is imported by client-side code in app._index.tsx; reading
+    // process.env inside it throws in the browser. Server-side loaders read
+    // the env and pass it through useLoaderData. The docstring may mention
+    // process.env as a callsite hint — only the executable read is forbidden.
+    const codeWithoutComments = helper
+      .replace(/\/\*[\s\S]*?\*\//g, "") // strip block comments
+      .replace(/\/\/.*$/gm, ""); // strip line comments
+    expect(codeWithoutComments).not.toMatch(/process\.env\.SHOPIFY_API_KEY/);
+    expect(helper).toMatch(/apiKey:\s*string/);
     expect(helper).toContain("activateAppId=");
     expect(helper).toContain("getJsonLdThemeEditorUrl");
-    // Must throw rather than silently emit a broken URL.
+    // Must throw on missing apiKey rather than silently emit a broken URL.
     expect(helper).toMatch(/throw\s+new\s+Error/);
+  });
+
+  it("loader threads SHOPIFY_API_KEY through to the component", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "routes/app._index.tsx"),
+      "utf-8"
+    );
+    // Loader reads the env once, server-side, and returns it as
+    // shopifyApiKey so the component can pass it into the helper.
+    expect(src).toContain("process.env.SHOPIFY_API_KEY");
+    expect(src).toContain("shopifyApiKey");
+    // Every call site passes shopifyApiKey as the third arg.
+    expect(src).toMatch(/getJsonLdThemeEditorUrl\([^)]*shopifyApiKey\)/);
   });
 
   it("never emits the old extension UID or extension handle", () => {

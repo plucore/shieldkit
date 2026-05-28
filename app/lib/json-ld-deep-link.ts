@@ -13,6 +13,14 @@
  * extensions/json-ld-schema/blocks/ — only `product-schema` is wired into
  * the UI today; the others are accepted so future "Enable Organization"
  * or "Enable WebSite" CTAs can reuse this helper.
+ *
+ * Why apiKey is a parameter (and not read from process.env here): this
+ * helper is imported by client-side code in app/routes/app._index.tsx.
+ * Vite does not expose process.env to the browser, so reading the env
+ * inside this module would throw at runtime on the dashboard. Callers
+ * read SHOPIFY_API_KEY in a server-side loader and pass it through
+ * useLoaderData. The throw on missing apiKey keeps the failure loud at
+ * the call site rather than silently emitting a broken activateAppId.
  */
 
 export type JsonLdBlock =
@@ -22,17 +30,15 @@ export type JsonLdBlock =
 
 export function getJsonLdThemeEditorUrl(
   shopDomain: string,
-  block: JsonLdBlock = "product-schema",
+  block: JsonLdBlock,
+  apiKey: string | null | undefined,
 ): string {
-  // SHOPIFY_API_KEY is set in the runtime env (Vercel) and mirrors the
-  // client_id from shopify.app.toml. We use it as the source rather than
-  // hard-coding the client_id so a future rotation is one env-var change.
-  const clientId = process.env.SHOPIFY_API_KEY;
-  if (!clientId) {
+  if (!apiKey) {
     throw new Error(
-      "SHOPIFY_API_KEY is required for theme editor deep links. " +
-        "Set it in Vercel env (mirrors client_id from shopify.app.toml).",
+      "apiKey is required for theme editor deep links. " +
+        "Pass the Shopify app client_id from a server-side loader; the " +
+        "browser cannot read server env vars directly.",
     );
   }
-  return `https://${shopDomain}/admin/themes/current/editor?context=apps&activateAppId=${clientId}/${block}`;
+  return `https://${shopDomain}/admin/themes/current/editor?context=apps&activateAppId=${apiKey}/${block}`;
 }

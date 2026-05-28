@@ -102,9 +102,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   // /app/billing/confirm still self-heals inline because that path is
   // already user-facing post-approval and the 1–2s wait is the right UX.
 
+  // Shopify app client_id, used by the JSON-LD theme-editor deep link.
+  // Read here in the loader (server-side) and threaded through to the
+  // component because Vite does not expose process.env to the browser —
+  // the helper used to read it itself and threw on the dashboard.
+  const shopifyApiKey = process.env.SHOPIFY_API_KEY ?? "";
+
   if (!merchant) {
     return {
       shopDomain,
+      shopifyApiKey,
       merchant:          null as Merchant | null,
       latestScan:        null as Scan | null,
       previousScan:      null as Scan | null,
@@ -279,6 +286,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   return {
     shopDomain,
+    shopifyApiKey,
     merchant,
     latestScan,
     previousScan,
@@ -708,6 +716,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 export default function Index() {
   const {
     shopDomain,
+    shopifyApiKey,
     merchant,
     latestScan,
     previousScan,
@@ -886,7 +895,11 @@ export default function Index() {
   // ── Top-level navigation for the JSON-LD theme editor link ──────────────
   // Wrapping <s-button> in an <a target="_top"> doesn't work — the button
   // intercepts the click before it reaches the anchor.
-  const manageJsonLdHref = getJsonLdThemeEditorUrl(shopDomain);
+  const manageJsonLdHref = getJsonLdThemeEditorUrl(
+    shopDomain,
+    "product-schema",
+    shopifyApiKey,
+  );
   const openJsonLdManager = useCallback(() => {
     window.open(manageJsonLdHref, "_top");
   }, [manageJsonLdHref]);
@@ -1149,7 +1162,10 @@ export default function Index() {
                               { action: "enableJsonLd" },
                               { method: "POST" },
                             );
-                            window.open(getJsonLdThemeEditorUrl(shopDomain), "_top");
+                            window.open(
+                              getJsonLdThemeEditorUrl(shopDomain, "product-schema", shopifyApiKey),
+                              "_top",
+                            );
                           }}
                           style={{
                             fontSize: "14px",
@@ -1447,7 +1463,10 @@ export default function Index() {
                     { action: "enableJsonLd" },
                     { method: "POST" },
                   );
-                  window.open(getJsonLdThemeEditorUrl(shopDomain), "_top");
+                  window.open(
+                    getJsonLdThemeEditorUrl(shopDomain, "product-schema", shopifyApiKey),
+                    "_top",
+                  );
                 }}
                 style={{
                   fontSize: "14px",

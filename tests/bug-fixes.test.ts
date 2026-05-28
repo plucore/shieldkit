@@ -637,7 +637,10 @@ describe("JSON-LD activation verification", () => {
       (c: { path: string }) => c.path === "/api/cron/verify-json-ld"
     );
     expect(cron).toBeDefined();
-    expect(cron.schedule).toBe("0 */2 * * *");
+    // Daily 09:00 UTC — Vercel Hobby rejects sub-daily schedules. Was
+    // originally "0 */2 * * *" (every 2h) during the sweep; downgraded to
+    // daily on 2026-05-28 after Vercel blocked the deployment.
+    expect(cron.schedule).toBe("0 9 * * *");
   });
 
   it("migration adds three columns and backfills currently-enabled rows", () => {

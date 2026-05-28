@@ -19,7 +19,7 @@
     },
     {
       "path": "/api/cron/verify-json-ld",
-      "schedule": "0 */2 * * *"
+      "schedule": "0 9 * * *"
     },
     {
       "path": "/api/cron/reconcile-installs",

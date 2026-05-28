@@ -110,9 +110,11 @@ describe("Web component click handling (useWebComponentClick)", () => {
     expect(dashContent).toMatch(/import\s*\{[^}]*useWebComponentClick[^}]*\}/);
   });
 
-  it("UpgradeCard uses useWebComponentClick for its button", () => {
+  it("PlanStatusCard uses useWebComponentClick for its upgrade button", () => {
+    // v4 §7 replaced UpgradeCard with PlanStatusCard (two-state component:
+    // paid coverage list vs free upgrade prompt). Same ref pattern.
     const content = fs.readFileSync(
-      path.join(APP_DIR, "components/UpgradeCard.tsx"),
+      path.join(APP_DIR, "components/PlanStatusCard.tsx"),
       "utf-8"
     );
     expect(content).toContain("useWebComponentClick");
@@ -120,13 +122,12 @@ describe("Web component click handling (useWebComponentClick)", () => {
     expect(content).not.toMatch(/<s-button.*onClick/);
   });
 
-  it("UpgradeCard supports sidebar prop", () => {
+  it("PlanStatusCard renders into the aside slot", () => {
     const content = fs.readFileSync(
-      path.join(APP_DIR, "components/UpgradeCard.tsx"),
+      path.join(APP_DIR, "components/PlanStatusCard.tsx"),
       "utf-8"
     );
-    expect(content).toContain("sidebar");
-    expect(content).toContain('slot: "aside"');
+    expect(content).toContain('slot="aside"');
   });
 
   it("PolicyGenerationCard uses native <button> for policy generation (not <s-button>)", () => {
@@ -315,7 +316,7 @@ describe("Component extraction from app._index.tsx", () => {
     "ScoreBanner",
     "KpiCards",
     "ScanProgressIndicator",
-    "UpgradeCard",
+    "PlanStatusCard",
     "PolicyGenerationCard",
     "AuditChecklist",
     "SecurityStatusAside",
@@ -768,6 +769,72 @@ describe("GTIN enrichment off webhook hot path", () => {
     );
     expect(src).toContain("legacyRows");
     expect(src).toContain("legacy_skipped");
+  });
+});
+
+// ─── PlanStatusCard replaces UpgradeCard (v4 §7) ───────────────────────────
+
+describe("PlanStatusCard two-state value box (v4 §7)", () => {
+  it("component file exists with both state branches", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "components/PlanStatusCard.tsx"),
+      "utf-8"
+    );
+    expect(src).toContain("PaidCoverageCard");
+    expect(src).toContain("FreeUpgradeCard");
+    expect(src).toContain("Your ShieldKit coverage");
+    expect(src).toContain("Fix it now");
+  });
+
+  it("renders the canonical PAID_FEATURES + FREE_FEATURES from plans.ts", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "components/PlanStatusCard.tsx"),
+      "utf-8"
+    );
+    expect(src).toContain("PAID_FEATURES");
+    expect(src).toContain("FREE_FEATURES");
+    expect(src).toContain("from \"../lib/billing/plans\"");
+  });
+
+  it("free state CTA includes the v4 price ($49/$449)", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "components/PlanStatusCard.tsx"),
+      "utf-8"
+    );
+    // Price is interpolated from PLANS.monitoring_*; both values present
+    expect(src).toContain("PLANS.monitoring_monthly.monthly");
+    expect(src).toContain("PLANS.monitoring_annual.annual");
+  });
+
+  it("paid state JSON-LD row reflects actual verified state", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "components/PlanStatusCard.tsx"),
+      "utf-8"
+    );
+    expect(src).toContain("jsonLdVerified");
+    // Three row states: checked, locked, pending. Matched as either
+    // JSX prop (state="checked") or type-literal (state: "checked").
+    expect(src).toMatch(/state[:=]\s*"checked"/);
+    expect(src).toMatch(/state[:=]\s*"locked"/);
+    expect(src).toMatch(/state[:=]\s*"pending"/);
+  });
+
+  it("dashboard wires PlanStatusCard at the top of the aside (above Security Status)", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "routes/app._index.tsx"),
+      "utf-8"
+    );
+    const planIdx = src.indexOf("<PlanStatusCard");
+    const securityIdx = src.indexOf("<SecurityStatusAside");
+    expect(planIdx).toBeGreaterThan(0);
+    expect(securityIdx).toBeGreaterThan(0);
+    expect(planIdx).toBeLessThan(securityIdx);
+  });
+
+  it("old UpgradeCard.tsx is removed", () => {
+    expect(
+      fs.existsSync(path.join(APP_DIR, "components/UpgradeCard.tsx")),
+    ).toBe(false);
   });
 });
 

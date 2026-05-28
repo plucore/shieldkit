@@ -60,7 +60,7 @@ import ScoreBanner from "../components/ScoreBanner";
 import KpiCards from "../components/KpiCards";
 import ScoreTrend from "../components/ScoreTrend";
 import ScanProgressIndicator from "../components/ScanProgressIndicator";
-import UpgradeCard from "../components/UpgradeCard";
+import PlanStatusCard from "../components/PlanStatusCard";
 import PolicyGenerationCard from "../components/PolicyGenerationCard";
 import AuditChecklist from "../components/AuditChecklist";
 import SecurityStatusAside from "../components/SecurityStatusAside";
@@ -1370,6 +1370,27 @@ export default function Index() {
 
       {/* ═══════════════════════ ASIDE COLUMN ══════════════════════════════ */}
 
+      {/* Plan/coverage card always renders at the top of the aside.
+          Paid → "Your ShieldKit coverage" reassurance.
+          Free → upgrade prompt with locked items + $49/$449 CTA. */}
+      {merchant && !showOnboarding && (
+        <PlanStatusCard
+          isPaid={isPaid}
+          jsonLdVerified={!!merchant.json_ld_verified_at}
+          onEnableJsonLd={() => {
+            jsonLdFetcher.submit(
+              { action: "enableJsonLd" },
+              { method: "POST" },
+            );
+            window.open(
+              getJsonLdThemeEditorUrl(shopDomain, "product-schema", shopifyApiKey),
+              "_top",
+            );
+          }}
+          onUpgrade={navigateToUpgrade}
+        />
+      )}
+
       <SecurityStatusAside
         score={score}
         criticalCount={criticalCount}
@@ -1377,14 +1398,7 @@ export default function Index() {
         previousScan={previousScan}
       />
 
-      {/* Upgrade CTA — hidden once the merchant has full recovery access.
-          Monitoring merchants still see an upsell toward Recovery. */}
-      {merchant && !isPaid && !showOnboarding && (
-        <UpgradeCard tier={tier} onUpgrade={navigateToUpgrade} sidebar />
-      )}
-
-      {/* Policy Generation card — AI policy rewrites are a Recovery feature.
-          Available to recovery + grandfathered pro (Shield Max). */}
+      {/* Policy Generation card — AI-written policies (paid only). */}
       {merchant && isPaid && !showOnboarding && (
         <PolicyGenerationCard
           generatedPolicies={localPolicies}

@@ -4,8 +4,8 @@ name: Process scan triggers
 # (2026-05-28) the only trigger type that does real work is `enrichment`
 # (per-product GTIN/MPN/brand metafield writes, enqueued by the
 # products/update webhook). Vercel Hobby tier disallows sub-daily crons,
-# so the every-30-minute polling lives in GitHub Actions instead; Vercel
-# Cron daily 12:00 UTC is the safety net.
+# so sub-daily polling lives in GitHub Actions instead; Vercel Cron daily
+# 12:00 UTC is the safety net.
 #
 # Manual setup: add CRON_SECRET to the repo's Actions secrets (must match
 # the value set on Vercel for the same env var).
@@ -16,13 +16,15 @@ name: Process scan triggers
 
 on:
   schedule:
-    # Every 30 minutes. GitHub Actions cron is best-effort and can drift /
+    # Every 6 hours. GitHub Actions cron is best-effort and can drift /
     # skip under load — acceptable because pending_scan_triggers rows are
     # 24h-deduped at the webhook layer, so a missed tick is picked up on
-    # the next run. Cadence was reduced from */5 to */30 on 2026-05-20 to
-    # cut Vercel Hobby Fluid Active CPU. Revert here if the queue starts
-    # backing up faster than 30 min can drain.
-    - cron: "*/30 * * * *"
+    # the next run. Cadence was */5 → */30 → 0 */6 (this change, 2026-05-28)
+    # to cut Vercel Hobby Fluid Active CPU. After v4 the only trigger that
+    # does real work is `enrichment` (per-product GTIN/MPN/brand metafield
+    # writes), so the queue is usually empty between bursts. Revert toward
+    # */30 here if enrichment latency starts hurting catalog freshness.
+    - cron: "0 */6 * * *"
   workflow_dispatch: {}
 
 concurrency:

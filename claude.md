@@ -1,57 +1,65 @@
 # ShieldKit — Complete Project Reference
 
+_Last rewritten 2026-05-28 from current code + live DB inspection after the May 27 audit/sweep + four migrations applied._
+
 ## 1. Project Overview
 
 ShieldKit is a B2B SaaS Shopify Embedded App that scans Shopify stores for Google Merchant Center (GMC) compliance issues and surfaces AI-search visibility tools.
 
 * **Module A (Current):** 12-point automated compliance scanner. Identifies suspension risks and provides plain-English fix instructions.
-* **Module B (Future/Hidden):** Automated DMCA Takedown Legal Engine. All DMCA features are deferred indefinitely — the placeholder route was removed on 2026-05-14.
+* **Module B (Future/Hidden):** Automated DMCA Takedown Legal Engine. All DMCA features are deferred indefinitely — placeholder route was removed on 2026-05-14.
 
-**Business model (v3 — recurring, effective 2026-05-14):**
-- **Free:** 1 scan/month, fix instructions for top findings, JSON-LD theme extension. DB tier value: `'free'`.
-- **Monitoring** — $30/month or $290/year. DB tier value: `'monitoring'`. Plan name strings: `"Monitoring"` and `"Monitoring Annual"`. Weekly automated compliance scans, weekly health digest email, AI bot allow/block toggle, llms.txt at `/apps/llms-txt`, ongoing GTIN enrichment on newly-created products, AI-visibility tracking.
-- **Recovery** — $150/year annual-only. DB tier value: `'recovery'`. Plan name string: `"Recovery"`. Everything in Monitoring, plus: GMC re-review appeal letter generator, AI policy rewrites, bulk GTIN/MPN/brand fill on existing catalog, unlimited on-demand compliance scans.
+**Pricing (current — what new merchants see on the landing page):**
+- **Free** — $0/mo: 1 compliance scan per month, fix instructions for top findings, JSON-LD theme extension. DB tier `'free'`.
+- **Monitoring** — $30/month or $290/year. DB tier `'monitoring'`. Plan-name strings: `"Monitoring"` and `"Monitoring Annual"`. Weekly automated compliance scans, weekly health digest email, AI bot allow/block toggle, llms.txt at `/apps/llms-txt`, ongoing GTIN enrichment on newly-created products, AI-visibility tracking.
+- **Recovery** — $150/year annual-only. DB tier `'recovery'`. Plan-name string: `"Recovery"`. Everything in Monitoring, plus: GMC re-review appeal letter generator, AI policy rewrites, bulk GTIN/MPN/brand fill on existing catalog, unlimited on-demand compliance scans.
 
-**Grandfathered tiers** (kept in DB + plan maps so existing subscriptions still reconcile correctly; NOT offered to new merchants on the managed-pricing page):
-- **Shield Pro** ($14/mo or $140/yr, DB tier `'shield'`) — zero live rows on 2026-05-14. Helpers `hasMonitoringAccess()` and `hasRecoveryAccess()` both return false for this tier; if a row ever appears it degrades gracefully to free-level access without a forced downgrade.
-- **Shield Max** ($39/mo or $390/yr, DB tier `'pro'`) — 2 live customers on 2026-05-14, riding existing subscriptions until June renewal. Has full access via BOTH `hasMonitoringAccess()` AND `hasRecoveryAccess()` so the v3 cutover doesn't yank any feature they paid for.
+(Landing page copy lives in `app/routes/_index/route.tsx`.)
 
-DB `merchants.tier` values: `'free' | 'shield' | 'pro' | 'monitoring' | 'recovery'`. CHECK constraint widened in migration `supabase/migrations/20260514150228_widen_tier_for_v3_pricing.sql`. The pro_legacy tier was added in Phase 1 then removed in v2.7 — paying v1 customers received the v1 product they paid for and now flow through the free tier.
+**Legacy / grandfathered tiers** (kept in DB constraint, plan maps, and access helpers so existing subscriptions keep working — NOT offered to new merchants):
+- **Shield Pro** ($14/mo or $140/yr, DB tier `'shield'`) — old v2 plan; live merchant rows on 2026-05-28: 0.
+- **Shield Max** ($39/mo or $390/yr, DB tier `'pro'`) — old v2 plan; live merchant rows on 2026-05-28: 2.
 
-**Source of truth for tier access:** `app/lib/billing/plans.ts` — `hasMonitoringAccess(tier)` and `hasRecoveryAccess(tier)`. NEVER compare `merchants.tier` to a literal string at the call site; always route through the helpers. The v2→v3 migration left 15+ touch points where the wrong literal was hard-coded; centralising fixed it.
+Live tier distribution on 2026-05-28 from the DB: `free=38, monitoring=1, pro=2`. No `shield` or `recovery` rows yet.
+
+**Source of truth for tier access:** `app/lib/billing/plans.ts`:
+- `hasMonitoringAccess(tier)` → true when tier ∈ `{ 'monitoring', 'recovery', 'pro' }`
+- `hasRecoveryAccess(tier)` → true when tier ∈ `{ 'recovery', 'pro' }`
+
+`'shield'` returns false on both helpers — grandfathered Shield Pro rows degrade gracefully to free-level access without a forced downgrade. `'pro'` (grandfathered Shield Max) passes both so the 2 live customers retain their full v2 feature set.
+
+**Never compare `merchants.tier` to a literal string at a feature-gate call site.** Always route through the helpers. The only call-site literal comparisons that remain are sentinel "is this free or not" checks in upgrade-CTA placement and webhook-payload validation; everything that gates a feature uses the helpers.
 
 ---
 
 ## 2. Architecture & Tech Stack
 
 ### Framework & Runtime
-* **React Router v7** (file-based routing via `@react-router/fs-routes`). Routes defined by convention in `app/routes/`.
-* **React 18.3**, **Vite 6.3** build toolchain.
-* **Node.js** >= 20.19 < 22 or >= 22.12 (enforced in `package.json` engines).
+* **React Router v7** with file-based routing via `@react-router/fs-routes`. All routes defined by convention in `app/routes/`.
+* **React 18.3**, **Vite 6.3**.
+* **Node.js** `>=20.19 <22 || >=22.12` (enforced in `package.json` engines).
 * **TypeScript** ^5.9.3, strict mode.
 
 ### Hosting & Deployment
-* **Vercel** at `shieldkit.vercel.app`.
-* **`vercel.json`** defines 4 Vercel Cron jobs:
-  * `POST /api/cron/weekly-scan` — Monday 08:00 UTC (continuous monitor for paid merchants)
-  * `POST /api/cron/monthly-reset` — 1st of month 00:00 UTC (free-tier scan quota refill)
-  * `POST /api/cron/weekly-digest` — Monday 13:00 UTC (Resend email digest, no-op without RESEND_API_KEY)
-  * `POST /api/cron/reconcile-subscriptions` — daily 04:00 UTC (post-April-28 Partner API reconciliation to demote silently-cancelled paid merchants)
-* **`react-router.config.ts`** uses `@vercel/react-router` preset for serverless deployment.
-* **Dockerfile** provided (Node 20-alpine, port 3000) for alternative deployment.
-* `npm run build` -> `react-router build`. `npm start` -> `react-router-serve ./build/server/index.js`.
+* **Vercel** at `shieldkit.vercel.app`. **Tier: Hobby.** Load-bearing — Hobby caps function duration at 60s, so heavy work must be split.
+* `vercel.json` defines 7 Vercel Cron jobs (see Section 7). The lowest-frequency-allowed slot on Hobby is daily.
+* `react-router.config.ts` uses the `@vercel/react-router` preset for serverless deployment.
+* `Dockerfile` exists for alternative deployment (Node 20-alpine, port 3000) but Vercel is canonical.
+* `npm run build` → `react-router build`. `npm start` → `react-router-serve ./build/server/index.js`.
 
-### Key Dependencies
+### Key Dependencies (production)
 | Package | Version | Purpose |
 |---------|---------|---------|
 | `@shopify/app-bridge-react` | ^4.2.4 | Embedded app shell, toast, navigation |
 | `@shopify/shopify-app-react-router` | ^1.1.0 | Auth, billing, webhooks, session management |
-| `@supabase/supabase-js` | ^2.47.0 | PostgreSQL client (service role) |
+| `@supabase/supabase-js` | ^2.47.0 | Postgres client (service role) |
 | `cheerio` | ^1.2.0 | Server-side HTML parsing for compliance checks |
-| `@anthropic-ai/sdk` | ^0.85.0 | AI policy generation (Pro feature, model: `claude-sonnet-4-20250514`) |
+| `@anthropic-ai/sdk` | ^0.85.0 | AI policy generation + appeal-letter (model `claude-sonnet-4-20250514`) |
+| `@sentry/node`, `@sentry/react` | ^10.54.0 | Server-side observability — init from `entry.server.tsx`, no-op when `SENTRY_DSN` unset |
+| `resend` | ^6.12.2 | Weekly digest email send |
 | `isbot` | ^5.1.31 | Bot detection for streaming SSR |
-| `sanitize-html` | ^2.13.0 | HTML sanitization for AI-generated policy content (replaced isomorphic-dompurify on 2026-05-21 to drop jsdom from the server bundle — see "Server-side HTML sanitization" in §11) |
-| `vite-tsconfig-paths` | ^5.1.4 | TypeScript path aliases |
+| `dompurify` | ^3.3.3 | Client-side HTML sanitization for AI-generated policy display |
+| `sanitize-html` | ^2.13.0 | Server-side sanitization for AI-generated policy storage (replaced `isomorphic-dompurify` on 2026-05-21 to drop `jsdom` from the server bundle — see §11) |
 
 ### Key Dev Dependencies
 | Package | Version | Purpose |
@@ -60,54 +68,77 @@ DB `merchants.tier` values: `'free' | 'shield' | 'pro' | 'monitoring' | 'recover
 | `vitest` | ^4.1.2 | Test runner |
 | `vite` | ^6.3.6 | Build toolchain |
 | `@vercel/react-router` | ^1.2.6 | Vercel serverless adapter |
-| `eslint` | ^8.57.1 | Linting |
-| `prettier` | ^3.6.2 | Formatting |
+| `@shopify/polaris-types` | ^1.0.1 | Polaris web component types |
+| `@mdx-js/react`, `@mdx-js/rollup` | ^3.1.1 | Blog post MDX |
+| `eslint`, `prettier` | various | Lint / format |
 
 ### Folder Structure
 ```
 app/
-  routes/              # All RR7 routes (17 files)
-  components/          # Extracted UI components from app._index.tsx
-    ScoreBanner.tsx, KpiCards.tsx, ScanProgressIndicator.tsx,
-    UpgradeCard.tsx, PolicyGenerationCard.tsx,
-    AuditChecklist.tsx, SecurityStatusAside.tsx
-  hooks/               # Custom React hooks
-    useWebComponentClick.ts    (native DOM events for web components)
-  lib/                 # Server-only business logic
-    checks/            # Individual compliance check modules
+  routes/                # All RR7 routes (~37 files)
+  components/            # Dashboard UI components
+    AIVisibilityCard.tsx, AuditChecklist.tsx, KpiCards.tsx,
+    PolicyGenerationCard.tsx, ScanProgressIndicator.tsx,
+    ScoreBanner.tsx, ScoreTrend.tsx, SecurityStatusAside.tsx,
+    UpgradeCard.tsx
+    marketing/           # Landing/blog/fix-page UI
+      Button.tsx, HeroMock.tsx, JsonLd.tsx,
+      MarketingArticleLayout.tsx, MarketingLayout.tsx
+  hooks/
+    useWebComponentClick.ts    (native DOM events for Polaris web components)
+  lib/                    # Server-only business logic
+    checks/               # 12 compliance check modules + helpers + orchestrator
       types.ts, constants.ts, helpers.server.ts, safe-check.server.ts
       contact-information.server.ts, refund-return-policy.server.ts,
       shipping-policy.server.ts, privacy-and-terms.server.ts,
       product-data-quality.server.ts, checkout-transparency.server.ts,
       storefront-accessibility.server.ts, structured-data-json-ld.server.ts,
       page-speed.server.ts, business-identity-consistency.server.ts,
+      hidden-fee-detection.server.ts, image-hosting-audit.server.ts,
       index.server.ts        (orchestrator + re-exports)
+      public-scanner.server.ts (used by the public /scan route)
+    billing/
+      plans.ts             (PLANS, PLAN_NAME_TO_TIER, PLAN_NAME_TO_CYCLE,
+                            hasMonitoringAccess, hasRecoveryAccess,
+                            getManagedPricingUrl)
+      partner-api.server.ts (Partner API client + getActiveSubscriptionByChargeId)
+    llm/
+      appeal-letter.server.ts (Anthropic-powered GMC appeal letter)
+    enrichment/
+      gtin-enrichment.server.ts (GTIN/MPN/brand metafield enricher)
+    ai-visibility/
+      identify-crawler.server.ts / identify-crawler.ts
+    emails/
+      send.server.ts, weekly-digest.ts
     compliance-scanner.server.ts   (barrel re-export from checks/)
-    graphql-queries.server.ts      (GraphQL query strings + response types)
+    graphql-queries.server.ts      (GraphQL strings + response types)
     graphql-client.server.ts       (client infra, retry, executors)
-    shopify-api.server.ts          (public API: getShopInfo, etc. + re-exports)
+    shopify-api.server.ts          (public API: getShopInfo, getShopPolicies, etc.)
     policy-generator.server.ts     (Anthropic-powered policy generation)
     session-storage.server.ts      (custom Supabase session adapter)
     crypto.server.ts               (AES-256-GCM encrypt/decrypt)
-    rate-limiter.server.ts         (persistent rate limiting via Supabase, in-memory fallback)
+    rate-limiter.server.ts         (persistent rate limiting via Supabase, in-mem fallback)
+    json-ld-verifier.server.ts     (Fix 3 — confirms storefront block renders)
+    json-ld-deep-link.ts           (Fix 7 — getJsonLdThemeEditorUrl helper)
+    sentry.server.ts               (Sentry wrapper; init runs at module load)
     types.ts                       (shared UI types: Merchant, Scan, etc.)
-    constants.ts                   (shared UI color constants)
-    scan-helpers.ts                (pure helper functions for dashboard)
-  shopify.server.ts   # Shopify app config, billing plans, afterAuth hook
-  supabase.server.ts  # Supabase client singleton
+    constants.ts, scan-helpers.ts, blog.ts, brand.ts
+  shopify.server.ts        # Shopify app config, afterAuth hook
+  supabase.server.ts       # Supabase client singleton (service-role)
   root.tsx, entry.server.tsx, routes.ts, globals.d.ts, styles.css
 scripts/
   outbound-scanner.ts                # Standalone CLI scanner (no OAuth)
-  cleanup-orphan-webhooks.ts         # One-off: deletes orphan webhook subscriptions from old dev tunnels
-  backfill-merchant-shop-info.ts     # Walks merchants table and refreshes Shopify metadata columns
+  backfill-merchant-shop-info.ts     # One-off merchant metadata refresh
+  cleanup-orphan-webhooks.ts         # Deletes orphan webhook subscriptions from old dev tunnels
+  dev-cleanup-subs.ts                # Dev helper to cancel test subscriptions
+  top-criticals.ts                   # Ops query on hot critical checks
+  validate-partner-api.ts            # Smoke test for Partner API plumbing
 supabase/
-  schema.sql           # Database DDL
-public/
-  favicon.ico, logo-main.png
+  schema.sql           # Cumulative bootstrap snapshot (Fix 10 rebuild on 2026-05-27)
+  migrations/          # Numbered migrations — source of truth for ordering
 extensions/
-  json-ld-schema/      # Theme extension: Product JSON-LD structured data block
-tests/
-  bug-fixes.test.ts    # Regression tests (60 tests)
+  json-ld-schema/      # Theme extension: Product/Organization/WebSite JSON-LD blocks
+tests/                 # Vitest regression suites (9 files, 233 tests on 2026-05-28)
 ```
 
 ---
@@ -120,94 +151,91 @@ tests/
 * **application_url:** `https://shieldkit.vercel.app`
 * **Build setting:** `automatically_update_urls_on_dev = false` (prevents `shopify app dev` from overwriting production webhook URLs with dev tunnel URLs)
 * **Webhooks API version:** `2026-04`
-* **Access scopes:** `read_products,read_content,read_legal_policies` (read-only -- app never writes to merchant stores)
+* **Access scopes (8):** `read_products,read_content,read_legal_policies,write_products,read_shipping,read_locations,read_themes,write_themes`. The `write_products`, `write_themes`, `read_themes`, `read_shipping`, `read_locations` additions are intentional and unlock GTIN auto-fill + theme/shipping/location reads — not drift, despite the read-only history of the app.
 * **Auth redirect URLs:**
   - `https://shieldkit.vercel.app/auth/callback`
   - `https://shieldkit.vercel.app/auth/shopify/callback`
   - `https://shieldkit.vercel.app/api/auth/callback`
 * **Distribution:** AppStore
+* **App Proxy:** `[app_proxy]` block registers `/apps/llms-txt` → `/api/proxy/llms-txt` (prefix `apps`, subpath `llms-txt`).
 
 ### App Bridge & Auth (`app/shopify.server.ts`)
-* **API Version:** `ApiVersion.October25` (October 2025)
-* **Scopes at runtime:** `process.env.SCOPES ?? "read_products,read_content,read_legal_policies"` -- matches `shopify.app.toml`.
-* **Session storage:** Custom `SupabaseSessionStorage` class (not Prisma/SQLite).
-* **Token rotation:** `expiringOfflineAccessTokens: true` -- refresh tokens stored in sessions table.
-* **afterAuth hook:** Fires on every OAuth completion (install + re-auth). For offline sessions only, upserts a `merchants` row: sets `shopify_domain`, encrypts `access_token`, sets `installed_at`, clears `uninstalled_at`.
+* **API Version:** `ApiVersion.October25` (Shopify Admin API `2025-10`)
+* **Runtime scopes:** `process.env.SCOPES ?? "read_products,read_content,read_legal_policies"`. In production `SCOPES` is set from the toml string, so the granted set is all 8.
+* **Session storage:** Custom `SupabaseSessionStorage` class (`app/lib/session-storage.server.ts`); replaces the SDK's Prisma/SQLite default.
+* **Token rotation:** `expiringOfflineAccessTokens: true` — refresh tokens stored encrypted in `sessions`.
+* **afterAuth hook:** Fires on every OAuth completion (install + re-auth). For offline sessions only: upserts a `merchants` row, encrypts `access_token`, sets `installed_at`, clears `uninstalled_at`.
 * **authenticate.admin(request):** Validates App Bridge 4.x JWT on every `/app/*` route.
-* **Exports:** `authenticate`, `login`, `registerWebhooks`, `sessionStorage`, `addDocumentResponseHeaders`, `unauthenticated`, `apiVersion`. Plan reference data lives in `app/lib/billing/plans.ts` (PLANS, PLAN_NAME_TO_TIER, PLAN_NAME_TO_CYCLE, PLAN_NAME_TO_GROUP, TIER_GROUPS, TIER_FEATURES, PLAN_FEATURES, planKeyByName, getManagedPricingUrl). The `shopifyApp({ billing })` config field is intentionally absent — under managed pricing Shopify owns the plan registry, not us.
+* **No `billing` config registered.** Under managed pricing the plan registry lives in the Partner Dashboard. `billing.request()` / `billing.cancel()` are not called anywhere.
 
 ### Webhook Subscriptions
-Declared in `shopify.app.toml` and handled by route files:
+Declared in `shopify.app.toml` and handled by route files. All use `authenticate.webhook(request)` which verifies `X-Shopify-Hmac-Sha256`; invalid HMAC auto-returns 401.
 
-| Topic | Route File | Behavior |
-|-------|-----------|----------|
-| `app/uninstalled` | `webhooks.app.uninstalled.tsx` | Deletes all sessions for shop, soft-deletes merchant (`uninstalled_at = NOW()`). |
-| `app/scopes_update` | `webhooks.app.scopes_update.tsx` | Updates session scope string in Supabase. |
-| `app_subscriptions/update` | `webhooks.app_subscriptions.update.tsx` | Maps plan name → tier + billing_cycle via PLAN_NAME_TO_TIER/PLAN_NAME_TO_CYCLE. On ACTIVE persists tier/billing_cycle/subscription_started_at/shopify_subscription_id; on CANCELLED/EXPIRED/DECLINED/FROZEN resets to free with scans_remaining=1, scans_reset_at=now(). |
-| `products/create`, `products/update` | `webhooks.products.update.tsx` | HMAC + merchant lookup on every delivery. For monitoring-access tiers (Monitoring + Recovery + grandfathered Shield Max — gated via `hasMonitoringAccess`): inserts a `pending_scan_triggers` row (24h-deduped) and runs `enrichProductMetafields` inline against the updated product with a 3s safety budget. Outcomes logged to `enrichment_webhook_log`. Always acks 200. |
-| `themes/update`, `themes/publish` | `webhooks.themes.update.tsx` | HMAC + merchant lookup. For monitoring-access tiers: inserts a `pending_scan_triggers` row (24h-deduped) so the drain cron re-runs the storefront-affecting checks. Always acks 200. |
-| `customers/data_request` | `webhooks.customers.data_request.tsx` | GDPR. Logs and returns 200 (app stores no customer PII). |
-| `customers/redact` | `webhooks.customers.redact.tsx` | GDPR. Logs and returns 200 (no customer PII to delete). |
-| `shop/redact` | `webhooks.shop.redact.tsx` | GDPR. Hard-deletes merchant row (CASCADE to scans, violations). Fires 48h after uninstall. |
+| Topic | Route File | Behaviour |
+|-------|-----------|-----------|
+| `app/uninstalled` | `webhooks.app.uninstalled.tsx` | Deletes sessions, soft-deletes merchant (`uninstalled_at = NOW()`). On Supabase write failure, inserts a `webhook_failures` audit row (best-effort try/catch around that too — webhook ACK is never blocked). Always returns 200. The daily `reconcile-installs` cron is the durable safety net for lost deliveries. |
+| `app/scopes_update` | `webhooks.app.scopes_update.tsx` | Updates session scope string. |
+| `app_subscriptions/update` | `webhooks.app_subscriptions.update.tsx` | Pre-April-28 supplementary path: maps plan name → tier + billing_cycle via `PLAN_NAME_TO_TIER` / `PLAN_NAME_TO_CYCLE`. On `ACTIVE` persists tier/billing_cycle/subscription_started_at/shopify_subscription_id; on terminal statuses resets to free with `scans_remaining=1`. Post-April-28 the Partner API path is canonical. |
+| `products/create`, `products/update` | `webhooks.products.update.tsx` | HMAC + merchant lookup. For monitoring-access tiers: enqueues a `pending_scan_triggers` row (`trigger_type='product_update'`, 24h-deduped) plus, when `write_products` is granted, enqueues a second row (`trigger_type='enrichment'`, payload `{ product_gid, numeric_product_id }`, dedup'd against `schema_enrichments` and the queue) for the drainer to run enrichment off the hot path. Returns 200 in <1s. |
+| `themes/update`, `themes/publish` | `webhooks.themes.update.tsx` | HMAC + merchant lookup. For monitoring-access tiers: inserts a `pending_scan_triggers` row (`trigger_type='theme_update'` or `'theme_publish'`, 24h-deduped). Always 200. |
+| `customers/data_request` | `webhooks.customers.data_request.tsx` | GDPR. Logs and 200 (no customer PII stored). |
+| `customers/redact` | `webhooks.customers.redact.tsx` | GDPR. 200 (no customer PII to delete). |
+| `shop/redact` | `webhooks.shop.redact.tsx` | GDPR. Hard-deletes merchant row 48h post-uninstall (CASCADE to scans → violations). |
 
-All webhooks use `authenticate.webhook(request)` which verifies `X-Shopify-Hmac-Sha256`. Invalid HMAC -> automatic 401.
+### Billing — Shopify Managed Pricing
 
-### Billing — Shopify Managed Pricing (`app/lib/billing/plans.ts`, `app.upgrade.tsx`, `app.billing.confirm.tsx`, `app.plan-switcher.tsx`)
+Plans are defined in the **Partner Dashboard** listing UI, not in code. The codebase does not register a `billing` config on `shopifyApp({...})` and does not call `billing.request()` / `billing.cancel()`. Pick-a-plan, switch, and cancel are all hosted on `admin.shopify.com`.
 
-ShieldKit uses **Shopify Managed Pricing**: the pick-a-plan, switch, and cancel UIs are hosted by Shopify on `admin.shopify.com`. The plans themselves are defined in the Partner Dashboard listing UI (Pricing settings) — **not** in code. The codebase no longer registers a `billing` config on `shopifyApp({...})`; `billing.request()` and `billing.cancel()` are not called anywhere.
+**Plan name strings registered in the Partner Dashboard** (must match the keys in `PLAN_NAME_TO_TIER` / `PLAN_NAME_TO_CYCLE`):
 
-**Paid plans defined in Partner Dashboard.**
+Current offerings:
+| Name | Price | DB tier | billing_cycle |
+|------|-------|---------|---------------|
+| `Monitoring` | $30/mo | `monitoring` | `monthly` |
+| `Monitoring Annual` | $290/yr | `monitoring` | `annual` |
+| `Recovery` | $150/yr | `recovery` | `annual` |
 
-Current (offered to new merchants on the managed-pricing page):
+Grandfathered (not offered to new merchants, kept so existing subscriptions reconcile):
+| Name | Price | DB tier | billing_cycle |
+|------|-------|---------|---------------|
+| `Shield Pro` | $14/mo | `shield` | `monthly` |
+| `Shield Pro Annual` | $140/yr | `shield` | `annual` |
+| `Shield Max` | $39/mo | `pro` | `monthly` |
+| `Shield Max Annual` | $390/yr | `pro` | `annual` |
 
-| Name string (must match exactly) | Price | DB tier | billing_cycle |
-|----------------------------------|-------|---------|----------------|
-| `"Monitoring"`                   | $30/mo  | `monitoring` | `monthly` |
-| `"Monitoring Annual"`            | $290/yr | `monitoring` | `annual`  |
-| `"Recovery"`                     | $150/yr | `recovery`   | `annual`  |
+**Billing flow (Fix 1 — 2026-05-27):**
+1. Merchant clicks an upgrade button → navigates to `/app/upgrade` (or `/app/plan-switcher`).
+2. The route is a loader + component that returns the managed-pricing URL via `getManagedPricingUrl(session.shop)` and `useEffect`s `window.open(url, "_top")` to escape the embedded iframe (Shopify admin sends `X-Frame-Options: DENY`, so a server-side `redirect()` cannot navigate the parent window). Fallback link rendered for popup-blocker cases.
+3. Merchant picks/switches/cancels on Shopify's hosted page.
+4. After approval/decline, Shopify redirects to the Welcome link configured in the Partner Dashboard (`${SHOPIFY_APP_URL}/app/billing/confirm`).
+5. `app.billing.confirm.tsx` loader calls `getActiveSubscriptionByChargeId(charge_id)` (Partner API — the only path; legacy `billing.check()` fallback was removed in Fix 1). Status handling:
+   - `active` (+ paid tier) → write `tier`, `billing_cycle`, `subscription_started_at`, `shopify_subscription_id`, `scans_remaining=null` → redirect `/app`.
+   - `cancelled` / `declined` / `expired` → redirect `/app?billing=cancelled`.
+   - `unknown` / `pending` / `frozen` / missing `charge_id` → render the "Confirming your subscription…" pending page with a Refresh button. **Never demote on uncertainty.**
+6. `APP_SUBSCRIPTIONS_UPDATE` webhook (pre-April-28) is a backstop reconciliation channel.
+7. `reconcile-subscriptions` cron (daily 04:00 UTC) post-April-28 walks paid merchants and demotes on terminal Partner-API status.
 
-Grandfathered (NOT offered to new merchants — kept in `PLAN_NAME_TO_TIER` / `PLAN_NAME_TO_CYCLE` so existing subscriptions reconcile through the `APP_SUBSCRIPTIONS_UPDATE` webhook and Partner API):
+**Dashboard billing self-heal (Fix 6 — 2026-05-27):** The Partner API reconciliation call was moved off the dashboard loader (was blocking every paid-merchant render on an external GraphQL roundtrip). It now runs once on dashboard mount via a `selfHealBilling` action fired from a `useEffect` (skipped for free tier; once-only `useRef` guard). On `healed=true` the component calls `revalidator.revalidate()`. `app.billing.confirm.tsx` keeps its inline self-heal because that path is user-facing post-approval where a 1–2s wait is the right UX.
 
-| Name string (must match exactly) | Price | DB tier | billing_cycle |
-|----------------------------------|-------|---------|----------------|
-| `"Shield Pro"`                   | $14/mo  | `shield` | `monthly` |
-| `"Shield Pro Annual"`            | $140/yr | `shield` | `annual`  |
-| `"Shield Max"`                   | $39/mo  | `pro`    | `monthly` |
-| `"Shield Max Annual"`            | $390/yr | `pro`    | `annual`  |
+**`getManagedPricingUrl`** throws loudly if `SHOPIFY_APP_HANDLE` is unset.
 
-The plan-name strings are the keys both sides use — `app/lib/billing/plans.ts` keeps `PLAN_NAME_TO_TIER` / `PLAN_NAME_TO_CYCLE` maps so the `app_subscriptions/update` webhook and the billing-confirm loader can translate the name Shopify hands us into our DB tier + cycle.
+**Paid tier features** (gated via `hasMonitoringAccess` / `hasRecoveryAccess`):
 
-**Billing flow:**
-1. Merchant clicks an upgrade button anywhere in the app → navigates to `/app/upgrade` (or `/app/plan-switcher`).
-2. The loader resolves the merchant's managed-pricing URL via `getManagedPricingUrl(session.shop)` — format `https://admin.shopify.com/store/{shop_subdomain}/charges/{SHOPIFY_APP_HANDLE}/pricing_plans` — and throws a `redirect()`.
-3. The merchant picks (or switches/cancels) a plan on Shopify's hosted page.
-4. After approval/decline, Shopify redirects the merchant to the **Welcome link** configured in the Partner Dashboard listing UI. ShieldKit sets that to `${SHOPIFY_APP_URL}/app/billing/confirm`.
-5. `app.billing.confirm.tsx` loader calls `billing.check()` (no `plans` arg under managed pricing), derives tier and billing_cycle via `PLAN_NAME_TO_TIER` / `PLAN_NAME_TO_CYCLE`, and idempotently writes the full billing column set.
-6. `APP_SUBSCRIPTIONS_UPDATE` webhook fires with the same payload shape as before and acts as the reconciliation backstop.
-
-**`/app/upgrade` and `/app/plan-switcher`** are both loader-only redirect routes (no JSX, no actions). Managed pricing's hosted page handles plan switching and cancellation natively, satisfying the App Store review requirement that merchants can manage their plan without contacting support.
-
-**`getManagedPricingUrl`** throws loudly if `SHOPIFY_APP_HANDLE` is unset — a missing env var produces a clear error at the upgrade-redirect site rather than a silent broken URL that 404s on Shopify.
-
-**Billing self-heal** lives in `app/routes/app._index.tsx` loader. Calls `billing.check()` (no `plans` arg), detects drift on tier, billing_cycle, shopify_subscription_id, OR scans_remaining and writes the full set when any field disagrees with Shopify's truth. Critical for catching monthly→annual swaps where tier is unchanged but cycle moves.
-
-**Paid tier features** (gated via `hasMonitoringAccess` / `hasRecoveryAccess` helpers — see `app/lib/billing/plans.ts`)**:**
-
-Monitoring access (`hasMonitoringAccess` — Monitoring + Recovery + grandfathered Shield Max):
+Monitoring access (`hasMonitoringAccess` — Monitoring + Recovery + grandfathered Shield Max `'pro'`):
 - Unlimited re-scans (`scans_remaining = null`)
-- Automated weekly compliance scans (`tier IN MONITORING_TIERS` = `('monitoring','recovery','pro')`)
+- Automated weekly compliance scans (`MONITORING_TIERS = ('monitoring','recovery','pro')`)
 - Weekly health digest email via Resend
 - AI bot allow/block toggle (`/app/bots/toggle`)
 - llms.txt App Proxy at `/apps/llms-txt`
 - Pro Settings form (`/app/pro-settings`) — logo, support email, social URLs, search-URL template
 - Organization & WebSite JSON-LD theme blocks
-- Ongoing GTIN/MPN/brand enrichment on newly-created products (via `products/update` webhook)
+- Ongoing GTIN/MPN/brand enrichment on newly-created products (via `products/update` webhook → `enrichment` trigger → drainer)
 - AI-visibility tracking
 
-Recovery access (`hasRecoveryAccess` — Recovery + grandfathered Shield Max only):
+Recovery access (`hasRecoveryAccess` — Recovery + grandfathered Shield Max `'pro'`):
 - GMC re-review appeal letter generator (`/app/appeal-letter`)
-- AI policy generation (Anthropic Claude, model `claude-sonnet-4-20250514`)
-- Bulk GTIN/MPN/brand fill on the existing catalog (`/app/gtin-fill`, currently stubbed behind `WRITE_METAFIELDS_SCOPE_ENABLED` until App Store re-review)
+- AI policy generation (Anthropic `claude-sonnet-4-20250514`)
+- Bulk GTIN/MPN/brand fill on existing catalog (`/app/gtin-fill`)
 
 **Free tier:** 1 scan. Resets monthly via Vercel Cron (`/api/cron/monthly-reset`).
 
@@ -215,10 +243,12 @@ Recovery access (`hasRecoveryAccess` — Recovery + grandfathered Shield Max onl
 
 ## 4. Database Schema (Supabase)
 
-Project ID: `bhnpcirhutczdorkhibm`. All tables have RLS enabled. App uses `service_role` key which bypasses RLS.
+Project ref: `bhnpcirhutczdorkhibm`. The project is named "ShieldKit-Dev" in the Supabase dashboard but **is the live production database** — single-project setup, no dev/prod split, real merchants and paying customers.
+
+All tables have RLS enabled; the app uses the `service_role` key which bypasses RLS. Live shape verified 2026-05-28.
 
 ### Table: `sessions`
-Shopify OAuth session storage. Replaces default Prisma adapter.
+Shopify OAuth session storage. Replaces the default Prisma adapter.
 
 | Column | Type | Notes |
 |--------|------|-------|
@@ -229,63 +259,65 @@ Shopify OAuth session storage. Replaces default Prisma adapter.
 | `scope` | TEXT | Comma-separated granted scopes |
 | `expires` | TIMESTAMPTZ | Session expiry |
 | `access_token` | TEXT DEFAULT '' | **Encrypted** (AES-256-GCM) |
-| `user_id` | BIGINT | Online session user fields... |
+| `user_id` | BIGINT | Online session user fields |
 | `first_name`, `last_name`, `email` | TEXT | |
 | `account_owner` | BOOLEAN DEFAULT false | |
-| `locale` | TEXT | |
-| `collaborator` | BOOLEAN | |
-| `email_verified` | BOOLEAN | |
+| `locale`, `collaborator`, `email_verified` | TEXT / BOOLEAN | |
 | `refresh_token` | TEXT | **Encrypted**. For token rotation. |
 | `refresh_token_expires` | TIMESTAMPTZ | |
 
-* **Index:** `idx_sessions_shop` on (`shop`)
+Index: `idx_sessions_shop` on `(shop)`.
 
 ### Table: `merchants`
-One row per installed shop. Soft-deleted on uninstall, hard-deleted by GDPR shop/redact 48h later.
+One row per installed shop. Soft-deleted on uninstall; hard-deleted by `shop/redact` 48h later.
 
 | Column | Type | Notes |
 |--------|------|-------|
-| `id` | UUID PK (gen_random_uuid) | |
+| `id` | UUID PK `gen_random_uuid()` | |
 | `shopify_domain` | TEXT NOT NULL UNIQUE | e.g. `mystore.myshopify.com` |
-| `shop_name` | TEXT | Display name from `shop.name` GraphQL. Refreshed opportunistically on every scan; may be NULL on rows that haven't scanned since the upsert was wired in. |
-| `shop_owner_name` | TEXT | `shop.shopOwnerName` from GraphQL. Owner's name, distinct from store/brand name. Refreshed opportunistically on every scan. |
-| `contact_email` | TEXT | `shop.contactEmail` from GraphQL. Refreshed opportunistically on every scan. |
-| `country`, `province`, `city` | TEXT | `shop.billingAddress.{country,province,city}`. Geo segmentation. Refreshed opportunistically on every scan. |
-| `currency_code` | TEXT | `shop.currencyCode`, e.g. `USD`. Refreshed opportunistically on every scan. |
-| `shopify_plan` | TEXT | `shop.plan.displayName`, e.g. `Basic`, `Shopify`, `Advanced`, `Plus`. ICP signal. Refreshed opportunistically on every scan. |
-| `primary_domain` | TEXT | `shop.primaryDomain.host` — the real storefront host (e.g. `tbgypsysoul.com`), different from `*.myshopify.com`. Refreshed opportunistically on every scan. |
-| `shop_created_at` | TIMESTAMPTZ | `shop.createdAt` — when the Shopify store itself was created. Store age signal. Refreshed opportunistically on every scan. |
-| `iana_timezone` | TEXT | `shop.ianaTimezone`, e.g. `America/Chicago`. Refreshed opportunistically on every scan. |
-| `shop_metadata_refreshed_at` | TIMESTAMPTZ | Set on every successful opportunistic refresh of the columns above. Useful for diagnostics — NULL means we have never had a fresh token successfully resolve `getShopInfo()` for this merchant. |
-| `access_token_encrypted` | TEXT | AES-256-GCM encrypted token |
-| `tier` | TEXT DEFAULT 'free' CHECK (tier IN ('free','shield','pro','monitoring','recovery')) | `'free'` = no plan. Current: `'monitoring'` = Monitoring ($30/mo or $290/yr), `'recovery'` = Recovery ($150/yr). Grandfathered: `'shield'` = Shield Pro ($14, zero live rows on 2026-05-14), `'pro'` = Shield Max ($39, 2 live customers on 2026-05-14). CHECK widened in migration `20260514150228_widen_tier_for_v3_pricing.sql`. Always gate features via `hasMonitoringAccess` / `hasRecoveryAccess` — never via literal-string comparison. |
-| `billing_cycle` | TEXT CHECK ('monthly','annual') | NULL on free tier. Set from PLAN_NAME_TO_CYCLE on activation. |
-| `subscription_started_at` | TIMESTAMPTZ | Shopify's `appSubscription.createdAt` from billing.check; NULL on free. |
-| `shopify_subscription_id` | TEXT | GraphQL gid of the active subscription, e.g. `gid://shopify/AppSubscription/...`; NULL on free. |
-| `scans_remaining` | INTEGER DEFAULT 1 | null = unlimited (paid), 0 = exhausted, n > 0 = available |
-| `scans_reset_at` | TIMESTAMPTZ DEFAULT now() | Last time the free-tier scan quota was refilled. The monthly-reset cron uses `< now() - 30d` to find rows to refill. |
-| `json_ld_enabled` | BOOLEAN DEFAULT false | Whether merchant has enabled JSON-LD theme extension |
-| `generated_policies` | JSONB DEFAULT '{}' | Keyed by policy type: `{ refund?: string, shipping?: string, privacy?: string, terms?: string }` |
-| `policy_regen_used` | JSONB DEFAULT '{}' | Tracks regeneration: `{ refund?: boolean, ... }` -- one regen per type |
-| `pro_settings` | JSONB DEFAULT '{}' | Monitoring-access settings (column name is legacy — predates the v3 rebrand): logo_url, support_email, social URLs, search_url_template, bot_preferences (Record<botId, "allow"\|"block">). Backs `/app/pro-settings` and `/app/bots/toggle`. Populated by any tier where `hasMonitoringAccess(tier)` returns true. |
-| `review_prompted` | BOOLEAN DEFAULT false | Set true when merchant dismisses review banner; never shown again. |
+| `access_token_encrypted` | TEXT | AES-256-GCM-encrypted offline token |
+| `tier` | TEXT NOT NULL DEFAULT 'free' | CHECK constraint: `('free','shield','pro','monitoring','recovery')` |
+| `scans_remaining` | INTEGER (nullable) DEFAULT 1 | `null` = unlimited (paid), `0` = exhausted, `n>0` = available |
+| `scans_reset_at` | TIMESTAMPTZ DEFAULT now() | Free-tier quota refill timestamp |
+| `billing_cycle` | TEXT | CHECK: `('monthly','annual')`. NULL on free. |
+| `subscription_started_at` | TIMESTAMPTZ | NULL on free. |
+| `shopify_subscription_id` | TEXT | GraphQL gid of the active subscription. |
+| `pro_settings` | JSONB DEFAULT '{}'::jsonb | Monitoring-access settings (column name predates v3 rebrand). Holds logo_url, support_email, social URLs, search_url_template, bot_preferences (Record<botId, "allow"\|"block">). |
+| `json_ld_enabled` | BOOLEAN DEFAULT false | **Verified state** — flipped true **only by the verifier** after positive storefront confirmation (Fix 3 — 2026-05-27). |
+| `json_ld_enable_clicked_at` | TIMESTAMPTZ | Set when merchant clicks "Enable JSON-LD" (intent, not state). |
+| `json_ld_verified_at` | TIMESTAMPTZ | Set by `json-ld-verifier.server.ts` on positive confirmation. |
+| `json_ld_verification_attempts` | INT NOT NULL DEFAULT 0 | Bounded retry budget. After 5 attempts OR 7 days, verifier resets `clicked_at = NULL` so the UI re-prompts. |
+| `generated_policies` | JSONB DEFAULT '{}'::jsonb | `{ refund?, shipping?, privacy?, terms? }` from AI generator. |
+| `policy_regen_used` | JSONB DEFAULT '{}'::jsonb | One regen per policy type. |
+| `review_prompted` | BOOLEAN DEFAULT false | Set true when merchant dismisses review banner. |
+| `llms_txt_last_served_at` | TIMESTAMPTZ | Fire-and-forget update from `api.proxy.llms-txt.ts` on every response. Drives the digest's AI Readiness Score freshness term. |
+| `shop_name` | TEXT | Shopify metadata (opportunistically refreshed every scan) |
+| `shop_owner_name`, `contact_email` | TEXT | |
+| `country`, `province`, `city` | TEXT | From `shop.billingAddress` |
+| `currency_code`, `shopify_plan`, `primary_domain` | TEXT | |
+| `shop_created_at` | TIMESTAMPTZ | `shop.createdAt` — store age signal |
+| `iana_timezone` | TEXT | |
+| `shop_metadata_refreshed_at` | TIMESTAMPTZ | Set on every successful metadata refresh |
 | `installed_at` | TIMESTAMPTZ DEFAULT now() | |
 | `uninstalled_at` | TIMESTAMPTZ | Soft-delete marker |
 | `created_at` | TIMESTAMPTZ DEFAULT now() | |
 
-* **Indexes:** `idx_merchants_domain`, `idx_merchants_active` (WHERE `uninstalled_at IS NULL`), `idx_merchants_country` (WHERE `uninstalled_at IS NULL`)
-* **RLS Policy:** `merchants_shop_isolation` -- row accessible only when `shopify_domain = current_setting('app.current_shop')`
-* **CASCADE:** Deleting a merchant cascades to scans, then to violations.
+Indexes verified on the live DB: `merchants_pkey`, `merchants_shopify_domain_key`, `idx_merchants_domain (shopify_domain)`, `idx_merchants_country (country) WHERE uninstalled_at IS NULL`. **Note:** the `idx_merchants_active` index claimed in `supabase/schema.sql` does NOT exist on the live DB — schema.sql drift, harmless (only affects bootstrap-from-scratch parity).
+
+RLS Policy: `merchants_shop_isolation` (`shopify_domain = current_setting('app.current_shop', true)`).
+
+CASCADE: deleting a merchant cascades to scans → violations.
 
 ### Table: `leads`
-Lead collection for future retargeting. One row per shop.
+Lead collection for retargeting; one row per shop.
 
 | Column | Type | Notes |
 |--------|------|-------|
-| `id` | UUID PK | |
+| `id` | BIGINT NOT NULL PK | _Live shape — `supabase/schema.sql` documents UUID; that's drift._ |
 | `shop_domain` | TEXT NOT NULL UNIQUE | |
-| `email` | TEXT NOT NULL | Shop owner email (from GraphQL `shop { email }`) |
-| `created_at` | TIMESTAMPTZ DEFAULT now() | |
+| `email` | TEXT (nullable) | _Live shape allows NULL — schema.sql claims NOT NULL._ |
+| `public_risk_score` | INT (nullable) | Persisted by `/scan` public route. |
+| `created_at` | TIMESTAMPTZ NOT NULL DEFAULT now() | |
 
 ### Table: `scans`
 One row per compliance scan run.
@@ -293,14 +325,14 @@ One row per compliance scan run.
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | UUID PK | |
-| `merchant_id` | UUID FK -> merchants(id) ON DELETE CASCADE | |
-| `scan_type` | TEXT DEFAULT 'manual' CHECK IN ('manual','automated') | |
-| `compliance_score` | NUMERIC(5,2) | 0-100 |
+| `merchant_id` | UUID FK → merchants(id) ON DELETE CASCADE | |
+| `scan_type` | TEXT DEFAULT 'manual' | CHECK: `('manual','automated')` |
+| `compliance_score` | NUMERIC(5,2) | 0–100 |
 | `total_checks`, `passed_checks` | INTEGER | |
 | `critical_count`, `warning_count`, `info_count` | INTEGER | |
 | `created_at` | TIMESTAMPTZ DEFAULT now() | |
 
-* **Indexes:** `idx_scans_merchant_id`, `idx_scans_created_at` (DESC)
+Indexes verified live: `scans_pkey`, `idx_scans_merchant_id`. **Note:** `idx_scans_created_at (created_at DESC)` claimed by schema.sql does NOT exist on the live DB — schema.sql drift.
 
 ### Table: `violations`
 Individual check results per scan.
@@ -308,15 +340,15 @@ Individual check results per scan.
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | UUID PK | |
-| `scan_id` | UUID FK -> scans(id) ON DELETE CASCADE | |
+| `scan_id` | UUID FK → scans(id) ON DELETE CASCADE | |
 | `check_name` | TEXT NOT NULL | e.g. `contact_information` |
 | `passed` | BOOLEAN DEFAULT false | |
-| `severity` | TEXT CHECK IN ('critical','warning','info','error') | |
-| `title`, `description`, `fix_instruction` | TEXT | Human-readable results |
+| `severity` | TEXT | CHECK: `('critical','warning','info','error')` |
+| `title`, `description`, `fix_instruction` | TEXT | Human-readable |
 | `raw_data` | JSONB | Machine-readable check details |
 | `created_at` | TIMESTAMPTZ DEFAULT now() | |
 
-* **Indexes:** `idx_violations_scan_id`, `idx_violations_severity`, `idx_violations_raw_data` (GIN)
+Indexes verified live: `violations_pkey`, `idx_violations_scan_id`, `idx_violations_raw_data (GIN)`. **Note:** `idx_violations_severity` claimed by schema.sql does NOT exist on the live DB — schema.sql drift.
 
 ### Table: `scan_rate_limits`
 Persistent rate limiting for scan API requests.
@@ -324,25 +356,27 @@ Persistent rate limiting for scan API requests.
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | UUID PK | |
-| `shop` | TEXT NOT NULL | Shop domain |
+| `shop` | TEXT NOT NULL | |
 | `requested_at` | TIMESTAMPTZ DEFAULT now() | |
 
-* **Index:** `idx_rate_limits_shop_time` on (`shop`, `requested_at`)
+Index: `idx_rate_limits_shop_time (shop, requested_at)`.
+
+### Function: `decrement_scan_quota(p_merchant_id UUID)`
+Atomic decrement; returns `(new_scans_remaining INTEGER)` or no rows when quota already 0 / NULL. Both scan entry points call this to avoid races.
 
 ### Table: `digest_emails`
-Audit log of weekly digest sends, one row per attempt (success or failure).
+Audit log of weekly digest sends — one row per attempt.
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | UUID PK | |
-| `merchant_id` | UUID FK -> merchants(id) ON DELETE CASCADE | |
+| `merchant_id` | UUID FK → merchants(id) ON DELETE CASCADE | |
 | `sent_at` | TIMESTAMPTZ DEFAULT now() | |
-| `scan_id` | UUID FK -> scans(id) | The scan whose results were diffed for the digest. |
-| `new_issues_count` | INTEGER | Failed-this-week-passed-last-week count from the diff. |
-| `fixes_confirmed_count` | INTEGER | Passed-this-week-failed-last-week count. |
-| `email_provider_id` | TEXT | Resend message id on success. `'FAILED:<reason>'` on failure. `'FAILED:no_email_on_file'` when leads.email is missing. |
+| `scan_id` | UUID FK → scans(id) | |
+| `new_issues_count`, `fixes_confirmed_count` | INTEGER | |
+| `email_provider_id` | TEXT | Resend message id on success; `'FAILED:<reason>'` (including `'FAILED:no_email_on_file'`) on failure. Optionally suffixed `|src=shopify_owner` when the shop-owner email fallback was used. |
 
-* **Index:** `idx_digest_merchant_time` on (`merchant_id`, `sent_at` DESC)
+Index: `idx_digest_merchant_time (merchant_id, sent_at DESC)`.
 
 ### Table: `appeal_letters`
 GMC re-review appeal letter generations.
@@ -350,32 +384,86 @@ GMC re-review appeal letter generations.
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | UUID PK | |
-| `merchant_id` | UUID FK -> merchants(id) ON DELETE CASCADE | |
-| `scan_id` | UUID FK -> scans(id) | Letters are capped at 3 per scan_id, enforced by counting rows where merchant_id + scan_id match. |
-| `suspension_reason` | TEXT | Merchant-supplied input from the form. |
-| `generated_letter` | TEXT | Claude Sonnet output, plain text. |
+| `merchant_id` | UUID FK → merchants(id) ON DELETE CASCADE | |
+| `scan_id` | UUID FK → scans(id) | Capped at 3 per scan_id by row counting at the route. |
+| `suspension_reason` | TEXT | Merchant-supplied form input |
+| `generated_letter` | TEXT | Claude Sonnet output |
 | `created_at` | TIMESTAMPTZ DEFAULT now() | |
 
 ### Table: `schema_enrichments`
-Phase 5 — Merchant Listings JSON-LD enrichment audit log. Currently unused; created in Phase 1 for the upcoming write_products scope rollout.
+GTIN/MPN/brand enrichment audit log.
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | UUID PK | |
-| `merchant_id` | UUID FK -> merchants(id) ON DELETE CASCADE | |
-| `product_id` | BIGINT NOT NULL | UNIQUE per merchant_id. |
-| `enriched_fields` | TEXT[] | e.g. `['gtin','mpn','brand']`. |
-| `metafield_values` | JSONB | The values written back to Shopify metafields. |
+| `merchant_id` | UUID FK → merchants(id) ON DELETE CASCADE | |
+| `product_id` | BIGINT NOT NULL | UNIQUE per `(merchant_id, product_id)` — backs the 24h enrichment dedup in `webhooks.products.update.tsx` and `api.cron.process-scan-triggers.ts`. |
+| `enriched_fields` | TEXT[] | e.g. `['gtin','mpn','brand']` |
+| `metafield_values` | JSONB | Currently always written as `{}` (values not persisted) |
 | `enriched_at` | TIMESTAMPTZ DEFAULT now() | |
 
-* **Index:** `idx_schema_enrich_merchant` on (`merchant_id`, `enriched_at` DESC)
+Indexes: `schema_enrichments_pkey`, `schema_enrichments_merchant_id_product_id_key (UNIQUE)`, `idx_schema_enrich_merchant (merchant_id, enriched_at DESC)`.
 
-### Function: `decrement_scan_quota`
-Atomically decrements `scans_remaining` for a merchant. Returns the new value, or no rows if quota was already exhausted. Used by both scan entry points to prevent race conditions.
+### Table: `enrichment_webhook_log`
+One row per products/update webhook delivery for diagnostics.
 
-```sql
-decrement_scan_quota(p_merchant_id UUID) RETURNS TABLE(new_scans_remaining INTEGER)
-```
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | BIGSERIAL PK | |
+| `merchant_id` | UUID FK → merchants(id) | |
+| `product_id` | TEXT | |
+| `topic` | TEXT | |
+| `outcome` | TEXT | `enqueued` (Fix 9 — was `enriched` / `noop` before) / `skip_tier` / `skip_scope` / `skip_dedup` / `skip_already_queued` / `skip_uninstalled` / `skip_no_merchant` / `skip_no_product_id` / `error` |
+| `written_keys` | TEXT[] | |
+| `error_message` | TEXT | |
+| `created_at` | TIMESTAMPTZ DEFAULT now() | |
+
+Index: `idx_enrichment_log_merchant_created (merchant_id, created_at DESC)`.
+
+### Table: `llms_txt_requests`
+AI-visibility tracking — one row per llms.txt request served.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | BIGSERIAL PK | |
+| `shop_domain` | TEXT NOT NULL | |
+| `merchant_id` | UUID FK → merchants(id) | |
+| `user_agent` | TEXT | |
+| `crawler_name` | TEXT | Normalised via `identifyCrawler()` |
+| `ip_hash` | TEXT | sha256 of IP with last octet (v4) / 64 bits (v6) stripped before hashing |
+| `created_at` | TIMESTAMPTZ DEFAULT now() | |
+
+Index: `idx_llms_requests_shop_created (shop_domain, created_at DESC)`.
+
+### Table: `pending_scan_triggers`
+Storefront-monitoring + enrichment queue. Inserted by `webhooks.themes.update`, `webhooks.products.update`, and the weekly-scan cron. Drained by `api.cron.process-scan-triggers.ts`.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | BIGSERIAL PK | |
+| `merchant_id` | UUID FK → merchants(id) | |
+| `trigger_type` | TEXT | One of `weekly_scan`, `theme_update`, `theme_publish`, `product_update`, `enrichment`. |
+| `trigger_at` | TIMESTAMPTZ DEFAULT now() | |
+| `processed_at` | TIMESTAMPTZ | NULL = unprocessed |
+| `week_iso` | TEXT | Fix 8 — set only by the weekly-scan cron (e.g. `"2026-W22"`). Event-driven inserts leave NULL. |
+| `payload` | JSONB | Fix 9 — currently only set for `trigger_type='enrichment'` as `{ product_gid, numeric_product_id }`. |
+
+Indexes verified live: `pending_scan_triggers_pkey`, `idx_pending_scans_unprocessed (merchant_id, processed_at) WHERE processed_at IS NULL`, `uq_pending_scan_triggers_week (merchant_id, trigger_type, week_iso) WHERE week_iso IS NOT NULL` (Fix 8 partial unique — makes weekly-cron retries no-ops).
+
+### Table: `webhook_failures` (Fix 4 — 2026-05-27)
+Audit + retry-queue for webhook deliveries whose side-effect writes failed.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | UUID PK | |
+| `topic` | TEXT NOT NULL | Today only `app/uninstalled` writes here |
+| `shop` | TEXT NOT NULL | |
+| `payload` | JSONB | Raw webhook payload |
+| `error_message` | TEXT | |
+| `resolved_at` | TIMESTAMPTZ | NULL = unresolved hot set; populated by reconciler when it back-fills |
+| `created_at` | TIMESTAMPTZ NOT NULL DEFAULT now() | |
+
+Indexes: `idx_webhook_failures_unresolved (topic, shop) WHERE resolved_at IS NULL`, `idx_webhook_failures_created_at (created_at DESC)`.
 
 ---
 
@@ -383,118 +471,140 @@ decrement_scan_quota(p_merchant_id UUID) RETURNS TABLE(new_scans_remaining INTEG
 
 ### How scans are triggered
 
-**Path A -- Dashboard form submit** (`app._index.tsx` action):
-1. Merchant clicks "Run My Free Compliance Scan" -> form POST with `action=runScan`
+**Path A — Dashboard form submit** (`app._index.tsx` action `runScan`):
+1. Merchant clicks "Run My Free Compliance Scan" → form POST `action=runScan`
 2. Action authenticates, looks up merchant, atomically decrements quota via `decrement_scan_quota` RPC
 3. Calls `runComplianceScan(merchant.id, shopDomain, "manual")`
-4. Returns `{ success: true, scanId }`. Fetcher state change triggers toast + loader revalidation.
+4. On scan failure, refunds the decremented quota (compensating transaction)
+5. Fire-and-forget lead capture (Shopify `shop { email }` → `leads` table)
+6. Returns `{ success: true, scanId }`. Fetcher state change triggers toast + loader revalidation.
 
-**Path B -- API endpoint** (`api.scan.ts` action):
+**Path B — API endpoint** (`api.scan.ts`):
 1. POST `/api/scan` with App Bridge JWT
-2. Authenticates, rate-limits (persistent), looks up merchant
-3. Atomically decrements quota via `decrement_scan_quota` RPC (402 if exhausted)
-4. Calls `runComplianceScan(merchant.id, shopDomain, "manual")`
-5. Returns full scan + violations + summary as JSON
+2. Authenticates, rate-limits (persistent via `scan_rate_limits`), looks up merchant
+3. Atomic quota decrement (402 if exhausted)
+4. Runs scan; same compensating refund on failure
+5. Returns full scan + violations + summary JSON
 
-**Path C -- Weekly cron** (`api.cron.weekly-scan.ts`):
-1. POST `/api/cron/weekly-scan` with `CRON_SECRET` bearer token (triggered by Vercel Cron Mondays 08:00 UTC)
-2. Fetches all active monitoring-access merchants (`tier IN MONITORING_TIERS` = `('monitoring','recovery','pro')`, `uninstalled_at IS NULL`)
-3. Runs scans sequentially with 2s delay between merchants
-4. Persists results as `scan_type = 'automated'`
+**Path C — Weekly cron + drainer**:
+1. Vercel Cron Mondays 08:00 UTC hits `/api/cron/weekly-scan`. Bearer `CRON_SECRET`. Fetches all active merchants with `tier IN MONITORING_TIERS` and upserts one trigger per merchant `(trigger_type='weekly_scan', week_iso=<this ISO week>)` with `onConflict=(merchant_id,trigger_type,week_iso) ignoreDuplicates=true` (Fix 8). Idempotent within the week.
+2. GitHub Actions cron (`.github/workflows/process-scan-triggers.yml`) curls `/api/cron/process-scan-triggers` every 30 minutes (primary drain path). Vercel Cron also hits the same endpoint daily 12:00 UTC as a documented safety net (restored 2026-05-28 after audit).
+3. The drainer pulls `BATCH_SIZE=1` unprocessed row, splits scan-class vs `enrichment` triggers, runs the appropriate work, and marks `processed_at`.
 
-The diff against the prior scan (new_issues, fixes_confirmed) is computed at digest send time by `api.cron.weekly-digest.ts` from the violations table — no diff fields persisted on the scan row.
+**Path D — Event-driven triggers**:
+- `webhooks.products.update.tsx` enqueues `product_update` (24h dedup) + `enrichment` (per-product dedup against `schema_enrichments` and the queue).
+- `webhooks.themes.update.tsx` enqueues `theme_update` or `theme_publish` (24h dedup).
 
-### Scan execution flow (`app/lib/checks/index.server.ts`)
+### Scan execution (`app/lib/checks/index.server.ts`)
 
 `runComplianceScan(merchantId, shopifyDomain, scanType)`:
 
-1. **Build admin GraphQL client** via `createAdminClient(shopifyDomain)` -- reads the offline session token from `sessions` table first (always fresh), falls back to `merchants.access_token_encrypted`. Decrypts and creates fetch-based executor.
-2. **Fetch Shopify data** (concurrent): `getShopInfo()`, `getShopPolicies()`, `getProducts(first=50)`, `getPages(first=20)`.
-2b. **Opportunistic merchant metadata refresh** (fire-and-forget): if `getShopInfo()` returned a result, UPDATE the merchant row with `shop_name`, `shop_owner_name`, `contact_email`, `country`, `province`, `city`, `currency_code`, `shopify_plan`, `primary_domain`, `shop_created_at`, `iana_timezone`, and `shop_metadata_refreshed_at = now()`. Failures are logged but never abort the scan.
-3. **Pre-fetch public storefront pages** (concurrent): Homepage + up to 3 product pages. All fetches go through `fetchPublicPage()` which includes SSRF protection (DNS resolution + private IP blocking).
-4. **Run all 12 checks** in two concurrent batches via `Promise.all`, each wrapped in `safeCheck()` (catches exceptions, returns severity "error" so scan continues).
-5. **Calculate score:** `(passedChecks / scorableTotal) * 100`. Errored checks excluded from denominator.
-6. **Persist results:** INSERT into `scans` table, then bulk INSERT all violations with `raw_data` JSONB.
-7. **Return:** `{ scan, violations }`.
+1. **Build admin GraphQL client** via `createAdminClient(shopifyDomain)` — reads offline session token first (always fresh), falls back to encrypted `merchants.access_token_encrypted`.
+2. **Fetch Shopify data** concurrently: `getShopInfo()`, `getShopPolicies()`, `getProducts(50)`, `getPages(20)`.
+3. **Opportunistic metadata refresh** (fire-and-forget): UPDATE merchant row with shop_name, shop_owner_name, contact_email, country/province/city, currency_code, shopify_plan, primary_domain, shop_created_at, iana_timezone, shop_metadata_refreshed_at.
+4. **Pre-fetch public storefront pages** (concurrent): homepage + up to 3 product pages via `fetchPublicPage()` (SSRF-protected DNS pre-check).
+5. **Run all 12 checks** in two concurrent batches via `Promise.all`, each wrapped in `safeCheck()` (exceptions → severity `"error"`, scan continues).
+6. **Calculate score**: `(passedChecks / scorableTotal) * 100`. Errored checks excluded from denominator.
+7. **Persist**: INSERT `scans` row, bulk INSERT `violations` rows with `raw_data` JSONB.
 
-Adding a new check: import in `app/lib/checks/index.server.ts`, add to one of the two `Promise.all` batches, add to the destructured array, and add to `checkResults`. There is **no auto-discovery** — manual registry only.
+Adding a new check: import in `index.server.ts`, add to one of the two `Promise.all` batches, add to the destructured array, add to `checkResults`. **No auto-discovery** — manual registry.
 
 ### The 12 Compliance Checks
 
 #### Check 1: `contact_information` (severity: critical)
 **What:** Verifies the store publicly displays at least 2 of 3 contact methods: phone number, store-domain email, physical street address.
-**How:** Scans HTML of contact/about pages fetched via Shopify Pages GraphQL. Also checks `shopInfo.billingAddress` as fallback for physical address. Uses regex patterns for phone, email, address. Flags PO Boxes.
-**Pass:** >= 2 methods publicly visible.
+**How:** Scans HTML of contact/about pages from Shopify Pages GraphQL. Also checks `shopInfo.billingAddress` as fallback. Regex patterns; flags PO Boxes.
+**Pass:** ≥2 methods publicly visible.
 
 #### Check 2: `refund_return_policy` (severity: critical)
-**What:** Validates the store has a refund/return policy with substantive content.
-**How:** Reads `REFUND_POLICY` from `getShopPolicies()`. Checks for 3 content signals: return window, item condition, refund method. Flags placeholder text.
-**Pass:** Policy present + 3 content signals, no placeholders.
+**Detection order (Fix 2 — 2026-05-27):**
+1. Settings → Policies → Refund Policy (canonical)
+2. **Fallback:** search the merchant's online-store Pages for handle/title matching `/refund|return/i` and treat that page's body as policy content
+3. If neither produces content → fail
+**Content signals:** return window regex, item condition regex, refund method regex, placeholder-text detector.
+**Pass:** ≥1 source produces a body that passes all three content regex; the Page-fallback path passes with severity `info` and an advisory pointing the merchant to register the policy in Settings → Policies (so it lands in the footer for GMC reviewers).
 
 #### Check 3: `shipping_policy` (severity: critical)
-**What:** Validates the store has a shipping policy with delivery timeline and cost info.
-**How:** Reads `SHIPPING_POLICY` from `getShopPolicies()`. Searches for timeline and cost keywords.
-**Pass:** Both timeline AND cost info present.
+Same Page-fallback pattern with pattern `/shipping|delivery/i`. Content regex: TIMELINE_RE + COST_RE.
+**Pass:** Both signals present from policy OR page; page-fallback PASS surfaces an `info` advisory.
 
-#### Check 4: `privacy_and_terms` (severity: critical)
-**What:** Checks that both privacy policy and terms of service exist.
-**How:** Reads `PRIVACY_POLICY` and `TERMS_OF_SERVICE` from `getShopPolicies()`.
-**Pass:** Both present. Warning if only ToS missing.
+#### Check 4: `privacy_and_terms` (severity: critical/warning)
+**Detection order (Fix 2):** Privacy and Terms evaluated independently. For each: Settings → Policies first, then Pages search (`/privacy/i` for privacy, `/terms|tos|conditions/i` for terms). Body just needs to be non-blank to count as present.
+**Pass:** both present. Privacy missing → critical. Terms missing alone → warning. When either side was found via the Page fallback, the PASS result emits an `info` advisory.
 
 #### Check 5: `product_data_quality` (severity: warning)
-**What:** Evaluates product listings for description length, images, pricing, and SKUs.
-**How:** Iterates fetched products (up to 50). Flags products with short descriptions, zero images, bad pricing, or missing SKUs.
-**Pass:** < 20% flagged.
+Iterates fetched products (up to 50). Flags products with short descriptions, zero images, bad pricing, missing SKUs.
+**Pass:** <20% flagged.
 
 #### Check 6: `checkout_transparency` (severity: warning)
-**What:** Detects payment method icons on the storefront homepage.
-**How:** Uses Cheerio to search pre-fetched homepage HTML for 26 payment keywords in img, SVG, CSS classes, aria-labels, and data attributes.
-**Pass:** >= 1 payment icon found.
+Cheerio search of pre-fetched homepage HTML for 26 payment keywords across img/SVG/CSS classes/aria-labels/data attributes.
+**Pass:** ≥1 payment icon found.
 
 #### Check 7: `storefront_accessibility` (severity: critical)
-**What:** Detects password protection and verifies product pages are reachable.
-**How:** Analyzes pre-fetched homepage HTML for password signals. Checks HTTP status of up to 3 sampled product pages.
-**Pass:** Not password-protected AND all sampled products return HTTP 200.
+Detects password protection on the homepage HTML. Verifies HTTP status of up to 3 sampled product pages.
+**Pass:** not password-protected AND all sampled products return 200.
 
 #### Check 8: `structured_data_json_ld` (severity: warning)
-**What:** Validates Product JSON-LD structured data on product pages.
-**How:** Parses pre-fetched product page HTML. Extracts `<script type="application/ld+json">` blocks, validates required fields (name, image, description, offers with price/currency/availability).
-**Pass:** All scanned pages have valid Product schema.
+Parses pre-fetched product page HTML. Validates Product JSON-LD required fields (name, image, description, offers with price/currency/availability).
+**Pass:** all scanned pages have valid Product schema.
 
 #### Check 9: `page_speed` (severity: warning)
-**What:** Mobile performance score via Google PageSpeed Insights API.
-**How:** Calls PageSpeed API with `strategy=mobile`. Extracts performance score. Checks for intrusive interstitials.
-**Pass:** Performance score >= 50 AND no intrusive interstitials.
+Google PageSpeed Insights API, mobile strategy. Extracts performance score; flags intrusive interstitials.
+**Pass:** performance score ≥50 AND no intrusive interstitials.
 
 #### Check 10: `business_identity_consistency` (severity: info)
-**What:** Checks if shop name, primary domain, and about page content are consistent.
-**How:** Jaccard word-set similarity with stop-word removal. Weighted: 60% domain + 40% about-page. Threshold: 0.3.
-**Pass:** Consistency score >= 0.3.
+Jaccard similarity (60% domain + 40% about-page) with stop-word removal. Threshold 0.3.
 
 #### Check 11: `hidden_fee_detection` (severity: critical)
-**What:** Detects hidden surcharges (handling/restocking/processing/convenience/service fees, surcharge) shown on storefront but not disclosed in shipping or refund policy.
-**How:** Cheerio-stripped visible text scan over up to 5 product pages + `/cart` (fetched at run time via `fetchPublicPage` with SSRF guard) + the homepage. Each detected term is checked against the policy bodies; undisclosed terms fail.
-**Pass:** No fee terms detected anywhere, OR every detected term is also in shipping/refund policy.
+Cheerio-stripped visible text scan over up to 5 product pages + `/cart` (fetched at run time, SSRF-protected) + homepage. Each detected fee term checked against shipping + refund policy bodies; undisclosed terms fail.
 
 #### Check 12: `image_hosting_audit` (severity: critical)
-**What:** Flags products whose `descriptionHtml` references images on known dropshipper/supplier CDNs (cjdropshipping, alicdn, alibaba, aliexpress, codepen, netease, uupingo).
-**How:** Sample first 20 products. Regex over `src/srcset/data-src` URLs; matches against the dropshipper-host list.
-**Pass:** Zero matches.
+Samples first 20 products. Regex over `src/srcset/data-src` URLs against the dropshipper-host list (cjdropshipping, alicdn, alibaba, aliexpress, codepen, netease, uupingo).
+**Pass:** zero matches.
 
 ---
 
 ## 6. Results Delivery
 
-### Dashboard display
-After a scan completes, the `app._index.tsx` loader revalidates and renders:
-- **Score banner:** Large percentage display (color-coded green/orange/red at 80/50 thresholds)
-- **4 KPI cards:** Checks Passed, Critical Threats, Warnings, Skipped
-- **Review request banner:** Shown after scan. Two buttons: "Leave a Review" (opens Shopify app reviews) and "Dismiss" (POSTs `action=dismissReview`, sets `review_prompted = true`, never shown again).
-- **10-point checklist:** Sorted (failed first, by severity). Each check expandable with description + "Resolution Guide" box. Pro merchants see policy generation guidance for checks 2/3/4.
-- **Aside:** Security Status card, Upgrade card (free tier), Policy Generation card (Pro), JSON-LD extension card, About ShieldKit card.
+### Dashboard
+After a scan, `app._index.tsx` loader revalidates and renders (in order, inside `<s-page>`):
+- **Primary-action `<s-button>` slot** — "Re-Scan My Store" (paid or quota remaining) or "Manage plan" (free + exhausted)
+- **Scan error banner** (when `scanError` truthy)
+- **Billing cancellation banner** (when `?billing=cancelled` URL param)
+- **Onboarding wizard** (when `latestScan === null`) — see §6.1
+- **Dashboard block** (when latestScan exists):
+  - `ScanProgressIndicator` (during scan)
+  - `ScoreBanner`
+  - `ScoreTrend` (30-day sparkline)
+  - `KpiCards` (Passed / Critical / Warnings / Skipped)
+  - Review request banner
+  - Inline upgrade banner (free → "See plans"; monitoring → "See Recovery")
+  - `AuditChecklist` (12-point, sorted failed-first by severity)
+- **Aside (always)**:
+  - `SecurityStatusAside`
+  - `UpgradeCard` (when `!showRecovery`)
+  - `PolicyGenerationCard` (when `showRecovery`)
+  - `AIVisibilityCard` (when `showMonitoring` and `aiVisibility` data exists)
+  - Free JSON-LD Structured Data card (three-state UI from `clicked_at` / `verified_at`)
+  - About ShieldKit
+
+### 6.1 Onboarding wizard (Fix 5 — 2026-05-27)
+
+Trigger: `showOnboarding = latestScan === null`. The wizard is **4 static info cards** + a primary CTA. There is no `onboarding_step` persistence — re-opening the app before the first scan re-renders the same cards from scratch every time.
+
+| # | Title | Content |
+|---|-------|---------|
+| 1 | Welcome to ShieldKit | Describes the **12-point audit** |
+| 2 | Enable Free Structured Data | "Adds Google-required Product schema to every product page." CTA: "Enable JSON-LD on my theme" — wires to `enableJsonLd` action + opens the theme editor via `getJsonLdThemeEditorUrl(shopDomain)`. State badge: never_clicked → CTA button, clicked → "Pending verification…", verified → "Enabled ✓" |
+| 3 | Why GMC Compliance Matters | Explainer about Misrepresentation suspensions |
+| 4 | Run Your Free Compliance Scan | Pre-CTA copy |
+
+Primary CTA below all four: `<s-button submit="">Run My Free Compliance Scan →</s-button>`. The merchant can skip step 2 and still scan — the scan flow doesn't depend on JSON-LD state.
+
+After a successful scan, the loader revalidates and the dashboard renders in place — no redirect, same `/app` route.
 
 ### Lead collection
-On first scan, the merchant's email is collected via GraphQL (`shop { email }`) and upserted into the `leads` table. No email is sent -- leads are collected for future retargeting only. Fire-and-forget, silent on failure.
+On first scan, the shop owner email is collected via GraphQL (`shop { email }`) and upserted into `leads`. Fire-and-forget. No email is sent at this point — leads are for retargeting.
 
 ---
 
@@ -502,53 +612,56 @@ On first scan, the merchant's email is collected via GraphQL (`shop { email }`) 
 
 ### Authenticated app routes (all gated by `authenticate.admin` in `app.tsx`)
 
-| Route File | URL Path | Type | Behavior |
-|-----------|----------|------|----------|
-| `app.tsx` | `/app` (layout) | Layout | Wraps all `/app/*` routes. NavMenu links: Dashboard and Manage plan always; Pro Settings + AI bot toggle when `hasMonitoringAccess(tier)`; Appeal letter + GTIN auto-filler when `hasRecoveryAccess(tier)`. Loader fetches `merchants.tier` so free merchants don't see paid-only links and Monitoring merchants don't see Recovery-only links. |
-| `app._index.tsx` | `/app` | Loader + Action + Component | **Onboarding:** Logo + 3-step wizard + "Run Free Scan" CTA. **Dashboard:** Score banner, 4 KPI cards, 12-point checklist, aside with threat level + policy gen + JSON-LD. **Actions:** `runScan`, `generatePolicy`, `dismissReview`, `enableJsonLd`. Loader self-heals tier/billing_cycle/sub_id drift on every render. |
-| `app.upgrade.tsx` | `/app/upgrade` | Loader only | Server-side redirect to the merchant's Shopify Managed Pricing URL via `getManagedPricingUrl(session.shop)`. |
-| `app.billing.confirm.tsx` | `/app/billing/confirm` | Loader only | "Welcome link" landing route after managed-pricing approval. Calls `billing.check()`, syncs full set of billing fields, redirects to `/app`. |
-| `app.plan-switcher.tsx` | `/app/plan-switcher` | Loader only | Server-side redirect to managed pricing. Switch + cancel are handled on Shopify's hosted page. |
-| `app.appeal-letter.tsx` | `/app/appeal-letter` | Loader + Action + Component | Recovery access required (`hasRecoveryAccess` — Recovery + grandfathered Shield Max). GMC re-review letter generator. 3 generations per scan cap. Calls Claude Sonnet via `app/lib/llm/appeal-letter.server.ts`. v3 tightened this from "available to everyone" to recovery-only. |
-| `app.pro-settings.tsx` | `/app/pro-settings` | Loader + Action + Component | Monitoring access required (`hasMonitoringAccess` — monitoring + recovery + grandfathered pro). Logo URL, support email, social URLs, search URL template — persisted to `merchants.pro_settings`. Mirror values in theme editor for the Liquid blocks. |
-| `app.bots.toggle.tsx` | `/app/bots/toggle` | Loader + Action + Component | Monitoring access required. 11 AI crawler allow/block toggles. Renders live `robots.txt` snippet for the merchant to paste into theme. |
-| `app.gtin-fill.tsx` | `/app/gtin-fill` | Loader + Action + Component | Recovery access required (`hasRecoveryAccess` — recovery + grandfathered pro). Bulk fill on the existing catalog. Server action and loader both gated by `WRITE_METAFIELDS_SCOPE_ENABLED` env flag (currently `false` in dev + prod). Stubs return HTTP 501 until the `write_products` scope grant lands via App Store re-review. |
+| Route File | URL Path | Type | Behaviour |
+|-----------|----------|------|-----------|
+| `app.tsx` | `/app` (layout) | Layout | Wraps `/app/*`. NavMenu: Dashboard + Manage plan always; Pro Settings + AI bot toggle when `hasMonitoringAccess(tier)`; Appeal letter + GTIN auto-filler when `hasRecoveryAccess(tier)` AND `WRITE_METAFIELDS_SCOPE_ENABLED`. |
+| `app._index.tsx` | `/app` | Loader + Action + Component | Onboarding wizard OR dashboard, depending on whether any scan exists. Actions: `runScan`, `generatePolicy`, `dismissReview`, `enableJsonLd`, `verifyJsonLdNow`, `selfHealBilling`. |
+| `app.upgrade.tsx` | `/app/upgrade` | Loader + Component | Returns the managed-pricing URL via `getManagedPricingUrl(shopDomain)`; component `useEffect`s `window.open(url, "_top")` to escape the embedded iframe. Renders fallback link for popup-blocker cases. _Not a loader-only redirect — Shopify admin sends `X-Frame-Options: DENY` so server `redirect()` cannot navigate the parent frame._ |
+| `app.billing.confirm.tsx` | `/app/billing/confirm` | Loader (+ component for pending state) | Welcome-link landing post-managed-pricing approval. Partner-API-only path; on uncertain status renders a pending page (Fix 1) rather than redirecting to `?billing=cancelled`. |
+| `app.plan-switcher.tsx` | `/app/plan-switcher` | Loader + Component | Same iframe-escape pattern as `/app/upgrade` — opens managed pricing in `_top`. |
+| `app.appeal-letter.tsx` | `/app/appeal-letter` | Loader + Action + Component | Recovery access required. GMC re-review letter generator. 3 generations per scan cap. Claude Sonnet via `app/lib/llm/appeal-letter.server.ts`. |
+| `app.pro-settings.tsx` | `/app/pro-settings` | Loader + Action + Component | Monitoring access required. Logo, support email, social URLs, search-URL template — persisted to `merchants.pro_settings`. |
+| `app.bots.toggle.tsx` | `/app/bots/toggle` | Loader + Action + Component | Monitoring access required. 11 AI crawler allow/block toggles. Renders live `robots.txt` snippet. |
+| `app.gtin-fill.tsx` | `/app/gtin-fill` | Loader + Action + Component | Recovery access required. Bulk fill on existing catalog. Currently enabled in production because `WRITE_METAFIELDS_SCOPE_ENABLED` is true (the toml grants `write_products`). |
 
 ### API routes
 
-| Route File | URL Path | Method | Behavior |
-|-----------|----------|--------|----------|
-| `api.scan.ts` | `/api/scan` | POST | Authenticated scan endpoint. Enforces rate limit + quota (atomic). Returns full scan results JSON. GET returns 405. |
-| `api.cron.weekly-scan.ts` | `/api/cron/weekly-scan` | POST | Bearer token auth via `CRON_SECRET`. Enqueues one `pending_scan_triggers` row per active monitoring-access merchant (`tier IN MONITORING_TIERS` = `('monitoring','recovery','pro')`). Vercel Cron Monday 08:00 UTC. Actual scans drained by `api.cron.process-scan-triggers.ts` via GitHub Actions polling every 30 min. |
-| `api.cron.weekly-digest.ts` | `/api/cron/weekly-digest` | POST | Bearer token auth. Pulls last 2 scans per merchant, diffs failed-violation sets, sends digest via Resend, persists `digest_emails` row. Vercel Cron Monday 13:00 UTC. No-op if `RESEND_API_KEY` is unset. |
-| `api.cron.monthly-reset.ts` | `/api/cron/monthly-reset` | POST | Bearer token auth. Refills `scans_remaining=1` and `scans_reset_at=now()` for free-tier merchants whose last reset is >30 days old. Vercel Cron 1st of month 00:00 UTC. |
-| `api.proxy.llms-txt.ts` | `/api/proxy/llms-txt` | GET | App Proxy endpoint. HMAC verified by `authenticate.public.appProxy`. Monitoring access required (`hasMonitoringAccess` — Monitoring + Recovery + grandfathered Shield Max). Generates llms.txt from shop name/description/email + policies + first 50 published products. 24h in-memory per-shop cache. |
+| Route File | URL Path | Method | Behaviour |
+|-----------|----------|--------|-----------|
+| `api.scan.ts` | `/api/scan` | POST | Authenticated scan endpoint. Rate-limited + atomic quota. Returns full scan JSON. GET → 405. |
+| `api.cron.weekly-scan.ts` | `/api/cron/weekly-scan` | POST | Vercel Cron Mon 08:00 UTC. Bearer `CRON_SECRET`. Upserts one `pending_scan_triggers` row per monitoring-access merchant with `week_iso` — idempotent within the week. |
+| `api.cron.process-scan-triggers.ts` | `/api/cron/process-scan-triggers` | POST | Drains the queue, `BATCH_SIZE=1`, splits scan-class vs enrichment. Hit by GitHub Actions every 30 min (primary) AND Vercel Cron daily 12:00 UTC (failsafe — restored 2026-05-28). Bearer `CRON_SECRET` (identical for both callers). |
+| `api.cron.weekly-digest.ts` | `/api/cron/weekly-digest` | POST | Vercel Cron Mon 13:00 UTC. Pulls last 2 scans per merchant, diffs failed-violation sets, sends digest via Resend, writes `digest_emails` row. No-op if `RESEND_API_KEY` unset. Per-merchant try/catch + 150ms pacing. |
+| `api.cron.monthly-reset.ts` | `/api/cron/monthly-reset` | POST | Vercel Cron 1st of month 00:00 UTC. Refills `scans_remaining=1` for free-tier merchants whose `scans_reset_at` is >30 days old. |
+| `api.cron.reconcile-subscriptions.ts` | `/api/cron/reconcile-subscriptions` | POST | Vercel Cron daily 04:00 UTC. Walks paid merchants, queries Partner API, demotes on terminal status. Never demotes on `unknown` (fail-safe). |
+| `api.cron.verify-json-ld.ts` | `/api/cron/verify-json-ld` | POST | Vercel Cron every 2h (`0 */2 * * *`). Pulls up to 30 merchants with `clicked_at NOT NULL AND verified_at IS NULL AND attempts < 5`, oldest click first; runs `verifyJsonLdForMerchant` against each with 1s pacing. |
+| `api.cron.reconcile-installs.ts` | `/api/cron/reconcile-installs` | POST | Vercel Cron daily 03:00 UTC. Walks `merchants.uninstalled_at IS NULL`, probes Shopify Admin API with `{ shop { id } }`. HTTP 401/403 or "No access token" → mark uninstalled + delete sessions + insert audit row in `webhook_failures` (resolved_at=now()). 500ms pacing. |
+| `api.proxy.llms-txt.ts` | `/api/proxy/llms-txt` | GET | App Proxy endpoint, HMAC verified by `authenticate.public.appProxy`. Monitoring access required. Generates llms.txt from shop name/description/email + policies + first 50 published products. Per-process 24h in-memory cache. |
 
-#### Weekly digest — aiReadinessScore formula
-
-The digest renderer formula is `60% schema coverage + 30% llms.txt freshness + 10% bot config completeness`. All three inputs are now wired: schema coverage from `schema_enrichments`, llms.txt freshness from `merchants.llms_txt_last_served_at` (≤ 7 days), and bot config completeness from `merchants.pro_settings.bot_preferences`. Scores can now reach the full 100/100 ceiling. **Do not change the formula or remove the score without explicit founder approval.**
+#### Weekly digest `aiReadinessScore`
+Formula: `60% schema coverage + 30% llms.txt freshness + 10% bot config completeness`. All three inputs wired (schema from `schema_enrichments`, freshness from `merchants.llms_txt_last_served_at` ≤ 7d, bot config from `merchants.pro_settings.bot_preferences`). **Do not change the formula or remove the score without explicit founder approval.**
 
 ### Public routes
 
-| Route File | URL Path | Behavior |
-|-----------|----------|----------|
-| `_index/route.tsx` | `/` | Landing page with 3 pricing cards (Free, Monitoring $30/mo or $290/yr, Recovery $150/yr annual-only). H1 is the keyword-rich "Fix Your Google Merchant Center Suspension Before It Costs You Sales." Emits Organization + FAQPage JSON-LD (FAQPage source-of-truth is the `HOMEPAGE_FAQ` constant; keep visible accordion answers in sync). If `?shop` param present, redirects to `/app`. |
-| `scan.tsx` | `/scan` | Public 8-point compliance scanner. Emits WebApplication JSON-LD. POST runs scan; second POST (intent=unlock) captures lead email. |
-| `explainer.tsx` | `/explainer` | Long-form GMC misrepresentation explainer. Emits Article JSON-LD. |
-| `blog._index.tsx` | `/blog` | Blog listing pulled from `app/content/blog/*.mdx`. |
-| `blog.$slug.tsx` | `/blog/:slug` | Individual blog post. Emits BlogPosting JSON-LD. |
-| `fix._index.tsx` | `/fix` | Fix Library index — 7 categories grouping all 30 `/fix/:slug` pages. Emits ItemList JSON-LD. Linked from the marketing nav (between Blog and Explainer) and the homepage hero subtext. |
-| `fix.$slug.tsx` | `/fix/:slug` | Individual programmatic-SEO fix page (one per entry in `app/content/fixes.ts`). Emits HowTo + FAQPage JSON-LD. |
-| `auth.login/route.tsx` | `/auth/login` | Shop domain form. Uses `login()` from shopify.server. Submit button uses `useWebComponentClick` + `form.requestSubmit()`. |
+| Route File | URL Path | Behaviour |
+|-----------|----------|-----------|
+| `_index/route.tsx` | `/` | Landing page with 3 pricing cards (Free, Monitoring $30/mo or $290/yr, Recovery $150/yr). H1: "Fix Your Google Merchant Center Suspension Before It Costs You Sales." Emits Organization + FAQPage JSON-LD. Redirects to `/app` when `?shop` present. |
+| `scan.tsx` | `/scan` | Public 8-point compliance scanner. Emits WebApplication JSON-LD. POST runs scan; second POST (`intent=unlock`) captures lead email. |
+| `explainer.tsx` | `/explainer` | Long-form GMC misrepresentation explainer (Article JSON-LD). |
+| `blog._index.tsx` | `/blog` | Listing pulled from `app/content/blog/*.mdx`. |
+| `blog.$slug.tsx` | `/blog/:slug` | Individual blog post (BlogPosting JSON-LD). |
+| `fix._index.tsx` | `/fix` | Fix Library index — 7 categories of programmatic-SEO fix pages. Emits ItemList JSON-LD. |
+| `fix.$slug.tsx` | `/fix/:slug` | Programmatic-SEO fix page per entry in `app/content/fixes.ts`. HowTo + FAQPage JSON-LD. |
+| `auth.login/route.tsx` | `/auth/login` | Shop domain form. |
 | `auth.$.tsx` | `/auth/*` | Catch-all OAuth callback. |
-| `privacy.tsx` | `/privacy` | Public, no auth. Privacy policy required for App Store listing. No last-updated stamp rendered. |
-| `terms.tsx` | `/terms` | Public, no auth. Terms of service required for App Store listing. No last-updated stamp rendered. |
-| `sitemap[.]xml.tsx` | `/sitemap.xml` | Generated from static page list + blog MDX registry + fix registry. Static entries (/, /scan, /explainer, /blog) omit `<lastmod>` — using `new Date()` everywhere trained Google to ignore the signal. `/fix` index uses a module-load-time date as initial lastmod. |
-| `robots[.]txt.tsx` | `/robots.txt` | Allow all marketing crawlers; disallow `/app`, `/api`, `/auth`, `/webhooks`. |
-| `llms[.]txt.tsx` | `/llms.txt` | Curated markdown content map for AI crawlers. |
+| `privacy.tsx` | `/privacy` | App Store listing required. |
+| `terms.tsx` | `/terms` | App Store listing required. |
+| `sitemap[.]xml.tsx` | `/sitemap.xml` | Generated from static pages + blog MDX registry + fix registry. Static entries omit `<lastmod>`. |
+| `robots[.]txt.tsx` | `/robots.txt` | Allow marketing crawlers; disallow `/app`, `/api`, `/auth`, `/webhooks`. |
+| `llms[.]txt.tsx` | `/llms.txt` | Curated markdown content map for AI crawlers (marketing site). |
 
-### Webhook routes (all use `authenticate.webhook` for HMAC verification)
-See Section 3 for full details.
+### Webhook routes
+See §3 for full details.
 
 ---
 
@@ -556,79 +669,75 @@ See Section 3 for full details.
 
 ### Encryption (`app/lib/crypto.server.ts`)
 * **Algorithm:** AES-256-GCM (authenticated encryption)
-* **Key derivation:** `scryptSync(TOKEN_ENCRYPTION_KEY, "shieldkit-token-v1", 32)`. Salt is static/public -- exists for key versioning. Derived key cached after first call.
-* **IV:** 12 bytes (96-bit), random per encryption
-* **Auth tag:** 128-bit
+* **Key derivation:** `scryptSync(TOKEN_ENCRYPTION_KEY, "shieldkit-token-v1", 32)`; salt is static/public for key versioning
+* **IV:** 12 bytes random per encryption; **Auth tag:** 128-bit
 * **Ciphertext format:** `<hex_iv>:<hex_authTag>:<hex_ciphertext>`
-* **Key requirement:** `TOKEN_ENCRYPTION_KEY` env var must be >= 32 characters
+* **Key requirement:** `TOKEN_ENCRYPTION_KEY` env var ≥32 characters
 
 ### Session Storage (`app/lib/session-storage.server.ts`)
-Custom class implementing Shopify's `SessionStorage` interface. Encrypts `accessToken` and `refreshToken` before storage. Decrypts on load with graceful fallback on decrypt failure (triggers re-auth).
+Custom class implementing Shopify's `SessionStorage` interface. Encrypts `accessToken` and `refreshToken` before storage; decrypts on load with graceful fallback on decrypt failure (triggers re-auth).
 
 ### Shopify GraphQL API (`app/lib/shopify-api.server.ts` + split modules)
 * **API Version:** `2025-10`
 * **Queries:** `SHOP_INFO_QUERY`, `SHOP_POLICIES_QUERY`, `PRODUCTS_QUERY` (paginated, up to 250), `PAGES_QUERY` (paginated, up to 100)
-* **Retry logic:** Max 3 retries, 500ms base delay (exponential backoff). Detects THROTTLED errors.
-* **Executor factories:** `wrapAdminClient()` for route handlers, `createAdminClient()` for background jobs (reads session token first, falls back to merchant token).
+* **Retry logic:** max 3 retries, 500ms base delay, exponential backoff. Detects THROTTLED errors.
+* **Executor factories:** `wrapAdminClient()` for route handlers (uses request-scoped admin); `createAdminClient()` for background jobs (reads offline session token first, falls back to merchant token).
 
 ### Rate Limiter (`app/lib/rate-limiter.server.ts`)
 * **Primary:** Persistent via Supabase `scan_rate_limits` table. 10 requests per hour per shop.
-* **Fallback:** In-memory `Map` if DB table not yet deployed.
+* **Fallback:** In-memory `Map` if DB table not deployed.
 * **Cleanup:** Deletes records older than 1 hour on each check (fire-and-forget).
 
 ### Policy Generator (`app/lib/policy-generator.server.ts`)
 * **Model:** `claude-sonnet-4-20250514`
 * **Types:** refund, shipping, privacy, terms
-* **Per-type instructions** with detailed section requirements
-* **Output:** HTML policy text stored in `merchants.generated_policies` JSONB
-* **Limits:** 2 generations per policy type (initial + 1 regeneration), tracked in `policy_regen_used`
+* **Output:** HTML policy text → server-sanitized via `sanitize-html` → stored in `merchants.generated_policies` JSONB → client-sanitized again via `dompurify` before rendering
+* **Limits:** 2 generations per policy type (initial + 1 regen), tracked in `policy_regen_used`
+
+### Appeal Letter Generator (`app/lib/llm/appeal-letter.server.ts`)
+Same Anthropic backbone; Recovery-only feature.
+
+### GTIN Enrichment (`app/lib/enrichment/gtin-enrichment.server.ts`)
+Per-product enrichment of `metafields.custom.{gtin,mpn,brand}`. Brand fallback chain: `existing brand metafield → product.vendor → shop.name`. Equivalent to the Liquid block's resolution order (`metafields.custom.brand → product.vendor → shop.name`); when missing, the server writes vendor/shop.name into the metafield so the Liquid template's metafield branch wins on the next page render.
+
+After Fix 9 (2026-05-27) the enricher is called **only from the queue drainer** (`api.cron.process-scan-triggers.ts`) when a `trigger_type='enrichment'` row is processed — no longer inline in the webhook hot path.
+
+### JSON-LD Verifier (`app/lib/json-ld-verifier.server.ts` — Fix 3)
+`verifyJsonLdForMerchant(merchantId, shopifyDomain, primaryDomain)`:
+1. Fetch homepage via `fetchPublicPage` (SSRF-protected, 8s timeout). Extract one `/products/<handle>` URL via regex; fetch that too.
+2. Grep both HTML bodies for the `<!-- shieldkit-jsonld-v1 -->` marker emitted by `extensions/json-ld-schema/blocks/product-schema.liquid` AND confirm at least one `<script type="application/ld+json">` containing `"@type": "Product"`.
+3. Positive: set `json_ld_verified_at = now()`, `json_ld_enabled = true`.
+4. Negative: increment `json_ld_verification_attempts`. After 5 attempts OR `clicked_at` >7 days old, reset `clicked_at = NULL` so the UI re-prompts. **v1 does not tear down `json_ld_enabled` if a previously-verified merchant later removes the block — see Known Issues.**
+
+### JSON-LD Deep Link (`app/lib/json-ld-deep-link.ts` — Fix 7)
+`getJsonLdThemeEditorUrl(shopDomain, block = 'product-schema')` returns `https://{shopDomain}/admin/themes/current/editor?context=apps&activateAppId=${SHOPIFY_API_KEY}/${block}`. Throws if `SHOPIFY_API_KEY` is unset. Replaces three previously-hard-coded literal client_id usages in `app._index.tsx`.
+
+### Sentry (`app/lib/sentry.server.ts` — added 2026-05-27)
+Initialised at server-module load via a side-effect import in `entry.server.tsx`. No-op when `SENTRY_DSN` unset — `addBreadcrumb` and `captureException` are still safe to call. Wired into `app.billing.confirm.tsx`, `api.cron.reconcile-installs.ts`, `webhooks.app.uninstalled.tsx`, and `json-ld-verifier.server.ts`; sprinkle more as needed.
 
 ### Supabase Client (`app/supabase.server.ts`)
-* Singleton pattern: dev caches on `global` to survive hot reload.
-* Uses `service_role` key (admin access, bypasses RLS).
-* Auth features disabled.
+Singleton pattern: dev caches on `global` to survive hot reload. Uses `service_role` key (admin access, bypasses RLS). Auth features disabled.
 
 ---
 
-## 9. Outbound Scanner (`scripts/outbound-scanner.ts`)
+## 9. Scripts
 
-Standalone CLI tool that runs a subset of compliance checks against any public Shopify storefront without OAuth.
-
-**Usage:**
-```bash
-npx tsx scripts/outbound-scanner.ts https://example.myshopify.com
-```
-
-**Checks run:** contact_information, shipping_policy, privacy_and_terms, checkout_transparency, storefront_accessibility, structured_data_json_ld, page_speed.
-
-**Key difference from in-app scanner:** No Shopify Admin API access. Cannot check billingAddress fallback, policy bodies via API, or product data quality.
-
-**SSRF Protection:** DNS resolution + private IP blocking (same protection as in-app scanner).
-
-### Cleanup Script (`scripts/cleanup-orphan-webhooks.ts`)
-
-One-off utility to delete orphaned webhook subscriptions from old `shopify app dev` tunnel sessions. Fetches all webhooks via GraphQL, filters those pointing to dead trycloudflare.com URLs, deletes them.
-
-### Merchant Metadata Backfill (`scripts/backfill-merchant-shop-info.ts`)
-
-Walks the `merchants` table and refreshes the Shopify-sourced metadata columns (`shop_name`, `shop_owner_name`, `contact_email`, `country`, `province`, `city`, `currency_code`, `shopify_plan`, `primary_domain`, `shop_created_at`, `iana_timezone`, `shop_metadata_refreshed_at`) via `getShopInfo()`. Useful when adding new metadata columns, or after fixing a token-decryption issue.
-
-**Usage:**
-```bash
-npx tsx scripts/backfill-merchant-shop-info.ts                          # all installed merchants
-npx tsx scripts/backfill-merchant-shop-info.ts --all                    # include uninstalled
-npx tsx scripts/backfill-merchant-shop-info.ts --shop foo.myshopify.com # target a single merchant
-```
-
-250ms pause between calls to stay under Shopify's GraphQL rate limit. Rows whose stored access token has expired/rotated will log a 401 from Shopify and skip cleanly — those merchants get backfilled organically the next time they trigger a scan via the opportunistic upsert wired into `runComplianceScan`.
+| Script | Purpose |
+|--------|---------|
+| `scripts/outbound-scanner.ts` | Standalone CLI compliance scanner against any public Shopify storefront — no OAuth. SSRF-protected. Cannot check billingAddress, policy bodies, or product data quality (no Admin API). |
+| `scripts/backfill-merchant-shop-info.ts` | Walks every installed merchant and refreshes the metadata columns via `getShopInfo()`. 250ms pacing. |
+| `scripts/cleanup-orphan-webhooks.ts` | Deletes orphan webhook subscriptions pointing at dead trycloudflare dev tunnels. |
+| `scripts/dev-cleanup-subs.ts` | Dev helper: cancels test subscriptions. |
+| `scripts/top-criticals.ts` | Ops query for the hottest critical check failures. |
+| `scripts/validate-partner-api.ts` | Smoke test for the Partner API plumbing. |
 
 ---
 
 ## 10. UI & Styling Rules
 
-* **Polaris Only:** Use native Shopify Polaris web components (`<s-page>`, `<s-card>`, `<s-button>`, `<s-banner>`, `<s-badge>`, etc.). Do not use raw HTML/CSS for layout.
+* **Polaris Only:** Use native Shopify Polaris web components (`<s-page>`, `<s-card>`, `<s-button>`, `<s-banner>`, `<s-badge>`, etc.). No raw HTML/CSS for layout.
 * **Brand Color:** "Security Blue" `#0F172A`.
-* **Score colors:** Green `#1a9e5c` (>= 80), Orange `#e8820c` (>= 50), Red `#e51c00` (< 50).
+* **Score colors:** Green `#1a9e5c` (≥80), Orange `#e8820c` (≥50), Red `#e51c00` (<50).
 * **Threat level colors:** Minimal `#1a9e5c`, Low `#6aad81`, Elevated `#e8820c`, High `#d82c0d`, Critical `#c00000`.
 * **Check status colors:** Passed `#1a9e5c`, Critical `#e51c00`, Warning `#e8820c`, Info `#5c6ac4`, Error `#8c9196`.
 
@@ -636,31 +745,41 @@ npx tsx scripts/backfill-merchant-shop-info.ts --shop foo.myshopify.com # target
 
 ## 11. Architecture Decisions & Patterns
 
-* **No Prisma/SQLite** -- All persistence via Supabase JS client with service_role key.
-* **`maybeSingle()` not `single()`** -- Prevents 406 errors on missing rows.
-* **Atomic scan quota** -- `decrement_scan_quota` Supabase RPC prevents race conditions on concurrent scan requests. Both scan entry points call this before running the scan.
-* **Persistent rate limiting** -- `scan_rate_limits` table survives serverless cold starts. Falls back to in-memory if table not deployed.
-* **Two scan entry points** -- Dashboard form submit (`app._index.tsx` action) for the UI, and `api.scan.ts` for programmatic access. Both use atomic quota decrement.
-* **safeCheck() wrapper** -- Every individual compliance check is wrapped so exceptions become severity "error" results instead of failing the entire scan.
-* **Polaris web component type gaps** -- Props like `submit`, `loading` work at runtime but aren't in TS type defs. Codebase uses `@ts-ignore` or spread patterns. This is expected; do not try to fix these.
-* **Embedded app navigation** -- Navigation MUST go through App Bridge or React Router. Raw `<a>` tags trigger full page reloads that break the embedded iframe. Use `NavMenu` for sidebar nav, `useNavigate()` for in-app links.
-* **useWebComponentClick hook** -- React's synthetic `onClick` does NOT fire on Polaris web components. All click handlers on `<s-button>` MUST use the `useWebComponentClick` hook which attaches native DOM `addEventListener` via a ref.
-* **s-banner onDismiss** -- Same issue as `onClick`: synthetic events don't fire on web components. Use native `<button>` inside banners for dismiss actions.
-* **SSRF protection** -- `fetchPublicPage()` in `helpers.server.ts` validates DNS records against private IP ranges before fetching. Both in-app and outbound scanners have this protection.
-* **Streaming SSR** -- `entry.server.tsx` uses `renderToPipeableStream`. Bots get `onAllReady` (full render), humans get `onShellReady` (early streaming). 5s timeout.
-* **Server-side HTML sanitization** -- AI-generated policy HTML is sanitized with `sanitize-html` server-side (in `app/lib/policy-generator.server.ts`) before being stored, then sanitized again with `dompurify` client-side (in `PolicyGenerationCard.tsx`) before rendering. We switched off `isomorphic-dompurify` on 2026-05-21 after a prod outage: it pulls `jsdom`, whose transitive tree (`@exodus/bytes`, `@asamuzakjp/css-color` → `@csstools/css-calc`) ships ESM-only files that Vercel's Rust-based Node runtime can't `require()`. `sanitize-html` is pure JS with a small CJS-only dep tree. Never reintroduce `jsdom` (or any `isomorphic-*` package that wraps it) into the server bundle — use `sanitize-html` or a pure regex sanitizer instead.
-* **Reproducible builds on Vercel** -- `vercel.json` sets `installCommand: "npm ci"` so Vercel respects `package-lock.json` exactly. Without this, Vercel runs `npm install` which re-resolves caret ranges on every build; that's how the 2026-05-21 outage happened (a transitive `@exodus/bytes` metadata refresh in npm broke an unchanged code commit). If you ever bump a dep, run `npm install` locally, commit the lock, push — never edit `package.json` without committing the regenerated lockfile.
-* **Theme block name 25-char limit** -- Shopify validation rejects theme block `name` strings longer than 25 characters. When adding or renaming `extensions/*/blocks/*.liquid` schema blocks, count the chars before deploy. See commit `f3bd7bd` for the rename pass that brought the v2 blocks under the limit.
-* **Brand fallback chain (JSON-LD)** -- Resolution order for the Product schema `brand.name` field is: `product.metafields.custom.brand` -> `product.vendor` -> `shop.name`. Implemented in `extensions/json-ld-schema/blocks/product-schema.liquid`. The same chain is enforced server-side in `app/lib/schema/merchant-listings-enricher.server.ts`; keep both call sites in sync when changing the order.
-* **Paid nav links tier-gated** -- `app/routes/app.tsx` loader reads `merchants.tier` and the layout conditionally renders nav entries via `hasMonitoringAccess(tier)` (for `/app/pro-settings` + `/app/bots/toggle`) and `hasRecoveryAccess(tier)` (for `/app/appeal-letter` + `/app/gtin-fill`). Free merchants don't see paid-only entries; Monitoring merchants don't see Recovery-only entries. Route-level guards in those files remain the source of truth on enforcement.
-* **Shopify Managed Pricing** -- Plans are defined in the Partner Dashboard listing UI; the codebase does not register a `billing` config on `shopifyApp({...})` and does not call `billing.request()` / `billing.cancel()`. Pick-a-plan, switch, and cancel are all hosted on `admin.shopify.com`. `/app/upgrade` and `/app/plan-switcher` are loader-only redirect routes built from `getManagedPricingUrl(shopifyDomain)` in `app/lib/billing/plans.ts`. Plan-name strings must match Partner Dashboard configuration exactly so APP_SUBSCRIPTIONS_UPDATE webhook reconciliation continues to map them via PLAN_NAME_TO_TIER / PLAN_NAME_TO_CYCLE.
+* **No Prisma/SQLite** — all persistence via Supabase JS client with service_role key.
+* **`maybeSingle()` not `single()`** — prevents 406 errors on missing rows.
+* **Atomic scan quota** — `decrement_scan_quota` Supabase RPC prevents races. Both scan entry points call it before running the scan; both refund on scan failure (compensating transaction).
+* **Persistent rate limiting** — `scan_rate_limits` table survives cold starts. In-memory fallback if table absent.
+* **Two scan entry points** — Dashboard form (`app._index.tsx` action) and `api.scan.ts`. Both use atomic quota decrement + refund.
+* **safeCheck() wrapper** — every individual compliance check is wrapped so exceptions become severity `"error"` results instead of failing the whole scan.
+* **Polaris web component type gaps** — props like `submit`, `loading` work at runtime but aren't in TS type defs. Codebase uses `@ts-ignore` or spread patterns. Expected; do not "fix".
+* **Embedded app navigation** — must go through App Bridge or React Router. Raw `<a>` tags trigger full page reloads that break the iframe. Use `NavMenu` for sidebar nav, `useNavigate()` in-app.
+* **useWebComponentClick hook** — React's synthetic `onClick` does NOT fire on Polaris web components. All click handlers on `<s-button>` use `useWebComponentClick` which attaches a native DOM listener via ref.
+* **s-banner onDismiss** — same web-component gap as onClick. Use a native `<button>` inside the banner for dismiss actions.
+* **SSRF protection** — `fetchPublicPage()` in `helpers.server.ts` validates DNS records against private IP ranges before fetching. Both the in-app scanner and outbound scanner use this.
+* **Streaming SSR** — `entry.server.tsx` uses `renderToPipeableStream`. Bots get `onAllReady` (full render), humans get `onShellReady` (early streaming). 5s timeout.
+* **Server-side HTML sanitization** — AI-generated policy HTML sanitized with `sanitize-html` server-side (in `policy-generator.server.ts`) before storage, then `dompurify` client-side before render. On 2026-05-21 we switched off `isomorphic-dompurify` after a prod outage caused by its `jsdom` transitive ESM tree being incompatible with Vercel's Rust runtime. **Never reintroduce `jsdom` or any `isomorphic-*` package that wraps it** — use `sanitize-html` or a pure regex sanitizer instead.
+* **Reproducible builds on Vercel** — `vercel.json` sets `installCommand: "npm ci"` so Vercel respects `package-lock.json` exactly. Without this, `npm install` re-resolves caret ranges on every build (which is how the 2026-05-21 outage happened). **Never edit `package.json` without committing the regenerated lockfile.**
+* **Theme block name 25-char limit** — Shopify validation rejects theme block `name` strings longer than 25 chars. Count before deploy.
+* **Brand fallback chain (JSON-LD)** — `product.metafields.custom.brand` → `product.vendor` → `shop.name`. Implemented in both `extensions/json-ld-schema/blocks/product-schema.liquid` and (server-side) `app/lib/enrichment/gtin-enrichment.server.ts`. Keep both call sites in sync.
+* **Paid nav links tier-gated** — `app/routes/app.tsx` loader reads `merchants.tier` and conditionally renders NavMenu entries via `hasMonitoringAccess` / `hasRecoveryAccess`. Route-level guards in those files remain the source of truth on enforcement.
+* **Shopify Managed Pricing** — plans defined in Partner Dashboard listing UI; codebase does not register a `billing` config and does not call `billing.request()` / `billing.cancel()`. Plan-name strings must match Partner Dashboard config exactly so reconciliation maps them through `PLAN_NAME_TO_TIER` / `PLAN_NAME_TO_CYCLE`.
+* **Iframe-escape redirect pattern** — `app.upgrade.tsx` and `app.plan-switcher.tsx` are loader + component routes that `window.open(url, "_top")` from `useEffect`. A server-side `redirect()` cannot navigate the parent frame because Shopify admin sends `X-Frame-Options: DENY` on the managed-pricing page.
+* **JSON-LD intent vs state** — `merchants.json_ld_enabled` reflects **verified state only**. Click writes `json_ld_enable_clicked_at`; the verifier (cron + on-demand action) is the only writer of `json_ld_verified_at` and `json_ld_enabled`. Three-state UI everywhere it's displayed.
+* **Billing self-heal off the critical render path** — moved to a post-mount action in Fix 6 to stop blocking dashboard paint on Partner API latency.
+* **Webhook reliability** — `app/uninstalled` records `webhook_failures` rows on Supabase write errors; the daily `reconcile-installs` cron is the durable backstop for any failure mode (including webhooks Shopify never delivered).
+* **Weekly-scan idempotency** — `pending_scan_triggers.week_iso` + partial unique index `(merchant_id, trigger_type, week_iso)` makes Vercel retries / manual replays a no-op within the same ISO week. Event-driven inserts leave `week_iso` NULL so the partial constraint doesn't touch them.
+* **GTIN enrichment off the webhook hot path** — `webhooks.products.update.tsx` enqueues `trigger_type='enrichment'` with payload `{ product_gid, numeric_product_id }`. The drainer handles the work with the full 60s function ceiling instead of trying to fit it into the ~5s webhook ACK window.
 
 ---
 
-## 12. Known Issues
+## 12. Known Issues / Limitations
 
-### Low
-* **npm audit: 24 vulnerabilities in dev dependencies** -- All in ESLint, GraphQL codegen, and related transitive deps. No production runtime impact. No non-breaking fixes available.
+* **JSON-LD verifier is positive-only (v1)** — if a merchant verifies, then later removes the block from their theme, `json_ld_enabled` stays true until manual intervention. Tear-down detection is deliberately deferred. Re-verification only fires while `clicked_at IS NOT NULL AND verified_at IS NULL` so verified rows aren't re-probed.
+* **`leads` table shape drift vs `supabase/schema.sql`** — live DB has `id BIGINT NOT NULL` and `email TEXT NULL`; `schema.sql` documents `id UUID` and `email TEXT NOT NULL`. The runtime code never writes a NULL email and never reads `leads.id` for app logic, so this is cosmetic — but the schema file would build the wrong shape on a fresh bootstrap.
+* **`merchants`/`scans`/`violations` index drift vs `schema.sql`** — three indexes claimed by `schema.sql` (`idx_merchants_active`, `idx_scans_created_at`, `idx_violations_severity`) do not exist on the live DB. Runtime performance has been fine without them. Same cosmetic risk on bootstrap.
+* **In-memory llms.txt cache is effectively dead code on Vercel serverless** — the per-process `Map` in `api.proxy.llms-txt.ts` is lost on cold start; the downstream `Cache-Control: public, max-age=86400` header is what actually caches. Leaving the in-memory layer as a no-op safety net.
+* **`stripHtml` collapses newlines into single spaces** — for pathologically structured policy bodies this can change placeholder-detection regex outcomes. Low risk, noted for awareness.
+* **npm audit dev-dep vulnerabilities** — ~25 known issues in ESLint / GraphQL codegen / Sentry transitive deps. No production runtime impact. No non-breaking fixes available.
 
 ---
 
@@ -669,47 +788,50 @@ npx tsx scripts/backfill-merchant-shop-info.ts --shop foo.myshopify.com # target
 ### Required
 | Variable | Used By | Purpose |
 |----------|---------|---------|
-| `SHOPIFY_API_KEY` | `shopify.server.ts`, `app.tsx` | Shopify app client ID |
+| `SHOPIFY_API_KEY` | `shopify.server.ts`, `app.tsx`, `json-ld-deep-link.ts` | Shopify app client ID. Also embedded into theme-editor deep links. |
 | `SHOPIFY_API_SECRET` | `shopify.server.ts` | Webhook HMAC verification, OAuth |
-| `SHOPIFY_APP_URL` | `shopify.server.ts`, `vite.config.ts` | App base URL |
-| `SCOPES` | `shopify.server.ts` | OAuth scopes (falls back to `read_products,read_content,read_legal_policies`) |
+| `SHOPIFY_APP_URL` | `shopify.server.ts`, `vite.config.ts`, `weekly-digest` | App base URL |
+| `SCOPES` | `shopify.server.ts`, multiple gates | OAuth scopes (production value mirrors the toml: 8 scopes including `write_products`) |
 | `SUPABASE_URL` | `supabase.server.ts` | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | `supabase.server.ts` | Admin-level DB access (bypasses RLS) |
-| `TOKEN_ENCRYPTION_KEY` | `crypto.server.ts` | AES-256-GCM key material (>= 32 chars) |
-| `SHOPIFY_APP_HANDLE` | `app/lib/billing/plans.ts` (`getManagedPricingUrl`) | App slug from the Partner Dashboard listing URL (e.g. `shieldkit-google-merchant-fix`). Used to build the managed-pricing redirect URL. `getManagedPricingUrl` throws loudly if unset. |
+| `TOKEN_ENCRYPTION_KEY` | `crypto.server.ts` | AES-256-GCM key material (≥32 chars) |
+| `SHOPIFY_APP_HANDLE` | `plans.ts` (`getManagedPricingUrl`) | App slug from Partner Dashboard listing URL. Used to build the managed-pricing redirect. Throws loudly if unset. |
+| `CRON_SECRET` | All `api.cron.*.ts` handlers | Bearer token for all Vercel + GitHub Actions cron invocations |
 
 ### Optional
 | Variable | Used By | Purpose |
 |----------|---------|---------|
-| `ANTHROPIC_API_KEY` | `policy-generator.server.ts` | Required for AI policy generation (Pro feature) |
-| `GOOGLE_PAGESPEED_API_KEY` | `page-speed.server.ts` | Higher PageSpeed API quota. Without it, check 9 may be rate-limited. |
-| `CRON_SECRET` | All `api.cron.*.ts` handlers | Bearer token for all 3 Vercel Cron endpoints (weekly-scan, weekly-digest, monthly-reset) |
-| `RESEND_API_KEY` | `app/lib/emails/send.server.ts`, weekly-digest cron | Required for the weekly digest email send. Cron is a no-op when missing. |
+| `ANTHROPIC_API_KEY` | `policy-generator.server.ts`, `appeal-letter.server.ts` | Required for AI policy + appeal generation (Recovery feature) |
+| `GOOGLE_PAGESPEED_API_KEY` | `page-speed.server.ts` | Higher quota on PageSpeed API |
+| `RESEND_API_KEY` | `emails/send.server.ts`, weekly-digest cron | Required for the weekly digest send. Cron is a no-op when missing. |
+| `SENTRY_DSN` | `sentry.server.ts` | Server-side Sentry. Unset → all `addBreadcrumb` / `captureException` calls are no-ops; SDK still initialises. |
 | `SHOP_CUSTOM_DOMAIN` | `shopify.server.ts` | Custom Shopify domain support |
 | `PORT` | `vite.config.ts` | Server port (default 3000) |
-| `NODE_ENV` | Various | Controls billing `isTest` flag, Supabase singleton caching |
+| `NODE_ENV` | Various | Supabase singleton caching, etc. |
 
 ### Feature flags
-
-* **`WRITE_METAFIELDS_SCOPE_ENABLED`** -- Derived at module load from `process.env.SCOPES.includes("write_products")`. Currently `false` in dev and prod; the `write_products` scope is not in `shopify.app.toml` access_scopes pending App Store re-review. Consumers: `app/routes/app.gtin-fill.tsx` (loader visibility + server action gates — stubs return HTTP 501 while disabled). Activation flow: edit `shopify.app.toml` access_scopes -> `shopify app deploy` -> flag flips on next merchant reinstall or scope grant prompt.
+* **`WRITE_METAFIELDS_SCOPE_ENABLED`** — derived at module load from `process.env.SCOPES.includes("write_products")`. Currently **true** in production because the toml grants `write_products`. Consumers: `app/routes/app.tsx` (NavMenu visibility for `/app/gtin-fill`), `app/routes/app.gtin-fill.tsx` (route gate), `app/routes/webhooks.products.update.tsx` (enrichment gate `skip_scope`).
 
 ### External Services
 | Service | Purpose | Endpoint |
 |---------|---------|----------|
-| Supabase | PostgreSQL database | `https://bhnpcirhutczdorkhibm.supabase.co` |
+| Supabase | PostgreSQL database (project `bhnpcirhutczdorkhibm`) | `https://bhnpcirhutczdorkhibm.supabase.co` |
 | Shopify Admin API | GraphQL data | Per-store `https://{shop}/admin/api/2025-10/graphql.json` |
-| Shopify Billing API | Subscription management | Via `billing.request()` / `billing.check()` |
+| Shopify Partner API | Subscription reconciliation (canonical post-Apr-28) | `partners.shopify.com/api/<version>/graphql.json` |
 | Google PageSpeed Insights | Mobile performance scoring | `googleapis.com/pagespeedonline/v5/runPagespeed` |
-| Anthropic API | AI policy generation | Via `@anthropic-ai/sdk` (`claude-sonnet-4-20250514`) |
+| Anthropic API | AI policy + appeal generation | `@anthropic-ai/sdk` (`claude-sonnet-4-20250514`) |
+| Resend | Weekly digest email | `resend` SDK |
+| Sentry | Server-side observability | When `SENTRY_DSN` set |
 
 ---
 
 ## 14. Testing
 
 * **Framework:** Vitest ^4.1.2. Config in `vitest.config.ts`.
-* **Run:** `npm test` (alias for `vitest run`).
-* **Test file:** `tests/bug-fixes.test.ts` -- 60 regression tests covering unicode rendering, web component click handling, atomic scan quota decrement, navigation, billing flow, component extraction, shared types/helpers, hooks, policy generation, JSON-LD extension, one-time billing model, email system removal, billing returnUrl format, JSON-LD deep link format, and scan history removal verification.
-* **Note:** Tests use file-content assertions (regex/string matching) to avoid needing env vars for module initialization.
+* **Run:** `npm test` → `vitest run`.
+* **Files (9):** `bug-fixes.test.ts` (regression suite, expanded heavily during the May 27 sweep), `partner-api.test.ts`, `phase-7-ai-visibility.test.ts`, `phase-7-dashboard.test.ts`, `phase-7-enrichment.test.ts`, `phase-7-monitoring.test.ts`, `phase-7-quick-wins.test.ts`, `reconcile-subscriptions.test.ts`, `v3-pricing.test.ts`.
+* **Count on 2026-05-28:** 233 / 233 passing.
+* **Style:** Most tests are file-content assertions (regex / string matching) to avoid needing env vars for module initialisation. Trade-off: assertions can become brittle when implementation details rotate; rebalance toward behaviour tests if maintenance burden grows.
 
 ---
 
@@ -717,26 +839,35 @@ npx tsx scripts/backfill-merchant-shop-info.ts --shop foo.myshopify.com # target
 
 ### Vercel (current)
 * App URL: `https://shieldkit.vercel.app`
-* **Tier: Hobby.** This is load-bearing — Hobby caps function duration at 60s and disallows sub-daily cron frequency. Any work that exceeds 60s must be split across invocations.
-* **`vercel.json`:** Defines 4 Vercel Cron jobs — weekly-scan (Mon 08:00 UTC, enqueues only), monthly-reset (1st 00:00 UTC), weekly-digest (Mon 13:00 UTC), reconcile-subscriptions (daily 04:00 UTC). The `process-scan-triggers` route is no longer on a Vercel cron — it's driven exclusively by the GitHub Actions workflow polling every 30 min (see "Weekly scan execution model" below). `vercel.json` also defines edge-level `redirects` (308) for known scanner paths (`/wp-admin/*`, `/.env`, `/xmlrpc.php`, etc.) so bot probes don't cold-start serverless functions.
-* **App Proxy:** `[app_proxy]` block in `shopify.app.toml` registers `/apps/llms-txt` → `/api/proxy/llms-txt`. HMAC verified by Shopify SDK's `authenticate.public.appProxy(request)`. Both prod and dev tomls have this block; dev toml is gitignored so URL field changes are local-only and rewritten by `shopify app dev` on tunnel start.
-* **`react-router.config.ts`:** Uses `@vercel/react-router` preset for serverless deployment.
-* Build: `react-router build` (Vite). Serve: `react-router-serve ./build/server/index.js`.
+* **Tier: Hobby.** Function duration capped at 60s; daily is the minimum cron cadence.
+* **`vercel.json`** defines **7 Vercel Cron jobs**:
+  - `/api/cron/weekly-scan` — Mon 08:00 UTC (enqueues weekly triggers)
+  - `/api/cron/weekly-digest` — Mon 13:00 UTC (Resend digest)
+  - `/api/cron/monthly-reset` — 1st 00:00 UTC (free-tier quota refill)
+  - `/api/cron/reconcile-subscriptions` — daily 04:00 UTC (Partner-API demote)
+  - `/api/cron/reconcile-installs` — daily 03:00 UTC (Admin-API probe; Fix 4)
+  - `/api/cron/verify-json-ld` — every 2h (storefront probe; Fix 3)
+  - `/api/cron/process-scan-triggers` — daily 12:00 UTC (failsafe drainer — restored 2026-05-28; primary driver is GitHub Actions every 30 min)
+* `vercel.json` also defines edge-level 308 `redirects` for known scanner paths (`/wp-admin/*`, `/.env`, `/xmlrpc.php`, etc.) so bot probes don't cold-start serverless functions, plus long-cache headers on static brand assets.
+* **App Proxy:** `[app_proxy]` block in `shopify.app.toml` registers `/apps/llms-txt` → `/api/proxy/llms-txt`; HMAC verified by `authenticate.public.appProxy(request)`.
+* **`react-router.config.ts`** uses the `@vercel/react-router` preset.
+* **Build:** `react-router build` (Vite). **Serve:** `react-router-serve ./build/server/index.js`.
 
 ### Weekly scan execution model (Hobby-compatible)
 
-The 12-point compliance scan takes ~10–15s per merchant. Running every paid merchant in a single Vercel function call would time out at ~5 merchants on Hobby. Instead the work is split:
+The 12-point compliance scan takes ~10–15s per merchant — too slow to run everyone in a single Vercel function call on Hobby. So the work is split:
 
-1. **`api.cron.weekly-scan.ts`** (Vercel Cron, Mon 08:00 UTC) — fans out: inserts one row per paid merchant into `pending_scan_triggers` with `trigger_type='weekly_scan'`. Completes in 1–3s even at 1000 merchants.
-2. **`api.cron.process-scan-triggers.ts`** — drains the queue **one merchant per invocation** (BATCH_SIZE=1). Each invocation runs ~12s, well under 60s. Runs the scan, marks the trigger row `processed_at`, returns.
-3. **`.github/workflows/process-scan-triggers.yml`** — GitHub Actions cron every 30 minutes curls the process endpoint with `CRON_SECRET` bearer auth. 48 invocations/day clears the weekly-scan enqueue burst within a day or two. `workflow_dispatch:` is enabled for manual testing. There is no Vercel-cron safety net; if GH Actions is unavailable for an extended period, fall back to `workflow_dispatch` or `curl` the endpoint manually.
+1. **`api.cron.weekly-scan.ts`** (Vercel Cron Mon 08:00 UTC) — fans out: upserts one row per monitoring-access merchant into `pending_scan_triggers` with `trigger_type='weekly_scan'` and `week_iso=<this ISO week>`. The partial unique index `(merchant_id, trigger_type, week_iso) WHERE week_iso IS NOT NULL` makes re-firing within the same week a no-op. Completes in 1–3s.
+2. **`api.cron.process-scan-triggers.ts`** — drains the queue **one merchant per invocation** (`BATCH_SIZE=1`). Splits scan-class vs enrichment trigger types; for enrichment, runs `enrichProductMetafields` with the payload's product gid. Each invocation runs ~12s.
+3. **`.github/workflows/process-scan-triggers.yml`** — GitHub Actions cron every 30 min curls the endpoint with bearer `CRON_SECRET`. 48 invocations/day clears the weekly enqueue burst within a day or two. `workflow_dispatch:` enabled for manual replay.
+4. **Vercel Cron failsafe** — also hits `/api/cron/process-scan-triggers` daily 12:00 UTC with the same `Authorization: Bearer $CRON_SECRET` header. If GitHub Actions is unavailable for an extended period, the daily Vercel hit keeps the queue moving (manual `workflow_dispatch:` or `curl` remains the immediate fallback).
 
-**Capacity planning:** at 30-min cadence (48 invocations/day, 1 merchant per tick), the queue clears 48 merchants/day. When the paid-merchant base outgrows that, drop the cadence back toward `*/5` (288/day ceiling) — the GH Actions cron expression is the only knob. Beyond ~288 merchants in a single weekly burst, upgrade to Vercel Pro (300s function ceiling lets a single invocation batch ~20 merchants).
+**Capacity planning:** at 30-min GH-Actions cadence × 1 merchant per tick = 48 merchants/day. When the paid base outgrows that, drop the cadence toward `*/5` (288/day ceiling). Beyond ~288 merchants in a single weekly burst, upgrade to Vercel Pro (300s function ceiling → batch ~20 merchants per invocation).
 
-**Manual setup required when first wiring up this workflow:**
-- GitHub repo → Settings → Secrets and variables → Actions → New repository secret
+**Setup required when first wiring up the workflow:**
+- GitHub repo → Settings → Secrets → Actions → New repository secret
 - Name: `CRON_SECRET`
-- Value: same string as the `CRON_SECRET` env var set on Vercel
+- Value: same string as the `CRON_SECRET` env var set on Vercel (so the Vercel cron failsafe and GH Actions both authenticate identically)
 
 ### Docker (alternative)
 ```dockerfile
@@ -752,22 +883,29 @@ CMD ["npm", "run", "docker-start"]
 
 ### Vite Config (`vite.config.ts`)
 * Plugins: `reactRouter()`, `tsconfigPaths()`
-* HMR: WebSocket on localhost:64999 (dev) or wss://{host}:443 (production)
-* Assets inline limit: 0 (no inlining)
+* HMR: WebSocket localhost:64999 (dev) or wss://{host}:443 (production)
+* Assets inline limit: 0
 * Optimized deps: `@shopify/app-bridge-react`
 
 ### Shopify CLI
-* `npm run dev` -> `shopify app dev` (starts dev server with tunnel)
-* `npm run deploy` -> `shopify app deploy`
-* `npm run typecheck` -> `react-router typegen && tsc --noEmit`
+* `npm run dev` → `shopify app dev`
+* `npm run deploy` → `shopify app deploy`
+* `npm run typecheck` → `react-router typegen && tsc --noEmit`
 
 ### Database Migrations
-After deploying code changes that add new tables or functions, apply the corresponding SQL from `supabase/schema.sql` to the live database. Current pending migrations:
-* `scan_rate_limits` table (for persistent rate limiting)
-* `decrement_scan_quota` function (for atomic quota enforcement)
+Numbered migrations in `supabase/migrations/` are the source of truth. After deploying code that depends on a new column/table, apply the migration to the live DB before traffic hits the new code path. Live migration history on 2026-05-28 (most recent first):
+- `20260528044014_enrichment_triggers`
+- `20260528044004_pending_scan_triggers_idempotency`
+- `20260528043953_webhook_failures`
+- `20260528043940_json_ld_verification`
+- `20260514150228_widen_tier_for_v3_pricing`
+- `20260511141953_add_merchant_shop_metadata`
+- `20260506024035_phase_7_quick_wins_and_monitoring`
+
+Local migration files in `supabase/migrations/` are timestamped `20260527192823..20260527194459` (the source filenames); Supabase reassigned versions on push (`20260528...`).
 
 ---
 
 ## 16. Next Priorities
 
-<!-- Fill in as needed -->
+_(Intentionally left for the founder to populate post-sweep.)_

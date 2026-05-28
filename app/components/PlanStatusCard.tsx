@@ -6,8 +6,9 @@
  *
  *   Paid state — "Your ShieldKit coverage"
  *     Reassurance card: every paid feature with a green check, no CTA,
- *     no urgency. The JSON-LD row reflects ACTUAL state (verified vs
- *     not-yet-verified) so it doubles as a status surface.
+ *     no urgency. The JSON-LD row reflects actual state (Active vs Off)
+ *     as a display-only status — the enable action lives in the JSON-LD
+ *     aside card, not here, so there's exactly one control surface.
  *
  *   Free state — "Fix it now — and stay protected."
  *     Upgrade prompt: free items checked, paid items locked + muted.
@@ -23,20 +24,19 @@ import { useWebComponentClick } from "../hooks/useWebComponentClick";
 
 interface PlanStatusCardProps {
   isPaid: boolean;
-  /** Has the JSON-LD theme block been verified live on the storefront? */
-  jsonLdVerified: boolean;
   /**
-   * Called when the merchant clicks the "Turn on" link inside the
-   * JSON-LD row on the paid card. Should open the theme editor enable
-   * flow (same path as the aside JSON-LD card uses).
+   * Has the merchant enabled JSON-LD? In the v4 two-state model this flips
+   * true the moment they click Enable; the compliance scan's
+   * `structured_data_json_ld` check is what tells them whether the block is
+   * actually rendering.
    */
-  onEnableJsonLd: () => void;
+  jsonLdEnabled: boolean;
   /** Called when the merchant clicks the upgrade CTA on the free card. */
   onUpgrade: () => void;
 }
 
 // Single index points at the JSON-LD entry so we know which row to mark
-// "verified" vs "turn on" without string-matching.
+// "active" vs "off" without string-matching.
 const PAID_JSON_LD_INDEX = PAID_FEATURES.findIndex((f) =>
   f.toLowerCase().includes("json-ld product schema"),
 );
@@ -46,30 +46,18 @@ const FREE_JSON_LD_INDEX = FREE_FEATURES.findIndex((f) =>
 
 export default function PlanStatusCard({
   isPaid,
-  jsonLdVerified,
-  onEnableJsonLd,
+  jsonLdEnabled,
   onUpgrade,
 }: PlanStatusCardProps) {
   if (isPaid) {
-    return (
-      <PaidCoverageCard
-        jsonLdVerified={jsonLdVerified}
-        onEnableJsonLd={onEnableJsonLd}
-      />
-    );
+    return <PaidCoverageCard jsonLdEnabled={jsonLdEnabled} />;
   }
   return <FreeUpgradeCard onUpgrade={onUpgrade} />;
 }
 
 /* ─── Paid state ──────────────────────────────────────────────────────── */
 
-function PaidCoverageCard({
-  jsonLdVerified,
-  onEnableJsonLd,
-}: {
-  jsonLdVerified: boolean;
-  onEnableJsonLd: () => void;
-}) {
+function PaidCoverageCard({ jsonLdEnabled }: { jsonLdEnabled: boolean }) {
   return (
     <s-section slot="aside">
       <div style={{ marginBottom: "12px" }}>
@@ -90,32 +78,12 @@ function PaidCoverageCard({
         >
           {PAID_FEATURES.map((feature, i) => {
             const isJsonLdRow = i === PAID_JSON_LD_INDEX;
-            if (isJsonLdRow && !jsonLdVerified) {
-              return (
-                <FeatureRow
-                  key={feature}
-                  state="pending"
-                  text={feature}
-                  trailing={
-                    <button
-                      type="button"
-                      onClick={onEnableJsonLd}
-                      style={{
-                        fontSize: "12px",
-                        fontWeight: 600,
-                        color: "#e8820c",
-                        background: "none",
-                        border: "none",
-                        cursor: "pointer",
-                        textDecoration: "underline",
-                        padding: 0,
-                      }}
-                    >
-                      Turn on
-                    </button>
-                  }
-                />
-              );
+            // JSON-LD row is display-only: shows the merchant's current
+            // enabled state. The actual enable action lives in the JSON-LD
+            // aside card below, not here — having two competing controls
+            // confused merchants in user testing.
+            if (isJsonLdRow && !jsonLdEnabled) {
+              return <FeatureRow key={feature} state="off" text={feature} />;
             }
             return <FeatureRow key={feature} state="checked" text={feature} />;
           })}
@@ -184,7 +152,7 @@ function FeatureRow({
   text,
   trailing,
 }: {
-  state: "checked" | "locked" | "pending";
+  state: "checked" | "locked" | "off";
   text: string;
   trailing?: React.ReactNode;
 }) {
@@ -197,12 +165,13 @@ function FeatureRow({
           textColor: "var(--p-color-text, #303030)",
           opacity: 1,
         };
-      case "pending":
+      case "off":
+        // Display-only "not currently on" indicator — muted, no action.
         return {
-          icon: "clock" as const,
-          tone: "caution" as const,
-          textColor: "var(--p-color-text, #303030)",
-          opacity: 1,
+          icon: "circle" as const,
+          tone: "subdued" as const,
+          textColor: "var(--p-color-text-subdued, #6d7175)",
+          opacity: 0.75,
         };
       case "locked":
         return {

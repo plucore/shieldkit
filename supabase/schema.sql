@@ -70,13 +70,20 @@ CREATE TABLE IF NOT EXISTS merchants (
   -- monitoring-access settings (column name predates the v3 rebrand; backs
   -- /app/pro-settings + /app/bots/toggle)
   pro_settings                  JSONB       NOT NULL DEFAULT '{}'::jsonb,
-  -- JSON-LD theme extension state
-  -- (Fix 3 split intent from verified state; enabled flips only after
-  -- positive verification by app/lib/json-ld-verifier.server.ts)
+  -- JSON-LD theme extension state.
+  -- v4 collapsed this to a single boolean: click = on. The compliance scan's
+  -- `structured_data_json_ld` check is the authoritative source for whether
+  -- the block is actually rendering — a fetch-based verifier here can't reach
+  -- password-protected or pre-launch stores and produced false negatives.
+  -- The three columns below (json_ld_enable_clicked_at / json_ld_verified_at /
+  -- json_ld_verification_attempts) are DEPRECATED + unused as of v4 — no code
+  -- path reads or writes them. Kept in place rather than dropped because the
+  -- DROP COLUMN is riskier than the unused columns; they will be removed in a
+  -- future cleanup migration.
   json_ld_enabled               BOOLEAN     NOT NULL DEFAULT false,
-  json_ld_enable_clicked_at     TIMESTAMPTZ,
-  json_ld_verified_at           TIMESTAMPTZ,
-  json_ld_verification_attempts INT         NOT NULL DEFAULT 0,
+  json_ld_enable_clicked_at     TIMESTAMPTZ, -- DEPRECATED (v4) — see above.
+  json_ld_verified_at           TIMESTAMPTZ, -- DEPRECATED (v4) — see above.
+  json_ld_verification_attempts INT         NOT NULL DEFAULT 0, -- DEPRECATED (v4).
   -- AI policy generation (any paid tier — v4 single paid gate via
   -- hasPaidAccess). policy_regen_used caps regeneration per policy type
   -- at 2 (initial + 1 regen). The wider monthly cap below is the abuse

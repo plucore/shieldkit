@@ -572,89 +572,77 @@ describe("Branding hygiene", () => {
   });
 });
 
-// ─── JSON-LD activation verification (Fix 3 — 2026-05-27 audit) ─────────────
+// ─── JSON-LD activation — two-state model (v4) ──────────────────────────────
+//
+// The v3 verifier was removed because storefront fetches couldn't reach
+// password-protected or pre-launch stores, producing false negatives for
+// legitimate merchants. The compliance scan's `structured_data_json_ld`
+// check is the authoritative source for whether the block is actually
+// rendering. The dashboard UI flips merchants.json_ld_enabled on click and
+// trusts that state.
 
-describe("JSON-LD activation verification", () => {
-  it("enableJsonLd action sets clicked_at, not enabled", () => {
+describe("JSON-LD activation (v4 two-state model)", () => {
+  it("enableJsonLd action flips json_ld_enabled=true on click", () => {
     const src = fs.readFileSync(
       path.join(APP_DIR, "routes/app._index.tsx"),
       "utf-8"
     );
-    // Pre-fix bug: action set json_ld_enabled=true on click. Post-fix, only
-    // the verifier flips enabled; the click sets clicked_at.
     expect(src).toContain('actionType === "enableJsonLd"');
-    expect(src).toMatch(/json_ld_enable_clicked_at:\s*new Date\(\)\.toISOString\(\)/);
-    expect(src).not.toMatch(/actionType === "enableJsonLd"[\s\S]*?json_ld_enabled:\s*true[\s\S]*?actionType === "verifyJsonLdNow"/);
+    expect(src).toMatch(/json_ld_enabled:\s*true/);
   });
 
-  it("verifyJsonLdNow action invokes the verifier inline", () => {
+  it("verifier action handler and helper module are removed", () => {
     const src = fs.readFileSync(
       path.join(APP_DIR, "routes/app._index.tsx"),
       "utf-8"
     );
-    expect(src).toContain('actionType === "verifyJsonLdNow"');
-    expect(src).toContain("verifyJsonLdForMerchant");
+    expect(src).not.toContain('actionType === "verifyJsonLdNow"');
+    expect(src).not.toContain("verifyJsonLdForMerchant");
+    expect(src).not.toContain("json-ld-verifier.server");
+    expect(
+      fs.existsSync(path.join(APP_DIR, "lib/json-ld-verifier.server.ts"))
+    ).toBe(false);
+    expect(
+      fs.existsSync(path.join(APP_DIR, "routes/api.cron.verify-json-ld.ts"))
+    ).toBe(false);
   });
 
-  it("aside card renders three states from clicked_at / verified_at", () => {
+  it("aside card is two-state (Active / Enable) — no pending/verify UI", () => {
     const src = fs.readFileSync(
       path.join(APP_DIR, "routes/app._index.tsx"),
       "utf-8"
     );
-    expect(src).toContain("json_ld_verified_at");
-    expect(src).toContain("json_ld_enable_clicked_at");
-    expect(src).toContain("JSON-LD Active ✓");
-    expect(src).toContain("Verification pending");
-    expect(src).toContain("Verify now");
+    // On state.
+    expect(src).toContain("JSON-LD Active");
+    // The retired states must NOT appear anywhere in the file.
+    expect(src).not.toContain("Verification pending");
+    expect(src).not.toContain("Verify now");
+    expect(src).not.toContain("Pending verification");
+    // The card is driven by json_ld_enabled, not the deprecated columns.
+    expect(src).toContain("merchant?.json_ld_enabled");
+    expect(src).not.toContain("json_ld_verified_at");
+    expect(src).not.toContain("json_ld_enable_clicked_at");
   });
 
-  it("verifier module exists with the verifyJsonLdForMerchant export", () => {
-    const src = fs.readFileSync(
-      path.join(APP_DIR, "lib/json-ld-verifier.server.ts"),
-      "utf-8"
-    );
-    expect(src).toContain("export async function verifyJsonLdForMerchant");
-    expect(src).toContain("shieldkit-jsonld-v1");
-  });
-
-  it("Liquid block emits the verification marker", () => {
-    const src = fs.readFileSync(
-      path.join(ROOT_DIR, "extensions/json-ld-schema/blocks/product-schema.liquid"),
-      "utf-8"
-    );
-    expect(src).toContain("shieldkit-jsonld-v1");
-  });
-
-  it("cron route + vercel.json schedule wired", () => {
-    const cronSrc = fs.readFileSync(
-      path.join(APP_DIR, "routes/api.cron.verify-json-ld.ts"),
-      "utf-8"
-    );
-    expect(cronSrc).toContain("verifyJsonLdForMerchant");
-    expect(cronSrc).toContain("CRON_SECRET");
-
+  it("vercel.json no longer schedules the verifier cron", () => {
     const vercel = JSON.parse(
       fs.readFileSync(path.join(ROOT_DIR, "vercel.json"), "utf-8")
     );
     const cron = vercel.crons.find(
       (c: { path: string }) => c.path === "/api/cron/verify-json-ld"
     );
-    expect(cron).toBeDefined();
-    // Daily 09:00 UTC — Vercel Hobby rejects sub-daily schedules. Was
-    // originally "0 */2 * * *" (every 2h) during the sweep; downgraded to
-    // daily on 2026-05-28 after Vercel blocked the deployment.
-    expect(cron.schedule).toBe("0 9 * * *");
+    expect(cron).toBeUndefined();
   });
 
-  it("migration adds three columns and backfills currently-enabled rows", () => {
+  it("PlanStatusCard JSON-LD row is display-only (no Turn on action)", () => {
     const src = fs.readFileSync(
-      path.join(ROOT_DIR, "supabase/migrations/20260527192823_json_ld_verification.sql"),
+      path.join(APP_DIR, "components/PlanStatusCard.tsx"),
       "utf-8"
     );
-    expect(src).toContain("json_ld_enable_clicked_at");
-    expect(src).toContain("json_ld_verified_at");
-    expect(src).toContain("json_ld_verification_attempts");
-    expect(src).toMatch(/UPDATE\s+merchants/i);
+    // The competing "Turn on" action that lived on this card in v3 is gone.
+    expect(src).not.toContain("Turn on");
+    expect(src).not.toContain("onEnableJsonLd");
+    expect(src).toContain("jsonLdEnabled");
   });
 });
 
@@ -680,10 +668,15 @@ describe("schema.sql matches production cumulative state", () => {
     expect(schema).toContain("pro_settings");
   });
 
-  it("merchants has the Fix 3 JSON-LD verification columns", () => {
+  it("merchants still declares the JSON-LD columns (deprecated post-v4 but not dropped)", () => {
+    // The verifier-era columns remain in the schema to match live DB shape.
+    // They're marked DEPRECATED in the schema comments — no code path reads
+    // or writes them as of v4. A future cleanup migration will drop them.
+    expect(schema).toContain("json_ld_enabled");
     expect(schema).toContain("json_ld_enable_clicked_at");
     expect(schema).toContain("json_ld_verified_at");
     expect(schema).toContain("json_ld_verification_attempts");
+    expect(schema).toContain("DEPRECATED (v4)");
   });
 
   it("merchants has the opportunistically-refreshed Shopify metadata columns", () => {
@@ -822,17 +815,21 @@ describe("PlanStatusCard two-state value box (v4 §7)", () => {
     expect(src).toContain("PLANS.monitoring_annual.annual");
   });
 
-  it("paid state JSON-LD row reflects actual verified state", () => {
+  it("paid state JSON-LD row is display-only (no action) and reflects enabled state", () => {
     const src = fs.readFileSync(
       path.join(APP_DIR, "components/PlanStatusCard.tsx"),
       "utf-8"
     );
-    expect(src).toContain("jsonLdVerified");
-    // Three row states: checked, locked, pending. Matched as either
-    // JSX prop (state="checked") or type-literal (state: "checked").
+    // v4 §1 collapsed the JSON-LD verifier into a single click=on flag, so
+    // the PlanStatusCard row is now status-only (checked / off) — the actual
+    // enable action lives only in the JSON-LD aside card.
+    expect(src).toContain("jsonLdEnabled");
+    expect(src).not.toContain("Turn on");
+    expect(src).not.toContain("onEnableJsonLd");
+    // Three row states: checked, locked, off.
     expect(src).toMatch(/state[:=]\s*"checked"/);
     expect(src).toMatch(/state[:=]\s*"locked"/);
-    expect(src).toMatch(/state[:=]\s*"pending"/);
+    expect(src).toMatch(/state[:=]\s*"off"/);
   });
 
   it("dashboard wires PlanStatusCard at the top of the aside (above Security Status)", () => {
@@ -1047,37 +1044,28 @@ describe("Dashboard self-heal action (Fix 6)", () => {
 
 // ─── Onboarding wizard 4-step + 10→12 (Fix 5) ───────────────────────────────
 
-describe("Onboarding wizard 4 steps including JSON-LD", () => {
-  it("wizard now has 4 numbered steps", () => {
+describe("Onboarding wizard (v4 — 3 steps, no JSON-LD)", () => {
+  it("wizard has exactly 3 numbered steps", () => {
     const src = fs.readFileSync(
       path.join(APP_DIR, "routes/app._index.tsx"),
       "utf-8"
     );
-    // Numeric step markers in the wizard's static step array.
     expect(src).toMatch(/num:\s*1\b/);
     expect(src).toMatch(/num:\s*2\b/);
     expect(src).toMatch(/num:\s*3\b/);
-    expect(src).toMatch(/num:\s*4\b/);
+    expect(src).not.toMatch(/num:\s*4\b/);
   });
 
-  it("wizard step 2 is the Enable JSON-LD step", () => {
+  it("wizard does NOT include the JSON-LD enablement step", () => {
     const src = fs.readFileSync(
       path.join(APP_DIR, "routes/app._index.tsx"),
       "utf-8"
     );
-    expect(src).toContain("Enable Free Structured Data");
-    expect(src).toContain("Enable JSON-LD on my theme");
-    expect(src).toContain("isJsonLdStep");
-  });
-
-  it("wizard step 2 shows pending/verified state from clicked_at/verified_at", () => {
-    const src = fs.readFileSync(
-      path.join(APP_DIR, "routes/app._index.tsx"),
-      "utf-8"
-    );
-    // The conditional UI in the JSON-LD wizard step.
-    expect(src).toMatch(/json_ld_verified_at[\s\S]*?Enabled ✓/);
-    expect(src).toMatch(/json_ld_enable_clicked_at[\s\S]*?Pending verification/);
+    // JSON-LD enablement now lives only on the home dashboard aside card,
+    // not in onboarding — one clean primary CTA per first-time view.
+    expect(src).not.toContain("Enable Free Structured Data");
+    expect(src).not.toContain("Enable JSON-LD on my theme");
+    expect(src).not.toContain("isJsonLdStep");
   });
 
   it("no hard-coded '10-point' references remain in app._index.tsx", () => {

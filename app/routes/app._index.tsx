@@ -47,7 +47,6 @@ import {
   windowResetIso,
 } from "../lib/ai-usage.server";
 import { wrapAdminClient, getShopInfo } from "../lib/shopify-api.server";
-import { verifyJsonLdForMerchant } from "../lib/json-ld-verifier.server";
 import { getJsonLdThemeEditorUrl } from "../lib/json-ld-deep-link";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import styles from "../styles.css?url";
@@ -83,8 +82,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     .from("merchants")
     .select(
       "id, shopify_domain, primary_domain, scans_remaining, tier, billing_cycle, " +
-      "shopify_subscription_id, json_ld_enabled, json_ld_enable_clicked_at, " +
-      "json_ld_verified_at, generated_policies, policy_regen_used, review_prompted",
+      "shopify_subscription_id, json_ld_enabled, " +
+      "generated_policies, policy_regen_used, review_prompted",
     )
     .eq("shopify_domain", shopDomain)
     .maybeSingle();
@@ -476,10 +475,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   // ── Enable JSON-LD action ──────────────────────────────────────────────────
-  // Sets clicked_at only — the verifier (cron or verifyJsonLdNow) flips
-  // json_ld_enabled true once the storefront actually renders the block.
-  // This was previously flipping enabled=true on click, which hid the
-  // "block never saved" failure mode and inflated activation numbers.
+  // Two-state model (replaces the v3 verifier). Click = on. The compliance
+  // scan's `structured_data_json_ld` check is the authoritative source for
+  // whether schema is actually live on the storefront — a storefront fetch
+  // here can't reach password-protected or pre-launch stores, so a verifier
+  // produced false negatives for legitimate merchants. Flipping enabled=true
+  // on click matches what every other "enable feature" toggle in Shopify
+  // admin does.
   if (actionType === "enableJsonLd") {
     const { data: merchant } = await supabase
       .from("merchants")
@@ -490,12 +492,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     if (merchant) {
       await supabase
         .from("merchants")
-        .update({
-          json_ld_enable_clicked_at: new Date().toISOString(),
-          // Explicitly reset attempts so a re-click after a failed run gives
-          // the verifier a fresh 5-attempt budget.
-          json_ld_verification_attempts: 0,
-        })
+        .update({ json_ld_enabled: true })
         .eq("id", merchant.id);
     }
 
@@ -588,40 +585,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
     }
-  }
-
-  // ── Verify JSON-LD now action ─────────────────────────────────────────────
-  // Inline verifier run for the "Verify now" button in the pending state.
-  // Gives the merchant immediate feedback rather than waiting up to 2h for
-  // the cron. Reuses the same code path so behaviour is identical.
-  if (actionType === "verifyJsonLdNow") {
-    const { data: merchant } = await supabase
-      .from("merchants")
-      .select("id, shopify_domain, primary_domain")
-      .eq("shopify_domain", shopDomain)
-      .maybeSingle();
-
-    if (!merchant) {
-      return new Response(
-        JSON.stringify({ success: false, message: "Merchant not found." }),
-        { status: 404, headers: { "Content-Type": "application/json" } },
-      );
-    }
-
-    const result = await verifyJsonLdForMerchant(
-      merchant.id,
-      merchant.shopify_domain as string,
-      (merchant.primary_domain as string | null) ?? null,
-    );
-
-    return new Response(
-      JSON.stringify({
-        success: true,
-        verified: result.verified,
-        reason: result.reason,
-      }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
-    );
   }
 
   // ── Run Scan action ───────────────────────────────────────────────────────
@@ -784,11 +747,6 @@ export default function Index() {
   const fetcher        = useFetcher<ApiScanResponse>();
   const policyFetcher  = useFetcher<ApiScanResponse>();
   const jsonLdFetcher  = useFetcher();
-  const verifyJsonLdFetcher = useFetcher<{
-    success: boolean;
-    verified?: boolean;
-    reason?: string;
-  }>();
   const selfHealFetcher = useFetcher<{
     success: boolean;
     healed: boolean;
@@ -894,15 +852,13 @@ export default function Index() {
     }
   }, [selfHealFetcher.state, selfHealFetcher.data, revalidator]);
 
-  // Handle "Verify now" response — refresh loader on positive so the card
-  // flips to "Active ✓". Negative responses display the inline hint.
+  // When the merchant clicks Enable JSON-LD, revalidate so the aside card
+  // immediately reflects the new state. The action flips json_ld_enabled
+  // synchronously now (no verifier in the loop).
   useEffect(() => {
-    if (verifyJsonLdFetcher.state !== "idle" || !verifyJsonLdFetcher.data) return;
-    if (verifyJsonLdFetcher.data.verified) {
-      shopify.toast.show("JSON-LD verified");
-      revalidator.revalidate();
-    }
-  }, [verifyJsonLdFetcher.state, verifyJsonLdFetcher.data, shopify, revalidator]);
+    if (jsonLdFetcher.state !== "idle" || !jsonLdFetcher.data) return;
+    revalidator.revalidate();
+  }, [jsonLdFetcher.state, jsonLdFetcher.data, revalidator]);
 
   // Deduplicated toast — only fires once per unique scanId
   const [toastId, setToastId] = useState<string | null>(null);
@@ -1089,11 +1045,11 @@ export default function Index() {
               margin: "28px 0 24px",
             }}
           >
-            {/* 4-step wizard. Step 2 = Enable JSON-LD (Fix 5 — surface
-                structured-data before the merchant ever scans, so the
-                activation rate can climb above the pre-fix 38%). The CTA
-                in step 2 wires to the same enableJsonLd action as the
-                aside card, so the verifier picks the click up identically. */}
+            {/* 3-step onboarding. Single-purpose flow: welcome → why this
+                matters → run the scan. JSON-LD enablement was previously
+                step 2 (v3) but has been removed from onboarding — it lives
+                only on the home dashboard aside card now, so first-time
+                users hit one primary CTA instead of two competing ones. */}
             {[
               {
                 num: 1,
@@ -1103,19 +1059,12 @@ export default function Index() {
               },
               {
                 num: 2,
-                bg: "var(--p-color-bg-surface-success, #f1f8f5)",
-                title: "Enable Free Structured Data",
-                text: "Adds Google-required Product schema to every product page. Free, runs forever, no scan required.",
-                isJsonLdStep: true,
-              },
-              {
-                num: 3,
                 bg: "var(--p-color-bg-surface-warning, #fff5ea)",
                 title: "Why GMC Compliance Matters",
                 text: "Google frequently suspends Shopify stores for vague policy violations like \"Misrepresentation\", instantly cutting off your Google Shopping traffic. Worse, Google only gives you a limited number of appeals before a permanent ban. You must fix all trust signals before requesting a review.",
               },
               {
-                num: 4,
+                num: 3,
                 bg: "var(--p-color-bg-surface-info, #e8f6fe)",
                 title: "Run Your Free Compliance Scan",
                 text: "Get a complete compliance audit in under 60 seconds. ShieldKit identifies exactly which issues to fix to protect your Google Shopping revenue before Google flags your store.",
@@ -1171,70 +1120,6 @@ export default function Index() {
                   >
                     {step.text}
                   </p>
-
-                  {step.isJsonLdStep && (
-                    <div style={{ marginTop: "14px" }}>
-                      {merchant?.json_ld_verified_at ? (
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "8px",
-                            fontSize: "14px",
-                            fontWeight: 600,
-                            color: "#1a9e5c",
-                          }}
-                        >
-                          <s-icon
-                            type="check-circle-filled"
-                            tone="success"
-                            size="base"
-                          />
-                          Enabled ✓
-                        </div>
-                      ) : merchant?.json_ld_enable_clicked_at ? (
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "8px",
-                            fontSize: "14px",
-                            fontWeight: 600,
-                            color: "#e8820c",
-                          }}
-                        >
-                          <s-icon type="clock" tone="caution" size="base" />
-                          Pending verification — we&rsquo;ll confirm within an hour
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            jsonLdFetcher.submit(
-                              { action: "enableJsonLd" },
-                              { method: "POST" },
-                            );
-                            window.open(
-                              getJsonLdThemeEditorUrl(shopDomain, "product-schema", shopifyApiKey),
-                              "_top",
-                            );
-                          }}
-                          style={{
-                            fontSize: "14px",
-                            fontWeight: 600,
-                            color: "#fff",
-                            background: "#0f172a",
-                            border: "none",
-                            borderRadius: "8px",
-                            padding: "8px 16px",
-                            cursor: "pointer",
-                          }}
-                        >
-                          Enable JSON-LD on my theme
-                        </button>
-                      )}
-                    </div>
-                  )}
                 </div>
               </div>
             ))}
@@ -1376,17 +1261,7 @@ export default function Index() {
       {merchant && !showOnboarding && (
         <PlanStatusCard
           isPaid={isPaid}
-          jsonLdVerified={!!merchant.json_ld_verified_at}
-          onEnableJsonLd={() => {
-            jsonLdFetcher.submit(
-              { action: "enableJsonLd" },
-              { method: "POST" },
-            );
-            window.open(
-              getJsonLdThemeEditorUrl(shopDomain, "product-schema", shopifyApiKey),
-              "_top",
-            );
-          }}
+          jsonLdEnabled={merchant.json_ld_enabled}
           onUpgrade={navigateToUpgrade}
         />
       )}
@@ -1425,10 +1300,15 @@ export default function Index() {
         </s-section>
       )}
 
-      {/* Free JSON-LD Extension — three-state UI driven by clicked_at /
-          verified_at columns (Fix 3 — 2026-05-27 audit). Was previously
-          flipping enabled=true on click, which inflated the activation
-          number and hid the "block never saved" failure mode. */}
+      {/* Free JSON-LD Structured Data — two-state card driven solely by
+          merchant.json_ld_enabled. Click flips enabled=true via the
+          enableJsonLd action (no verifier, no pending state). The compliance
+          scan's `structured_data_json_ld` check is the authoritative source
+          for whether the block is actually rendering on the storefront —
+          a fetch-based verifier here can't reach password-protected or
+          pre-launch stores and produced false negatives for legitimate
+          merchants. This card is the SINGLE control surface for JSON-LD on
+          the dashboard; PlanStatusCard's JSON-LD row is display-only. */}
       <s-section slot="aside">
         <div style={{ marginBottom: "12px" }}>
           <div style={{ fontSize: "16px", fontWeight: 700, color: "#0f172a" }}>
@@ -1442,12 +1322,12 @@ export default function Index() {
             gap: "12px",
           }}
         >
-          {merchant?.json_ld_verified_at ? (
+          {merchant?.json_ld_enabled ? (
             <>
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <s-icon type="check-circle-filled" tone="success" size="base" />
                 <span style={{ fontSize: "14px", fontWeight: 600, color: "#1a9e5c" }}>
-                  JSON-LD Active ✓
+                  JSON-LD Active
                 </span>
               </div>
               <s-paragraph>
@@ -1455,64 +1335,10 @@ export default function Index() {
               </s-paragraph>
               <s-button ref={manageJsonLdRef}>Manage</s-button>
             </>
-          ) : merchant?.json_ld_enable_clicked_at ? (
-            <>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <s-icon type="clock" tone="caution" size="base" />
-                <span style={{ fontSize: "14px", fontWeight: 600, color: "#e8820c" }}>
-                  Verification pending
-                </span>
-              </div>
-              <s-paragraph>
-                We'll check your storefront within an hour. If the block was
-                saved in your theme editor, this will flip to Active.
-              </s-paragraph>
-              <button
-                type="button"
-                disabled={
-                  verifyJsonLdFetcher.state !== "idle"
-                }
-                onClick={() =>
-                  verifyJsonLdFetcher.submit(
-                    { action: "verifyJsonLdNow" },
-                    { method: "POST" },
-                  )
-                }
-                style={{
-                  fontSize: "14px",
-                  fontWeight: 600,
-                  color: "#fff",
-                  background: "#0f172a",
-                  border: "none",
-                  borderRadius: "8px",
-                  padding: "8px 16px",
-                  cursor: verifyJsonLdFetcher.state !== "idle" ? "wait" : "pointer",
-                  opacity: verifyJsonLdFetcher.state !== "idle" ? 0.7 : 1,
-                }}
-              >
-                {verifyJsonLdFetcher.state !== "idle" ? "Verifying…" : "Verify now"}
-              </button>
-              {verifyJsonLdFetcher.state === "idle" &&
-                verifyJsonLdFetcher.data &&
-                "verified" in verifyJsonLdFetcher.data &&
-                !verifyJsonLdFetcher.data.verified && (
-                  <div
-                    style={{
-                      fontSize: "12px",
-                      color: "#e51c00",
-                    }}
-                  >
-                    Couldn't find the block on your storefront yet. Open your
-                    theme editor again, drop in &quot;Product Schema (JSON-LD)&quot;
-                    on your product template, and click Save.
-                  </div>
-                )}
-            </>
           ) : (
             <>
               <s-paragraph>
-                Adds correct Product structured data to every product page to help
-                Google Shopping index your products.
+                Opens your theme editor — add the Product Schema block and click Save.
               </s-paragraph>
               <button
                 type="button"
@@ -1539,14 +1365,6 @@ export default function Index() {
               >
                 Enable JSON-LD
               </button>
-              <div
-                style={{
-                  fontSize: "12px",
-                  color: "var(--p-color-text-subdued, #6d7175)",
-                }}
-              >
-                Opens your theme editor. Click Save to activate.
-              </div>
             </>
           )}
         </div>

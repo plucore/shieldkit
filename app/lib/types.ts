@@ -26,12 +26,14 @@ export interface Merchant {
   primary_domain?: string | null;
   scans_remaining: number | null;
   tier: string;
-  /** Verified state — flips true only after the verifier confirms render. */
+  /**
+   * Two-state JSON-LD flag (v4): true the moment the merchant clicks Enable.
+   * The compliance scan's `structured_data_json_ld` check is the
+   * authoritative source for whether the block is actually rendering on the
+   * storefront — see the explanatory comment on the enableJsonLd action
+   * in app/routes/app._index.tsx for why we dropped the verifier.
+   */
   json_ld_enabled: boolean;
-  /** Set on "Enable JSON-LD" click; intent flag (verifier flips enabled). */
-  json_ld_enable_clicked_at?: string | null;
-  /** Set by app/lib/json-ld-verifier.server.ts on positive verification. */
-  json_ld_verified_at?: string | null;
   generated_policies: GeneratedPolicies;
   policy_regen_used: PolicyRegenUsed;
   review_prompted: boolean;

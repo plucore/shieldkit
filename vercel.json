@@ -6,10 +6,6 @@
       "schedule": "0 4 * * *"
     },
     {
-      "path": "/api/cron/verify-json-ld",
-      "schedule": "0 9 * * *"
-    },
-    {
       "path": "/api/cron/reconcile-installs",
       "schedule": "0 3 * * *"
     },

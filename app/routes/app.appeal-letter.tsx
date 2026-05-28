@@ -272,10 +272,9 @@ export default function AppealLetterPage() {
     <s-page heading="GMC Appeal Letter Generator">
       <s-section>
         <s-paragraph>
-          Generate a polished re-review request letter for Google Merchant Center.
-          Tell us what Google said your suspension reason was and the fixes you've
-          made — Claude drafts a 200–400 word letter you can paste into the GMC
-          appeal form.
+          Generate a re-review request letter for a Google Merchant Center
+          suspension. Tell us Google's stated reason and the fixes you've made,
+          and ShieldKit drafts a letter you can paste into the GMC appeal form.
         </s-paragraph>
         <s-paragraph>
           <strong>{remaining}</strong> of {limit} generations remaining for the

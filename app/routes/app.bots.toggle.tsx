@@ -215,10 +215,10 @@ export default function BotsTogglePage() {
 
       <s-section>
         <s-paragraph>
-          Decide which AI crawlers can train on or index your storefront.
-          Toggle a bot to "Block" if you want it to leave you alone; toggle
-          "Allow" if you want your products visible in their AI products
-          (ChatGPT shopping, Perplexity, Google AI Overviews, etc.).
+          Control which AI crawlers can access your storefront. Allow them to
+          let your products appear in AI tools like ChatGPT and Perplexity;
+          block them to opt out. Save, then paste the generated snippet into
+          your theme's robots.txt.
         </s-paragraph>
         <s-paragraph>
           The list and the resulting <code>robots.txt</code> snippet update

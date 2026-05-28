@@ -176,11 +176,15 @@ export default function ProSettingsPage() {
 
       <s-section>
         <s-paragraph>
-          These values feed the Organization and WebSite JSON-LD blocks in
-          the ShieldKit theme extension. Until Phase 5 adds metafield sync,
-          you'll need to mirror these values in the theme editor: Online
-          Store -&gt; Themes -&gt; Edit code, then open the ShieldKit blocks
-          and paste the same URLs into the block settings.
+          These details power the Organization and WebSite structured data on
+          your storefront, helping Google and AI search understand your brand.
+          Fill what applies and Save.
+        </s-paragraph>
+        <s-paragraph>
+          Until Phase 5 adds metafield sync, you'll also need to mirror these
+          values in the theme editor: Online Store -&gt; Themes -&gt; Edit
+          code, then open the ShieldKit blocks and paste the same URLs into
+          the block settings.
         </s-paragraph>
       </s-section>
 

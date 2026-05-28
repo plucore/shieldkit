@@ -470,6 +470,11 @@ export default function GtinFillPage() {
 
       <s-section>
         <s-paragraph>
+          Google flags products missing barcodes (GTIN/MPN/brand). This fills
+          those identifiers across your catalog automatically — click Auto-Fill
+          and ShieldKit writes them in batches.
+        </s-paragraph>
+        <s-paragraph>
           <strong>{total}</strong> product{total === 1 ? "" : "s"} appear to
           need identifier work (missing SKU or barcode signal).
           <br />

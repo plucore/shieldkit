@@ -29,6 +29,11 @@ import {
   PLAN_NAME_TO_TIER,
   PLAN_NAME_TO_CYCLE,
   PAID_TIERS,
+  PLANS,
+  PAID_FEATURES,
+  FREE_FEATURES,
+  TIER_GROUPS,
+  annualSavings,
   hasPaidAccess,
 } from "../app/lib/billing/plans";
 
@@ -59,6 +64,48 @@ describe("v4 plan reference data", () => {
     expect(PLAN_NAME_TO_CYCLE["Shield Pro Annual"]).toBe("annual");
     expect(PLAN_NAME_TO_CYCLE["Shield Max"]).toBe("monthly");
     expect(PLAN_NAME_TO_CYCLE["Shield Max Annual"]).toBe("annual");
+  });
+
+  it("Recovery plan name is removed from the name maps (no longer offered)", () => {
+    // v4 collapsed Recovery into Monitoring. The DB tier value 'recovery'
+    // is still valid (CHECK constraint + helper accepts it for grand-
+    // fathering), but new merchants cannot reach it through plan-name.
+    expect((PLAN_NAME_TO_TIER as Record<string, unknown>)["Recovery"]).toBeUndefined();
+    expect((PLAN_NAME_TO_CYCLE as Record<string, unknown>)["Recovery"]).toBeUndefined();
+  });
+
+  it("Monitoring is priced at $49/mo and $449/yr (v4)", () => {
+    expect(PLANS.monitoring_monthly.monthly).toBe(49);
+    expect(PLANS.monitoring_annual.annual).toBe(449);
+  });
+
+  it("PLANS no longer exposes a recovery_annual entry", () => {
+    expect((PLANS as Record<string, unknown>)["recovery_annual"]).toBeUndefined();
+  });
+
+  it("TIER_GROUPS has one group ('monitoring') at the v4 price", () => {
+    expect(Object.keys(TIER_GROUPS)).toEqual(["monitoring"]);
+    expect(TIER_GROUPS.monitoring.monthlyPrice).toBe(49);
+    expect(TIER_GROUPS.monitoring.annualPrice).toBe(449);
+  });
+
+  it("annualSavings reports the v4 monthly-vs-annual gap", () => {
+    // 49×12 = 588, minus 449 = 139.
+    expect(annualSavings()).toBe(139);
+  });
+
+  it("PAID_FEATURES is the single canonical paid feature list", () => {
+    expect(PAID_FEATURES).toContain("Unlimited on-demand scans");
+    expect(PAID_FEATURES).toContain("GMC re-review appeal letter generator");
+    expect(PAID_FEATURES).toContain("Product data fixes (GTIN / MPN / brand)");
+    // The v3 "Everything in Monitoring, plus:" header is gone — there's
+    // only one paid tier in v4.
+    expect(PAID_FEATURES.some((f) => f.includes("Everything in Monitoring"))).toBe(false);
+  });
+
+  it("FREE_FEATURES describes one-time scan, not monthly", () => {
+    expect(FREE_FEATURES).toContain("One free compliance scan");
+    expect(FREE_FEATURES.some((f) => /per month|monthly/i.test(f))).toBe(false);
   });
 
   it("PAID_TIERS lists every DB tier value that resolves to paid access", () => {

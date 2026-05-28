@@ -44,23 +44,25 @@ export type Tier = "free" | "shield" | "pro" | "monitoring" | "recovery";
 // Plan-name strings MUST match the names configured in the Partner Dashboard
 // pricing UI exactly — they are the keys both sides use to identify a plan
 // during webhook reconciliation and Partner API lookups.
+//
+// v4 (2026-05-28): Recovery removed (folded into Monitoring as one paid
+// tier). Monitoring price changed from $30/$290 to $49/$449. Legacy
+// shield_*/pro_* entries kept so grandfathered subscriptions still
+// reconcile through the PLAN_NAME maps below; the 2 live Shield Max
+// merchants stay on their existing subscriptions.
 export const PLANS = {
   free: { name: "Free", monthly: 0, annual: 0 },
 
-  // Current offerings
+  // Current offerings (the only two paid plans the Partner Dashboard
+  // should advertise post-v4).
   monitoring_monthly: {
     name: "Monitoring",
-    monthly: 30,
+    monthly: 49,
     interval: "EVERY_30_DAYS",
   },
   monitoring_annual: {
     name: "Monitoring Annual",
-    annual: 290,
-    interval: "ANNUAL",
-  },
-  recovery_annual: {
-    name: "Recovery",
-    annual: 150,
+    annual: 449,
     interval: "ANNUAL",
   },
 
@@ -88,10 +90,9 @@ export type PaidPlanName = (typeof PLANS)[PaidPlanKey]["name"];
 // correctly through this map. Do not remove the grandfathered entries.
 export const PLAN_NAME_TO_TIER: Record<PlanName, Tier> = {
   Free: "free",
-  // Current
+  // Current (v4 — single paid tier)
   Monitoring: "monitoring",
   "Monitoring Annual": "monitoring",
-  Recovery: "recovery",
   // Grandfathered
   "Shield Pro": "shield",
   "Shield Pro Annual": "shield",
@@ -105,10 +106,9 @@ export const PLAN_NAME_TO_TIER: Record<PlanName, Tier> = {
 export const PLAN_NAME_TO_CYCLE: Record<PlanName, "monthly" | "annual" | null> =
   {
     Free: null,
-    // Current
+    // Current (v4)
     Monitoring: "monthly",
     "Monitoring Annual": "annual",
-    Recovery: "annual",
     // Grandfathered
     "Shield Pro": "monthly",
     "Shield Pro Annual": "annual",
@@ -176,67 +176,55 @@ export const PAID_TIERS: readonly Tier[] = [
   "pro",
 ] as const;
 
-// ─── Internal display data (not consumed by routes today) ───────────────────
-// These exports back the in-app plan-switcher UI when/if it returns. The
-// Shopify Managed Pricing hosted page is canonical today; keeping these in
-// sync with PLANS so nothing drifts.
+// ─── Internal display data (canonical paid feature list) ────────────────────
+// These exports back any in-app plan display surface. The Shopify Managed
+// Pricing hosted page is canonical for the actual pick-a-plan UI; these
+// constants back the dashboard value-status card and any upsell copy that
+// needs the same list to stay in sync.
+//
+// v4 collapsed Monitoring + Recovery into a single paid tier. The two
+// feature lists were merged into one canonical paid list. Grandfathered
+// shield_*/pro_* feature blocks were deleted — no UI surface renders them
+// (they were dead aspirational copy for a plan-switcher route that hasn't
+// returned), and the grandfathered customers don't see in-app feature
+// lists tagged with their legacy tier name.
 
-export const PLAN_FEATURES: Record<PlanKey, readonly string[]> = {
-  free: [
-    "1 compliance scan per month",
-    "Fix instructions for top findings",
-    "JSON-LD theme extension",
-  ],
-  monitoring_monthly: [
-    "Weekly automated compliance scans",
-    "Weekly health digest email",
-    "AI bot allow/block toggle",
-    "llms.txt at root domain",
-    "Ongoing GTIN enrichment on new products",
-    "AI-visibility tracking",
-  ],
-  monitoring_annual: [
-    "Everything in Monitoring",
-    "Best value — $290/yr vs $360/yr",
-  ],
-  recovery_annual: [
-    "Everything in Monitoring, plus:",
-    "GMC re-review appeal letter generator",
-    "AI policy rewrites",
-    "Bulk GTIN/MPN/brand fill on existing catalog",
-    "Unlimited on-demand compliance scans",
-  ],
-  // Grandfathered — kept for completeness, not displayed to new merchants.
-  shield_monthly: [
-    "Unlimited compliance scans",
-    "Continuous weekly monitoring",
-    "Weekly health digest email",
-    "AI policy generator",
-    "GMC re-review appeal letter generator",
-    "Hidden fee detector",
-    "Image hosting audit (dropshipper detection)",
-  ],
-  shield_annual: ["Everything in Shield Pro monthly", "16% off"],
-  pro_monthly: [
-    "Everything in Shield Pro",
-    "Merchant Listings JSON-LD enricher",
-    "GTIN / MPN / brand auto-filler",
-    "Organization & WebSite schema (site-wide)",
-    "llms.txt at root domain",
-    "AI bot allow/block toggle",
-  ],
-  pro_annual: ["Everything in Shield Max monthly", "16% off"],
-};
+/**
+ * The single source of truth for what ShieldKit's paid plan unlocks.
+ * Render this in pricing cards, dashboard value-status boxes, upgrade
+ * prompts, anywhere a feature list per plan needs to appear.
+ */
+export const PAID_FEATURES: readonly string[] = [
+  "Unlimited on-demand scans",
+  "AI-written store policies (refund, shipping, privacy, terms)",
+  "GMC re-review appeal letter generator",
+  "Product data fixes (GTIN / MPN / brand)",
+  "Auto structured data for new products",
+  "llms.txt for AI search",
+  "AI crawler allow/block controls",
+  "Store schema settings (logo, social, search)",
+  "JSON-LD product schema extension",
+] as const;
 
-export type TierGroupKey = "monitoring" | "recovery";
+/**
+ * Free-tier feature list. Free merchants get one scan and the same
+ * theme extension; the rest is locked behind paid.
+ */
+export const FREE_FEATURES: readonly string[] = [
+  "One free compliance scan",
+  "Step-by-step fix instructions",
+  "JSON-LD product schema extension",
+] as const;
+
+export type TierGroupKey = "monitoring";
 
 export const TIER_GROUPS: Record<
   TierGroupKey,
   {
     label: string;
-    monthlyName: PaidPlanName | null;
+    monthlyName: PaidPlanName;
     annualName: PaidPlanName;
-    monthlyPrice: number | null;
+    monthlyPrice: number;
     annualPrice: number;
   }
 > = {
@@ -247,54 +235,26 @@ export const TIER_GROUPS: Record<
     monthlyPrice: PLANS.monitoring_monthly.monthly,
     annualPrice: PLANS.monitoring_annual.annual,
   },
-  recovery: {
-    label: "Recovery",
-    monthlyName: null, // Recovery is annual-only on v3.
-    annualName: PLANS.recovery_annual.name,
-    monthlyPrice: null,
-    annualPrice: PLANS.recovery_annual.annual,
-  },
 };
 
-export function annualSavings(group: TierGroupKey): number | null {
+/** Annual savings vs 12× monthly. Used by pricing card "Save $X/yr" copy. */
+export function annualSavings(group: TierGroupKey = "monitoring"): number {
   const g = TIER_GROUPS[group];
-  if (g.monthlyPrice == null) return null;
   return g.monthlyPrice * 12 - g.annualPrice;
 }
 
-export const TIER_FEATURES: Record<TierGroupKey, readonly string[]> = {
-  monitoring: [
-    "Weekly automated compliance scans",
-    "Weekly health digest email",
-    "AI bot allow/block toggle",
-    "llms.txt at root domain",
-    "Ongoing GTIN enrichment on new products",
-    "AI-visibility tracking",
-  ],
-  recovery: [
-    "Everything in Monitoring, plus:",
-    "GMC re-review appeal letter generator",
-    "AI policy rewrites",
-    "Bulk GTIN/MPN/brand fill on existing catalog",
-    "Unlimited on-demand compliance scans",
-  ],
-};
-
 // Plan name → tier group for "current plan" detection in upsell cards.
-// Grandfathered Shield Max maps to recovery group (their feature set most
-// closely matches recovery + monitoring combined). Grandfathered Shield Pro
-// maps to monitoring (its feature set is closest to current monitoring).
-// No live shield rows exist on 2026-05-14, so this is purely defensive.
+// v4 has one group ("monitoring") — every paid plan name (current +
+// grandfathered) maps there.
 export const PLAN_NAME_TO_GROUP: Record<PlanName, TierGroupKey | null> = {
   Free: null,
   Monitoring: "monitoring",
   "Monitoring Annual": "monitoring",
-  Recovery: "recovery",
   // Grandfathered
   "Shield Pro": "monitoring",
   "Shield Pro Annual": "monitoring",
-  "Shield Max": "recovery",
-  "Shield Max Annual": "recovery",
+  "Shield Max": "monitoring",
+  "Shield Max Annual": "monitoring",
 };
 
 export function planKeyByName(name: string): PlanKey | null {

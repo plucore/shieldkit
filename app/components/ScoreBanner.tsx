@@ -97,7 +97,7 @@ export default function ScoreBanner({
 
           <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "center" }}>
             {isScanning ? (
-              <s-badge tone="info">Running all 10 compliance checks…</s-badge>
+              <s-badge tone="info">Running all 12 compliance checks…</s-badge>
             ) : (
               <s-badge tone="neutral">
                 Last scanned {fmtDate(latestScan.created_at)}

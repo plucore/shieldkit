@@ -4,31 +4,36 @@
  * Plan reference data and tier-access helpers for ShieldKit under Shopify
  * Managed Pricing (rebranded "Shopify App Pricing").
  *
- * v3 plan structure (effective 2026-05-14):
- *   - Free        — tier='free'        : 1 scan/mo, score, fix instructions, JSON-LD.
- *   - Monitoring  — tier='monitoring'  : weekly scans, digest, JSON-LD, ongoing
- *                                       GTIN enrichment on new products, AI bot
- *                                       toggle, llms.txt, Pro Settings, AI-vis.
- *                                       Plans: "Monitoring" ($30/mo) and
- *                                       "Monitoring Annual" ($290/yr).
- *   - Recovery    — tier='recovery'    : Everything in Monitoring + GMC appeal
- *                                       letter generator, AI policy rewrites,
- *                                       bulk GTIN/MPN/brand fill on existing
- *                                       catalog, unlimited on-demand scans.
- *                                       Plan: "Recovery" ($150/yr annual only).
+ * v4 plan structure (effective 2026-05-28):
+ *   - Free        — tier='free'        : 1 free compliance scan (one-time),
+ *                                       fix instructions, JSON-LD theme
+ *                                       extension. No monthly reset.
+ *   - Monitoring  — tier='monitoring'  : single paid tier. Unlocks every
+ *                                       paid feature — unlimited on-demand
+ *                                       scans, AI policies, GMC appeal
+ *                                       letter, bulk GTIN/MPN/brand fill,
+ *                                       per-product enrichment on new
+ *                                       products, llms.txt, AI bot
+ *                                       allow/block, store schema settings,
+ *                                       Organization & WebSite JSON-LD.
+ *                                       Plans: "Monitoring" ($49/mo) and
+ *                                       "Monitoring Annual" ($449/yr).
  *
  * Grandfathered tiers (still in DB, still resolve through reconciliation,
  * NOT offered to new merchants):
- *   - tier='pro'    — "Shield Max" / "Shield Max Annual" — 2 live customers
- *                     on 2026-05-14. Riding existing subscriptions until
- *                     June renewal. Has full access to BOTH monitoring and
- *                     full paid feature set via hasPaidAccess.
- *   - tier='shield' — "Shield Pro" / "Shield Pro Annual" — zero live rows,
- *                     kept in the plan/tier maps as a defensive back-stop.
- *                     The helpers below return false for shield-tier; if a
- *                     row ever appears it gracefully degrades to free-level
- *                     access (no premature downgrade — they just don't gain
- *                     the new gates without action).
+ *   - tier='pro'      — "Shield Max" / "Shield Max Annual" — 2 live
+ *                       customers on 2026-05-14. Resolve to full paid
+ *                       access via hasPaidAccess.
+ *   - tier='recovery' — pre-v4 Recovery plan. Zero live rows on
+ *                       2026-05-28, but the tier value is kept valid in
+ *                       the DB CHECK constraint and the helper so anything
+ *                       that lands there still resolves as paid.
+ *   - tier='shield'   — "Shield Pro" / "Shield Pro Annual" — zero live
+ *                       rows, kept as a defensive back-stop. hasPaidAccess
+ *                       returns false for shield-tier; if a row ever
+ *                       appears it gracefully degrades to free-level
+ *                       access (no premature downgrade — they just don't
+ *                       gain the new gates without action).
  *
  * Source of truth for billing cycle: under the Partner API path (post-
  * April-28 canonical), AppSubscription has no `interval` field, so cycle

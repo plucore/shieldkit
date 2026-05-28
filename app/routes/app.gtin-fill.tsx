@@ -237,7 +237,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     .eq("shopify_domain", session.shop)
     .maybeSingle();
   if (!merchant || !hasPaidAccess(merchant.tier))
-    return fail(403, "Recovery plan required to bulk-fill the existing catalog.");
+    return fail(403, "Paid plan required to bulk-fill the existing catalog.");
 
   // Scope gate
   if (!WRITE_METAFIELDS_SCOPE_ENABLED) {
@@ -433,10 +433,9 @@ export default function GtinFillPage() {
     return (
       <s-page heading="GTIN / MPN / Brand Auto-Filler">
         <s-section>
-          <s-banner tone="info" heading="Recovery plan required">
+          <s-banner tone="info" heading="Paid plan required">
             The bulk Auto-Filler enriches your existing catalog with the
-            identifiers Google Merchant Center expects. Upgrade to Recovery
-            to access it.
+            identifiers Google Merchant Center expects. Upgrade to access it.
           </s-banner>
           <s-link href="/app/plan-switcher">View plans</s-link>
         </s-section>
@@ -455,9 +454,9 @@ export default function GtinFillPage() {
             automatically once approval lands — no action required from you.
             <br />
             <br />
-            In the meantime, your paid plan continues to deliver weekly
-            scans, the weekly health digest, the Merchant Listings JSON-LD
-            theme blocks, llms.txt, and the AI bot allow/block toggle.
+            In the meantime, your paid plan continues to deliver unlimited
+            on-demand scans, the Organization & WebSite JSON-LD blocks,
+            llms.txt, and the AI bot allow/block toggle.
           </s-banner>
         </s-section>
       </s-page>

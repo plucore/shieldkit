@@ -665,7 +665,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           JSON.stringify({
             success: false,
             error_code: "scan_limit_reached",
-            message: "You've used your free scan for this month. Upgrade to Monitoring for weekly automated scans, or Recovery for unlimited on-demand scans.",
+            message: "You've used your free scan. Upgrade to Monitoring for unlimited on-demand scans plus AI-written policies, appeal letters, and AI search visibility.",
           }),
           { status: 402, headers: { "Content-Type": "application/json" } }
         );
@@ -675,7 +675,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         JSON.stringify({
           success: false,
           error_code: "scan_limit_reached",
-          message: "You've used your free scan for this month. Upgrade to Monitoring for weekly automated scans, or Recovery for unlimited on-demand scans.",
+          message: "You've used your free scan. Upgrade to Monitoring for unlimited on-demand scans plus AI-written policies, appeal letters, and AI search visibility.",
         }),
         { status: 402, headers: { "Content-Type": "application/json" } }
       );
@@ -817,12 +817,6 @@ export default function Index() {
   // can use).
   const tier = merchant?.tier ?? "free";
   const isPaid = hasPaidAccess(tier);
-  // v4 collapsed Monitoring + Recovery into a single paid tier; the two
-  // aliases below kept while §6 copy fixes land — every gate is now the
-  // same boolean. The aliases are short-lived; remove after the §6 copy
-  // refactor stops referencing them.
-  const showMonitoring = isPaid;
-  const showRecovery = isPaid;
   const [searchParams, setSearchParams] = useSearchParams();
   const [allExpanded, setAllExpanded]   = useState(false);
   const [localPolicies, setLocalPolicies] = useState(merchant?.generated_policies ?? {});
@@ -1008,7 +1002,7 @@ export default function Index() {
             <>
               {" "}
               <s-button slot="actions" ref={upgradeRef2}>
-                Upgrade to Pro
+                Upgrade
               </s-button>
             </>
           )}
@@ -1020,8 +1014,8 @@ export default function Index() {
         <s-banner
           tone="warning"
         >
-          You're on the Free plan. Upgrade to keep your store monitored every
-          week — and catch issues before Google does.
+          You're on the Free plan. Upgrade for unlimited scans and AI search
+          visibility — catch issues before Google does.
           <s-button slot="actions" ref={upgradeRef3}>
             View upgrade options
           </s-button>
@@ -1345,25 +1339,17 @@ export default function Index() {
             </s-section>
           )}
 
-          {/* ── Inline upgrade banner ── */}
+          {/* ── Inline upgrade banner (free only) ─────────────────────────
+             v4 removed the Monitoring→Recovery upsell banner — there's
+             only one paid tier now, so a paid merchant has nothing to
+             upsell to. */}
           {tier === "free" && sortedChecks.length > 0 && (
             <s-section>
               <s-banner tone="info">
-                Upgrade to keep your store monitored every week — and catch
-                issues before Google does.
+                Upgrade for unlimited on-demand scans and AI-written policies
+                — fix issues before Google flags them.
                 <s-button slot="actions" ref={upgradeRef4}>
                   See plans
-                </s-button>
-              </s-banner>
-            </s-section>
-          )}
-          {showMonitoring && !showRecovery && sortedChecks.length > 0 && (
-            <s-section>
-              <s-banner tone="info">
-                Generating policies and appeal letters is part of Recovery.
-                Upgrade to fix your suspension fast.
-                <s-button slot="actions" ref={upgradeRef4}>
-                  See Recovery
                 </s-button>
               </s-banner>
             </s-section>
@@ -1393,13 +1379,13 @@ export default function Index() {
 
       {/* Upgrade CTA — hidden once the merchant has full recovery access.
           Monitoring merchants still see an upsell toward Recovery. */}
-      {merchant && !showRecovery && !showOnboarding && (
+      {merchant && !isPaid && !showOnboarding && (
         <UpgradeCard tier={tier} onUpgrade={navigateToUpgrade} sidebar />
       )}
 
       {/* Policy Generation card — AI policy rewrites are a Recovery feature.
           Available to recovery + grandfathered pro (Shield Max). */}
-      {merchant && showRecovery && !showOnboarding && (
+      {merchant && isPaid && !showOnboarding && (
         <PolicyGenerationCard
           generatedPolicies={localPolicies}
           policyRegenUsed={localRegenUsed}
@@ -1415,7 +1401,7 @@ export default function Index() {
 
       {/* AI visibility — a Monitoring feature. Available to monitoring,
           recovery, and grandfathered pro. */}
-      {merchant && showMonitoring && aiVisibility && !showOnboarding && (
+      {merchant && isPaid && aiVisibility && !showOnboarding && (
         <s-section slot="aside">
           <AIVisibilityCard
             thisWeekHits={aiVisibility.thisWeekHits}

@@ -147,10 +147,12 @@ describe("Web component click handling (useWebComponentClick)", () => {
   );
 
   it("dashboard uses refs for all s-button elements", () => {
-    // Should have ref= on s-button elements, not onClick
-    const refMatches = dashContent.match(/ref={(?:rescanRef|upgradeRef\d|onboardingScanRef)}/g);
+    // Should have ref= on s-button elements, not onClick. Count threshold
+    // is the "are we using the pattern at all" sanity check; v4 §6 removed
+    // the Monitoring→Recovery upsell banner which dropped one upgradeRef.
+    const refMatches = dashContent.match(/ref={(?:rescanRef|upgradeRef\d|onboardingScanRef|managePlanRef|manageJsonLdRef)}/g);
     expect(refMatches).not.toBeNull();
-    expect(refMatches!.length).toBeGreaterThanOrEqual(6);
+    expect(refMatches!.length).toBeGreaterThanOrEqual(5);
   });
 });
 

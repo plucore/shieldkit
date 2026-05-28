@@ -1,8 +1,8 @@
 /**
  * app/routes/api.proxy.llms-txt.ts
  *
- * App Proxy endpoint serving llms.txt for Monitoring + Recovery merchants
- * (plus grandfathered shield/recovery/pro). Gated by hasPaidAccess.
+ * App Proxy endpoint serving llms.txt for paid merchants
+ * (plus grandfathered shield/pro/recovery rows). Gated by hasPaidAccess.
  * Configured in shopify.app.toml as /apps/llms-txt → this URL.
  *
  * Shopify's React Router authenticate.public.appProxy(request) verifies the
@@ -196,7 +196,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   if (!hasPaidAccess(merchant?.tier)) {
     return new Response(
-      "# llms.txt requires a ShieldKit Monitoring or Recovery plan\n\n" +
+      "# llms.txt requires a ShieldKit paid plan\n\n" +
         "This store is not currently subscribed to a plan that includes llms.txt.\n",
       {
         status: 200,

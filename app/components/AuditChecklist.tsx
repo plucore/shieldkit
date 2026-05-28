@@ -1,7 +1,7 @@
 /**
  * app/components/AuditChecklist.tsx
  *
- * 10-point GMC compliance audit checklist with expandable details
+ * 12-point GMC compliance audit checklist with expandable details
  * and resolution guides.
  */
 

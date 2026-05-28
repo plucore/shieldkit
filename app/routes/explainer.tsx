@@ -239,9 +239,9 @@ export default function ExplainerPage() {
           compliance scan on a regular cadence (weekly is standard) so that
           any regression introduced by a theme update, a new app, a policy
           edit, or a copy change gets caught before Google's crawler finds
-          it. ShieldKit's <strong>Monitoring</strong> plan runs an automated
-          weekly scan against your store and emails you a digest of any new
-          issues, fixed issues, or score regressions.
+          it. ShieldKit's paid plan gives you unlimited on-demand scans so
+          you can re-check after every change and catch regressions before
+          Google's crawler does.
         </p>
         <p>
           The other prevention vectors are less obvious. Theme updates are a

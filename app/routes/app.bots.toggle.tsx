@@ -112,7 +112,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   if (!current || !hasPaidAccess((current as { tier: string }).tier)) {
     return data(
-      { ok: false, error: "Monitoring plan required to change AI bot preferences." },
+      { ok: false, error: "Paid plan required to change AI bot preferences." },
       { status: 403 },
     );
   }
@@ -192,9 +192,9 @@ export default function BotsTogglePage() {
     return (
       <s-page heading="AI Bot Access Control">
         <s-section>
-          <s-banner tone="info" heading="Monitoring plan required">
+          <s-banner tone="info" heading="Paid plan required">
             Choose which AI crawlers can train on or index your storefront.
-            Upgrade to Monitoring or Recovery to access this control.
+            Upgrade to access this control.
           </s-banner>
           <s-link href="/app/plan-switcher">View plans</s-link>
         </s-section>

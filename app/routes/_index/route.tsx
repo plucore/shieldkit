@@ -52,12 +52,12 @@ const HOMEPAGE_FAQ: { q: string; aPlain: string }[] = [
   },
   {
     q: "Is the free plan really free?",
-    aPlain: "Yes — 1 scan/month, no card required.",
+    aPlain: "Yes — one free scan, no card required.",
   },
   {
-    q: "What's the difference between Monitoring and Recovery?",
+    q: "What do I get on the paid plan?",
     aPlain:
-      "Monitoring ($30/mo or $290/yr) keeps your store compliant going forward — weekly automated scans, the weekly digest, AI search visibility (AI Overviews, ChatGPT shopping), structured data for new products, and AI crawler controls. Recovery ($150/yr) adds everything you need to get reinstated fast when something has already gone wrong: AI-written policies, the GMC re-review appeal letter generator, bulk product data fixes (GTIN/MPN/brand), and unlimited on-demand scans.",
+      "Monitoring ($49/mo or $449/yr) unlocks unlimited on-demand scans, AI-written store policies (refund, shipping, privacy, terms), the GMC re-review appeal letter generator, product data fixes (GTIN/MPN/brand), and AI search visibility (structured data for new products, llms.txt, AI crawler allow/block controls).",
   },
 ];
 
@@ -77,7 +77,7 @@ export const meta: MetaFunction = () => {
   const title =
     "ShieldKit — Fix Google Merchant Center Suspension on Shopify";
   const description =
-    "10-point compliance audit + AI-powered policy generation for Shopify stores. Diagnose what Google flags, fix it fast, get back to selling.";
+    "12-point compliance audit + AI-powered policy generation for Shopify stores. Diagnose what Google flags, fix it fast, get back to selling.";
   const url = SITE.url + "/";
   return [
     { title },
@@ -186,7 +186,7 @@ function HowItWorks() {
     {
       icon: <IconScan />,
       title: "Run a scan",
-      desc: "We crawl your store, policies, and product pages, then run a 10-point compliance check.",
+      desc: "We crawl your store, policies, and product pages, then run a 12-point compliance check.",
     },
     {
       icon: <IconFix />,
@@ -230,7 +230,7 @@ function HowItWorks() {
 function FeatureGrid() {
   const features = [
     {
-      title: "10-Point Compliance Audit",
+      title: "12-Point Compliance Audit",
       desc: "Automated scan against Google Merchant Center requirements — the same checks that decide whether your account stays live.",
       icon: <IconShield />,
     },
@@ -331,53 +331,39 @@ function Pricing() {
               >
                 Annual{" "}
                 <span className="ml-1 text-[10px] font-bold opacity-80">
-                  SAVE 16%
+                  SAVE 24%
                 </span>
               </label>
             </div>
           </div>
 
-          <div className="mt-10 grid lg:grid-cols-3 gap-6 max-w-5xl mx-auto">
+          <div className="mt-10 grid lg:grid-cols-2 gap-6 max-w-3xl mx-auto">
             <PricingCard
               name="Free"
               tagline="Scan your store. See what's wrong."
               price="$0"
               features={[
-                "One scan per month",
+                "One free compliance scan",
                 "Step-by-step fix instructions",
-                "Free theme extension",
+                "JSON-LD product schema extension",
               ]}
               cta="Start Free"
               ctaHref={SITE.installUrl}
             />
             <PricingCard
               name="Monitoring"
-              tagline="Stay compliant. Stay visible."
-              badge="Most popular"
+              tagline="Fix it. Stay compliant. Stay visible."
+              badge="Everything unlocked"
               highlight
-              priceMonthly="$30"
-              priceAnnual="$290"
-              annualSavings="Save $70/yr"
+              priceMonthly="$49"
+              priceAnnual="$449"
+              annualSavings="Save $139/yr"
               features={[
-                "Weekly automated scans",
-                "Weekly digest email",
-                "Get found in AI Overviews and ChatGPT",
-                "Auto structured data for new products",
-                "AI crawler controls",
-              ]}
-              cta="Start Free"
-              ctaHref={SITE.installUrl}
-            />
-            <PricingCard
-              name="Recovery"
-              tagline="Suspended? Fix it now."
-              price="$150/yr"
-              features={[
-                "Everything in Monitoring",
-                "AI-written policies",
-                "GMC appeal letter generator",
-                "Product data fixes (GTIN/MPN/brand)",
-                "Unlimited scans",
+                "Unlimited on-demand scans",
+                "AI-written store policies + GMC appeal letter",
+                "Product data fixes (GTIN / MPN / brand)",
+                "Make your store readable to AI search",
+                "Store schema settings + AI crawler controls",
               ]}
               cta="Start Free"
               ctaHref={SITE.installUrl}
@@ -541,20 +527,18 @@ function FAQ() {
     },
     {
       q: "Is the free plan really free?",
-      a: <>Yes — 1 scan/month, no card required.</>,
+      a: <>Yes — one free scan, no card required.</>,
     },
     {
-      q: "What's the difference between Monitoring and Recovery?",
+      q: "What do I get on the paid plan?",
       a: (
         <>
-          Monitoring ($30/mo or $290/yr) keeps your store compliant going
-          forward — weekly automated scans, the weekly digest, AI search
-          visibility (AI Overviews, ChatGPT shopping), structured data
-          for new products, and AI crawler controls. Recovery ($150/yr)
-          adds everything you need to get reinstated fast when something
-          has already gone wrong: AI-written policies, the GMC re-review
-          appeal letter generator, bulk product data fixes (GTIN/MPN/
-          brand), and unlimited on-demand scans.
+          Monitoring ($49/mo or $449/yr) unlocks unlimited on-demand
+          scans, AI-written store policies (refund, shipping, privacy,
+          terms), the GMC re-review appeal letter generator, product
+          data fixes (GTIN/MPN/brand), and AI search visibility
+          (structured data for new products, llms.txt, AI crawler
+          allow/block controls).
         </>
       ),
     },

@@ -150,11 +150,11 @@ export default function ProSettingsPage() {
 
   if (!hasPaidAccess(tier)) {
     return (
-      <s-page heading="Pro settings">
+      <s-page heading="Store schema settings">
         <s-section>
-          <s-banner tone="info" heading="Monitoring plan required">
+          <s-banner tone="info" heading="Paid plan required">
             These settings power the Organization & WebSite JSON-LD blocks.
-            Upgrade to Monitoring or Recovery to unlock them.
+            Upgrade to unlock them.
           </s-banner>
           <s-link href="/app/plan-switcher">View plans</s-link>
         </s-section>
@@ -163,7 +163,7 @@ export default function ProSettingsPage() {
   }
 
   return (
-    <s-page heading="Pro settings">
+    <s-page heading="Store schema settings">
       {columnMissing && (
         <s-section>
           <s-banner tone="warning" heading="Database column not yet applied">

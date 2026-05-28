@@ -230,20 +230,15 @@ export default function Privacy() {
           returned beyond the database row that stores the generated artifact.
         </li>
         <li>
-          Run the GTIN/MPN/Brand Auto-Filler (Recovery) — write
+          Run the GTIN/MPN/Brand Auto-Filler (paid plan) — write
           identifier metafields back to your products to satisfy Google
           Merchant Center's identifier requirements.
         </li>
         <li>
-          Send the weekly health digest email via Resend when you're on a
-          paid plan, summarising new findings and fixes confirmed since the
-          previous week's scan.
-        </li>
-        <li>
           Serve a cached llms.txt file at <code>/apps/llms-txt</code> for
-          Monitoring and Recovery merchants so AI search agents can discover your
-          products and policies. Requests to this endpoint are logged as
-          described in "Data we collect" above.
+          paid merchants so AI search agents can discover your products and
+          policies. Requests to this endpoint are logged as described in
+          "Data we collect" above.
         </li>
         <li>
           Submit the merchant's public storefront URL (and product page URLs)

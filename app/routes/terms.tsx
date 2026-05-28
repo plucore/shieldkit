@@ -90,23 +90,20 @@ export default function Terms() {
           JSON-LD theme extension, plus fix instructions for surfaced findings.
         </li>
         <li>
-          <strong>Monitoring</strong> — $30 / month or $290 / year. Weekly
-          automated compliance scans, weekly health digest email, ongoing
-          GTIN / MPN / brand enrichment on newly-updated products,
-          Merchant Listings JSON-LD enrichment, Organization &amp; WebSite
-          schema blocks, llms.txt at the App Proxy URL, AI bot allow/block
-          toggle, AI-visibility tracking, and the Pro settings page.
-        </li>
-        <li>
-          <strong>Recovery</strong> — $150 / year. Everything in Monitoring,
-          plus the AI policy generator, the GMC re-review appeal letter
-          generator, bulk GTIN / MPN / brand fill on the existing catalog
-          (writes identifier metafields back to your products), and
-          unlimited on-demand compliance scans.
+          <strong>Monitoring</strong> — $49 / month or $449 / year. The
+          single paid tier. Unlocks unlimited on-demand compliance scans,
+          AI-written store policies (refund, shipping, privacy, terms), the
+          GMC re-review appeal letter generator, bulk GTIN / MPN / brand
+          fill on the existing catalog, ongoing per-product enrichment on
+          newly-updated products, llms.txt at the App Proxy URL, AI
+          crawler allow/block controls, the store schema settings page,
+          and the Organization &amp; WebSite JSON-LD theme blocks.
+          AI generations (policies + appeal letters combined) are capped
+          at 12 per rolling 30-day window.
         </li>
       </ul>
       <p>
-        All paid plans are billed by Shopify under Shopify Managed Pricing.
+        Paid plans are billed by Shopify under Shopify Managed Pricing.
         Charges appear on your Shopify invoice. Annual plans are billed up
         front. Recurring charges renew automatically until you cancel via
         Shopify's Managed Pricing page (also reachable from the in-app plan
@@ -115,7 +112,8 @@ export default function Terms() {
       <p>
         Plan switches are prorated automatically by Shopify. Cancellations
         take effect immediately: paid features stop, and your account
-        returns to the Free plan with one fresh scan available.
+        returns to the Free plan. The free plan grants one compliance scan
+        at install; it is not refilled on cancellation.
       </p>
       <p>
         Refunds: ShieldKit does not issue refunds for partial billing
@@ -152,14 +150,13 @@ export default function Terms() {
       </ul>
 
       <h2 style={{ fontSize: "22px", fontWeight: 700, margin: "32px 0 12px" }}>
-        Product writes (Monitoring + Recovery)
+        Product writes (paid plan)
       </h2>
       <p>
-        Both paid plans write identifier metafields back to your products via
-        the <code>write_products</code> Shopify scope. Monitoring runs
-        continuous enrichment on newly-updated products; Recovery adds the
-        bulk Auto-Filler that fills missing identifiers across the existing
-        catalog. Scope of writes:
+        The paid plan writes identifier metafields back to your products via
+        the <code>write_products</code> Shopify scope: continuous enrichment
+        on newly-updated products plus the bulk Auto-Filler that fills
+        missing identifiers across the existing catalog. Scope of writes:
       </p>
       <ul>
         <li>
@@ -202,8 +199,9 @@ export default function Terms() {
         ShieldKit is provided on a best-effort basis. We aim for high
         availability but do not commit to a formal uptime SLA at the current
         plan tiers. Scheduled maintenance and unexpected outages will happen.
-        Cron jobs (weekly scans, monthly resets, weekly digests) are subject
-        to Vercel's Cron platform availability.
+        Background jobs (subscription reconciliation, install reconciliation,
+        JSON-LD verification, product-enrichment drainer) are subject to
+        Vercel's Cron platform availability.
       </p>
 
       <h2 style={{ fontSize: "22px", fontWeight: 700, margin: "32px 0 12px" }}>

@@ -24,6 +24,10 @@
     {
       "path": "/api/cron/reconcile-installs",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/process-scan-triggers",
+      "schedule": "0 12 * * *"
     }
   ],
   "redirects": [

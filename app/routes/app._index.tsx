@@ -40,6 +40,12 @@ import {
   generatePolicy,
   type PolicyType,
 } from "../lib/policy-generator.server";
+import { validateGeneratedPolicy } from "../lib/policy-validator.server";
+import {
+  AI_MONTHLY_CAP,
+  checkAndConsumeAiCredit,
+  windowResetIso,
+} from "../lib/ai-usage.server";
 import { wrapAdminClient, getShopInfo } from "../lib/shopify-api.server";
 import { verifyJsonLdForMerchant } from "../lib/json-ld-verifier.server";
 import { getJsonLdThemeEditorUrl } from "../lib/json-ld-deep-link";
@@ -304,7 +310,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const { session, admin } = await authenticate.admin(request);
   const shopDomain = session.shop;
 
-  // ── Generate Policy action (Pro only) ─────────────────────────────────────
+  // ── Generate Policy action (paid only) ────────────────────────────────────
   if (actionType === "generatePolicy") {
     const { data: merchant } = await supabase
       .from("merchants")
@@ -312,13 +318,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       .eq("shopify_domain", shopDomain)
       .maybeSingle();
 
-    // AI policy rewrites are a Recovery feature (also available to
-    // grandfathered Shield Max under tier='pro').
     if (!merchant || !hasPaidAccess(merchant.tier)) {
       return new Response(
         JSON.stringify({
           success: false,
-          message: "Recovery plan required for AI policy generation.",
+          message: "A paid plan is required for AI policy generation.",
         }),
         { status: 403, headers: { "Content-Type": "application/json" } },
       );
@@ -338,7 +342,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const alreadyGenerated = !!generatedPolicies[policyType];
     const alreadyRegenerated = !!regenUsed[policyType];
 
-    // If already generated AND already regenerated, block further generation
+    // Per-type regen cap (UX nudge — 2/type total).
     if (alreadyGenerated && alreadyRegenerated) {
       return new Response(
         JSON.stringify({
@@ -347,6 +351,32 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           message: "You've already used your one regeneration for this policy type.",
         }),
         { status: 429, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // Monthly AI cap (12/window, shared across policies + appeal letters).
+    // Consumed BEFORE we hit Anthropic so a cap-reached request never
+    // costs a model call. The internal validator retry below does NOT
+    // consume a second credit — see comment by the retry.
+    const credit = await checkAndConsumeAiCredit(merchant.id);
+    if (!credit.allowed) {
+      const resetIso = windowResetIso(credit.resetAt);
+      const resetDate = resetIso
+        ? new Date(resetIso).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })
+        : "soon";
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "ai_cap_reached",
+          message: `You've used all ${AI_MONTHLY_CAP} AI generations this month. Your limit resets on ${resetDate}.`,
+          remaining: 0,
+          reset_at: resetIso,
+        }),
+        { status: 429, headers: { "Content-Type": "application/json" } },
       );
     }
 
@@ -359,32 +389,59 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           { status: 500, headers: { "Content-Type": "application/json" } }
         );
       }
-      const policy = await generatePolicy(policyType, shopInfo);
 
-      // Save the generated policy text
+      // First-pass generation.
+      let policy = await generatePolicy(policyType, shopInfo);
+      let validation = validateGeneratedPolicy(policyType, policy.body);
+
+      // If the model missed required content signals, retry ONCE with an
+      // appended instruction listing what to include. The retry does NOT
+      // consume a second AI credit — from the merchant's perspective the
+      // two model calls are one generation.
+      if (!validation.valid) {
+        const extra = `Your previous output was missing or violated these signals: ${validation.missing.join(", ")}. Re-generate the policy and make sure each is present and unambiguous.`;
+        try {
+          const retryPolicy = await generatePolicy(policyType, shopInfo, extra);
+          const retryValidation = validateGeneratedPolicy(policyType, retryPolicy.body);
+          if (retryValidation.valid || retryValidation.missing.length < validation.missing.length) {
+            policy = retryPolicy;
+            validation = retryValidation;
+          }
+        } catch (_) {
+          // Retry threw — keep the first-pass policy. The soft-warning
+          // path below still fires.
+        }
+      }
+
+      // Save the (best-of-two) policy text.
       const updatedPolicies = { ...generatedPolicies, [policyType]: policy.body };
       const updatePayload: Record<string, unknown> = {
         generated_policies: updatedPolicies,
       };
-
-      // If this is a regeneration (already had a generated policy), mark regen as used
       if (alreadyGenerated) {
         updatePayload.policy_regen_used = { ...regenUsed, [policyType]: true };
       }
-
       await supabase
         .from("merchants")
         .update(updatePayload)
         .eq("id", merchant.id);
 
+      // If still invalid after the retry, return the policy with a soft
+      // warning so the merchant knows to review it before saving.
+      const warning = validation.valid
+        ? null
+        : `Review this policy — it may be missing: ${validation.missing.join(", ")}.`;
+
       return new Response(
         JSON.stringify({
           success: true,
           policy,
+          warning,
           generated_policies: updatedPolicies,
           policy_regen_used: alreadyGenerated
             ? { ...regenUsed, [policyType]: true }
             : regenUsed,
+          ai_remaining: credit.remaining,
         }),
         { status: 200, headers: { "Content-Type": "application/json" } }
       );

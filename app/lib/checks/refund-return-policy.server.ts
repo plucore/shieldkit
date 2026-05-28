@@ -18,18 +18,14 @@
 import type { Page, ShopPoliciesResult } from "../shopify-api.server";
 import type { CheckResult } from "./types";
 import { findPolicyPage, stripHtml } from "./helpers.server";
+import {
+  RETURN_WINDOW_RE,
+  ITEM_CONDITION_RE,
+  REFUND_METHOD_RE,
+  PLACEHOLDER_RE,
+} from "./constants";
 
 const REFUND_PAGE_PATTERN = /refund|return/i;
-
-// Content quality signals (shared between policy-source path and page-fallback)
-const RETURN_WINDOW_RE =
-  /\d+\s*(?:calendar\s+)?(?:day|week|month|year)s?(?:\s*[-–]\s*\d+\s*(?:day|week|month|year)s?)?/i;
-const ITEM_CONDITION_RE =
-  /\b(?:unused|unworn|unwashed|original\s+packaging|original\s+condition|undamaged|unopened|tags\s+attached)\b/i;
-const REFUND_METHOD_RE =
-  /\b(?:full\s+refund|refund|exchange|store\s+credit|replacement|credit\s+card)\b/i;
-const PLACEHOLDER_RE =
-  /lorem\s+ipsum|\[your\s+(?:company|store|name)\]|\[company\s*name\]|\[insert\b/i;
 
 export function checkRefundPolicy(
   policies: ShopPoliciesResult,

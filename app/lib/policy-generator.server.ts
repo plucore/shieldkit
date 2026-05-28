@@ -81,7 +81,14 @@ const POLICY_INSTRUCTIONS: Record<PolicyType, string> = {
  */
 export async function generatePolicy(
   type: PolicyType,
-  shopInfo: ShopInfo
+  shopInfo: ShopInfo,
+  /**
+   * Optional extra instruction appended to the system prompt. Used by the
+   * self-consistency validator retry path (v4 §5) to nudge the model to
+   * include specific content signals it missed on the first pass —
+   * e.g. "MUST explicitly state: return window, item condition".
+   */
+  extraInstruction?: string,
 ): Promise<GeneratedPolicy> {
   const systemPrompt = [
     `You are a policy writer for e-commerce stores. You are writing a ${POLICY_TITLES[type]} for a Shopify store.`,
@@ -103,8 +110,10 @@ export async function generatePolicy(
     "- Write in clear, professional English",
     "- Do NOT include <html>, <head>, or <body> tags — just the policy content",
     `- The document title must be "${POLICY_TITLES[type]}"`,
+    extraInstruction ? "" : null,
+    extraInstruction ? `IMPORTANT: ${extraInstruction}` : null,
   ]
-    .filter(Boolean)
+    .filter((line): line is string => typeof line === "string" && line.length > 0)
     .join("\n");
 
   const message = await client.messages.create({

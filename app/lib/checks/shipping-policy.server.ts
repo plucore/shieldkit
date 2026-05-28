@@ -15,13 +15,9 @@
 import type { Page, ShopPoliciesResult } from "../shopify-api.server";
 import type { CheckResult } from "./types";
 import { findPolicyPage, stripHtml } from "./helpers.server";
+import { TIMELINE_RE, COST_RE } from "./constants";
 
 const SHIPPING_PAGE_PATTERN = /shipping|delivery/i;
-
-const TIMELINE_RE =
-  /\d+\s*(?:to|[-–])\s*\d+\s*(?:business\s+)?days?|\d+\s*(?:business\s+)?days?|within\s+\d+\s*(?:business\s+)?days?|same[\s-]day|next[\s-]day|overnight/i;
-const COST_RE =
-  /free\s+shipping|flat[\s-]rate|\$\s*[\d,.]+|calculated\s+at\s+checkout|free\s+on\s+orders|shipping\s+costs?|postage|delivery\s+fee/i;
 
 export function checkShippingPolicy(
   policies: ShopPoliciesResult,

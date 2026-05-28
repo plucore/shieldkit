@@ -77,9 +77,17 @@ CREATE TABLE IF NOT EXISTS merchants (
   json_ld_enable_clicked_at     TIMESTAMPTZ,
   json_ld_verified_at           TIMESTAMPTZ,
   json_ld_verification_attempts INT         NOT NULL DEFAULT 0,
-  -- AI policy generation (Recovery / grandfathered pro)
+  -- AI policy generation (any paid tier — v4 single paid gate via
+  -- hasPaidAccess). policy_regen_used caps regeneration per policy type
+  -- at 2 (initial + 1 regen). The wider monthly cap below is the abuse
+  -- ceiling.
   generated_policies            JSONB       NOT NULL DEFAULT '{}'::jsonb,
   policy_regen_used             JSONB       NOT NULL DEFAULT '{}'::jsonb,
+  -- AI usage cap (v4 §5) — shared across policy generation + appeal
+  -- letter generation. 12 generations per rolling 30-day window.
+  -- Enforced atomically by consume_ai_credit() below.
+  ai_generations_used           INT         NOT NULL DEFAULT 0,
+  ai_generations_reset_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   -- Review prompt + freshness signals
   review_prompted               BOOLEAN     NOT NULL DEFAULT false,
   llms_txt_last_served_at       TIMESTAMPTZ,
@@ -223,6 +231,38 @@ RETURNS TABLE(new_scans_remaining INTEGER) AS $$
     AND scans_remaining IS NOT NULL
     AND scans_remaining > 0
   RETURNING scans_remaining AS new_scans_remaining;
+$$ LANGUAGE sql;
+
+-- ============================================================
+-- FUNCTION: consume_ai_credit (v4 §5)
+-- Atomically increments ai_generations_used (resetting the window
+-- if reset_at is >30 days old). Returns one row with the new counter
+-- + window on success; zero rows if the cap is already exhausted in
+-- the current window.
+--
+-- The single-statement UPDATE with branching CASE eliminates the
+-- read-modify-write race two parallel AI-generation actions could
+-- otherwise create.
+-- ============================================================
+CREATE OR REPLACE FUNCTION consume_ai_credit(p_merchant_id UUID, p_cap INT)
+RETURNS TABLE(new_used INT, reset_at TIMESTAMPTZ) AS $$
+  UPDATE merchants
+  SET
+    ai_generations_used = CASE
+      WHEN ai_generations_reset_at < now() - INTERVAL '30 days' THEN 1
+      ELSE ai_generations_used + 1
+    END,
+    ai_generations_reset_at = CASE
+      WHEN ai_generations_reset_at < now() - INTERVAL '30 days' THEN now()
+      ELSE ai_generations_reset_at
+    END
+  WHERE id = p_merchant_id
+    AND (
+      ai_generations_reset_at < now() - INTERVAL '30 days'
+      OR ai_generations_used < p_cap
+    )
+  RETURNING ai_generations_used AS new_used,
+            ai_generations_reset_at AS reset_at;
 $$ LANGUAGE sql;
 
 -- scans_remaining NULL = unlimited (paid).

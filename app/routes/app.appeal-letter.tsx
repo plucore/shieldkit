@@ -38,6 +38,11 @@ import { useWebComponentClick } from "../hooks/useWebComponentClick";
 import { wrapAdminClient, getShopInfo } from "../lib/shopify-api.server";
 import { generateAppealLetter } from "../lib/llm/appeal-letter.server";
 import { hasPaidAccess } from "../lib/billing/plans";
+import {
+  AI_MONTHLY_CAP,
+  checkAndConsumeAiCredit,
+  windowResetIso,
+} from "../lib/ai-usage.server";
 
 const APPEAL_LIMIT_PER_SCAN = 3;
 
@@ -126,7 +131,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return data(
       {
         ok: false,
-        error: "Recovery plan required to generate appeal letters.",
+        error: "A paid plan is required to generate appeal letters.",
         letter: null,
       },
       { status: 403 },
@@ -151,7 +156,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     );
   }
 
-  // Cap: count appeal_letters for this merchant + this scan_id.
+  // Per-scan cap (UX nudge — 3 letters per scan).
   const { count } = await supabase
     .from("appeal_letters")
     .select("id", { count: "exact", head: true })
@@ -162,6 +167,29 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       {
         ok: false,
         error: `Maximum ${APPEAL_LIMIT_PER_SCAN} appeal letter generations per scan. Run a new scan to generate more.`,
+        letter: null,
+      },
+      { status: 429 },
+    );
+  }
+
+  // Monthly AI cap (12/window, shared across policies + appeal letters).
+  // Consumed BEFORE we hit Anthropic so a cap-reached request never
+  // costs a model call.
+  const credit = await checkAndConsumeAiCredit(merchant.id);
+  if (!credit.allowed) {
+    const resetIso = windowResetIso(credit.resetAt);
+    const resetDate = resetIso
+      ? new Date(resetIso).toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        })
+      : "soon";
+    return data(
+      {
+        ok: false,
+        error: `You've used all ${AI_MONTHLY_CAP} AI generations this month. Your limit resets on ${resetDate}.`,
         letter: null,
       },
       { status: 429 },

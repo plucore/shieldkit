@@ -769,6 +769,99 @@ describe("GTIN enrichment off webhook hot path", () => {
   });
 });
 
+// ─── AI usage cap + policy self-consistency validator (v4 §5) ──────────────
+
+describe("AI usage cap + policy validator (v4 §5)", () => {
+  it("AI usage helper defines the 12/month cap and an atomic consume helper", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "lib/ai-usage.server.ts"),
+      "utf-8"
+    );
+    expect(src).toContain("AI_MONTHLY_CAP = 12");
+    expect(src).toContain("checkAndConsumeAiCredit");
+    expect(src).toContain("consume_ai_credit");
+    expect(src).toContain("windowResetIso");
+  });
+
+  it("policy-validator imports the same regexes the compliance checks use", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "lib/policy-validator.server.ts"),
+      "utf-8"
+    );
+    expect(src).toContain("RETURN_WINDOW_RE");
+    expect(src).toContain("ITEM_CONDITION_RE");
+    expect(src).toContain("REFUND_METHOD_RE");
+    expect(src).toContain("TIMELINE_RE");
+    expect(src).toContain("COST_RE");
+    expect(src).toContain("PLACEHOLDER_RE");
+    // Imported from the shared constants file, NOT redefined locally.
+    expect(src).toContain("from \"./checks/constants\"");
+  });
+
+  it("policy regexes are exported from checks/constants.ts and reused by check files", () => {
+    const constants = fs.readFileSync(
+      path.join(APP_DIR, "lib/checks/constants.ts"),
+      "utf-8"
+    );
+    expect(constants).toMatch(/export const RETURN_WINDOW_RE\s*=/);
+    expect(constants).toMatch(/export const TIMELINE_RE\s*=/);
+
+    const refund = fs.readFileSync(
+      path.join(APP_DIR, "lib/checks/refund-return-policy.server.ts"),
+      "utf-8"
+    );
+    expect(refund).toContain("from \"./constants\"");
+
+    const shipping = fs.readFileSync(
+      path.join(APP_DIR, "lib/checks/shipping-policy.server.ts"),
+      "utf-8"
+    );
+    expect(shipping).toContain("from \"./constants\"");
+  });
+
+  it("generatePolicy action consumes a credit + validates output + retries once", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "routes/app._index.tsx"),
+      "utf-8"
+    );
+    expect(src).toContain("checkAndConsumeAiCredit(merchant.id)");
+    expect(src).toContain("validateGeneratedPolicy");
+    expect(src).toContain('"ai_cap_reached"');
+    // Retry path appends an extra instruction to the second generatePolicy
+    // call — the second call does NOT consume a second AI credit.
+    expect(src).toMatch(/generatePolicy\(policyType, shopInfo, extra\)/);
+  });
+
+  it("appeal-letter action consumes a credit before hitting Anthropic", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "routes/app.appeal-letter.tsx"),
+      "utf-8"
+    );
+    expect(src).toContain("checkAndConsumeAiCredit(merchant.id)");
+    expect(src).toContain("AI_MONTHLY_CAP");
+    // Cap check happens before generateAppealLetter is called.
+    const capIdx = src.indexOf("checkAndConsumeAiCredit");
+    const generateIdx = src.indexOf("generateAppealLetter(");
+    expect(capIdx).toBeGreaterThan(0);
+    expect(generateIdx).toBeGreaterThan(0);
+    expect(capIdx).toBeLessThan(generateIdx);
+  });
+
+  it("migration adds ai_generations_used/reset_at columns + consume_ai_credit RPC", () => {
+    const sql = fs.readFileSync(
+      path.join(
+        ROOT_DIR,
+        "supabase/migrations/20260528121738_ai_usage_cap.sql",
+      ),
+      "utf-8",
+    );
+    expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS ai_generations_used/);
+    expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS ai_generations_reset_at/);
+    expect(sql).toMatch(/CREATE OR REPLACE FUNCTION consume_ai_credit/);
+    expect(sql).toMatch(/INTERVAL '30 days'/);
+  });
+});
+
 // ─── Weekly auto-scan + digest infra removed in v4 §4 ──────────────────────
 
 describe("Weekly auto-scan + digest infra removed (v4 §4)", () => {

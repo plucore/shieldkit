@@ -1275,3 +1275,29 @@ describe("afterAuth preserves scans_remaining on reinstall", () => {
     expect(src).toContain("free-scan farming");
   });
 });
+
+// ─── GTIN Auto-Fill manual button feedback (cleanup batch §7) ───────────────
+
+describe("GTIN Auto-Fill button surfaces zero-work outcome", () => {
+  it("renders an info banner when the action returns ok=true and succeeded=0", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "routes/app.gtin-fill.tsx"),
+      "utf-8"
+    );
+    // Pre-fix: the success banner was gated on `succeeded > 0`, so when the
+    // action returned ok=true with 0 candidates (e.g. test store with no
+    // SKUs/barcodes/vendor) the click produced no UI change — looked broken.
+    expect(src).toContain("Nothing to write");
+    expect(src).toMatch(/actionData\.succeeded\s*===\s*0/);
+  });
+
+  it("Auto-Fill button is wired via useWebComponentClick (s-button needs native click)", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "routes/app.gtin-fill.tsx"),
+      "utf-8"
+    );
+    expect(src).toContain("useWebComponentClick");
+    expect(src).toContain("enrichRef");
+    expect(src).toMatch(/ref=\{enrichRef\}/);
+  });
+});

@@ -506,6 +506,21 @@ export default function GtinFillPage() {
         </s-section>
       )}
 
+      {actionData?.ok &&
+        actionData.succeeded === 0 &&
+        actionData.failed === 0 && (
+          <s-section>
+            <s-banner tone="info" heading="Nothing to write">
+              Every candidate product already has the identifiers ShieldKit can
+              derive (GTIN from barcode, MPN from SKU, brand from vendor or shop
+              name). For products with no SKU and no barcode, add at least one
+              variant identifier in Shopify and re-run Auto-Fill — or use
+              &quot;Mark &lsquo;no identifier exists&rsquo;&quot; for handmade /
+              vintage items.
+            </s-banner>
+          </s-section>
+        )}
+
       <s-section heading="Products needing identifiers">
         <form method="post" ref={formRef}>
           <input type="hidden" name="intent" value="enrich" />

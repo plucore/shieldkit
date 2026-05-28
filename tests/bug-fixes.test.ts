@@ -772,6 +772,22 @@ describe("GTIN enrichment off webhook hot path", () => {
   });
 });
 
+// ─── ScoreBanner ongoing-value reassurance (v4 §8) ─────────────────────────
+
+describe("ScoreBanner ongoing-value reassurance (v4 §8)", () => {
+  it("renders a paid-clean reassurance line behind a strict gate", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "components/ScoreBanner.tsx"),
+      "utf-8"
+    );
+    // Paid + score >= 80 + no critical issues.
+    expect(src).toMatch(/hasPaidAccess\(merchant\.tier\)[\s\S]{0,300}score >= 80/);
+    expect(src).toMatch(/critical_count[\s\S]{0,80}=== 0/);
+    expect(src).toContain("Your store is clean.");
+    expect(src).toContain("re-scan instantly");
+  });
+});
+
 // ─── PlanStatusCard replaces UpgradeCard (v4 §7) ───────────────────────────
 
 describe("PlanStatusCard two-state value box (v4 §7)", () => {

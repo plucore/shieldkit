@@ -105,7 +105,35 @@ export default function ScoreBanner({
             )}
           </div>
 
-          {/* Automated scan info for Pro merchants */}
+          {/* v4 §8 — ongoing-value reassurance line for paid merchants whose
+              latest scan is clean (score ≥ 80, no critical issues). Reframes
+              the "fixed" moment as continuous protection rather than a done
+              job — reduces the post-fix cancellation reflex. */}
+          {hasPaidAccess(merchant.tier) &&
+            !isScanning &&
+            score !== null &&
+            score >= 80 &&
+            (latestScan.critical_count ?? 0) === 0 && (
+              <div
+                style={{
+                  marginTop: "12px",
+                  textAlign: "center",
+                  fontSize: "13px",
+                  color: "var(--p-color-text-subdued, #6d7175)",
+                  lineHeight: 1.5,
+                  maxWidth: "560px",
+                  marginLeft: "auto",
+                  marginRight: "auto",
+                }}
+              >
+                Your store is clean. ShieldKit keeps your structured data
+                live, your products readable to AI search, and lets you
+                re-scan instantly any time you change something.
+              </div>
+            )}
+
+          {/* Automated scan info for paid merchants (legacy — kept for any
+              still-present automated scan rows from pre-v4 weekly crons). */}
           {hasPaidAccess(merchant.tier) && lastAutomatedScan && !isScanning && (
             <div
               style={{

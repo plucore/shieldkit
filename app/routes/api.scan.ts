@@ -10,7 +10,7 @@
  *   1. Authenticate via App Bridge session token (authenticate.admin).
  *   2. Look up the merchant record in Supabase.
  *   3. Enforce scan quota — free tier starts with scans_remaining = 1.
- *   4. Run runComplianceScan (all 10 checks, results saved to Supabase).
+ *   4. Run runComplianceScan (all 12 checks, results saved to Supabase).
  *   5. Decrement scans_remaining for quota-limited merchants.
  *   6. Return the complete scan + violations as JSON.
  *

@@ -1,7 +1,7 @@
 /**
  * app/lib/checks/index.server.ts
  *
- * Main orchestrator: imports all 10 check functions, runs them via safeCheck,
+ * Main orchestrator: imports all 12 check functions, runs them via safeCheck,
  * persists results to Supabase, and returns the full scan + violations.
  */
 
@@ -138,7 +138,7 @@ export async function runComplianceScan(
     html: rawProductFetches[i]?.html ?? null,
   }));
 
-  // ── 4. Run all 10 checks ────────────────────────────────────────────────────
+  // ── 4. Run all 12 checks ────────────────────────────────────────────────────
   // Every call goes through safeCheck() so a single check throwing never
   // aborts the scan — it records an "error" severity result instead.
   //

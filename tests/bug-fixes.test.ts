@@ -1248,3 +1248,30 @@ describe("JSON-LD deep link", () => {
     expect(content).not.toMatch(/activateAppId=.*\/json-ld-schema/);
   });
 });
+
+// ─── afterAuth scans_remaining behavior (cleanup batch §6) ──────────────────
+
+describe("afterAuth preserves scans_remaining on reinstall", () => {
+  it("does not include scans_remaining in the upsert payload", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "shopify.server.ts"),
+      "utf-8"
+    );
+    // Adding scans_remaining to the upsert object would refund a free scan
+    // on every reauth — that's a free-tier abuse path. The behavior we
+    // want: INSERT uses DB DEFAULT 1; UPDATE leaves the existing value alone.
+    const upsertBlock = src.slice(
+      src.indexOf(".upsert("),
+      src.indexOf(", { onConflict")
+    );
+    expect(upsertBlock).not.toContain("scans_remaining");
+  });
+
+  it("documents the intentional preserve-on-reinstall behavior", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "shopify.server.ts"),
+      "utf-8"
+    );
+    expect(src).toContain("free-scan farming");
+  });
+});

@@ -39,8 +39,22 @@ const shopify = shopifyApp({
       // Online sessions (short-lived user sessions) do not represent an install.
       if (session.isOnline) return;
 
-      // Upsert merchant record. On first install: INSERT with defaults.
-      // On reinstall after uninstall: UPDATE clears uninstalled_at and refreshes token.
+      // scans_remaining behavior on install:
+      //   • First install (no prior row)      → INSERT with DB defaults,
+      //                                          scans_remaining = 1 (free tier
+      //                                          gets one starter scan).
+      //   • Reinstall of soft-deleted row     → UPDATE only the 4 columns
+      //                                          listed below; scans_remaining
+      //                                          is preserved at whatever it
+      //                                          was when the merchant
+      //                                          uninstalled (typically 0 if
+      //                                          they used their free scan).
+      //   This is intentional — it prevents free-scan farming via
+      //   uninstall→reinstall loops. A merchant who genuinely needs a fresh
+      //   scan must upgrade. NEVER add scans_remaining to the upsert payload
+      //   below without also gating it on "row didn't exist before" — adding
+      //   it unconditionally would refund a free scan on every reauth, which
+      //   is a paid-tier abuse path.
       const { error } = await supabase.from("merchants").upsert(
         {
           shopify_domain: session.shop,

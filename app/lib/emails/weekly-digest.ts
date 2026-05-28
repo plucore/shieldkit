@@ -9,7 +9,7 @@
  * llms.txt freshness, bot config completeness).
  */
 
-import { hasMonitoringAccess } from "../billing/plans";
+import { hasPaidAccess } from "../billing/plans";
 
 // HTML-escape helper. We intentionally don't use querystring.escape — it
 // URL-escapes, not HTML-escapes.
@@ -106,7 +106,7 @@ export function renderWeeklyDigest(data: WeeklyDigestData): string {
         : `<li style="margin:6px 0;color:#e51c00;">✗ Customer Privacy API not detected</li>`;
 
   let proSection = "";
-  if (hasMonitoringAccess(tier)) {
+  if (hasPaidAccess(tier)) {
     if (data.proThisWeek) {
       const p = data.proThisWeek;
       const refreshedLabel = p.llmsTxtRefreshedAt

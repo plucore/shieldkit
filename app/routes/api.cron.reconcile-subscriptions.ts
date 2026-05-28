@@ -36,7 +36,7 @@
 
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { supabase } from "../supabase.server";
-import { MONITORING_TIERS } from "../lib/billing/plans";
+import { PAID_TIERS } from "../lib/billing/plans";
 import { getActiveSubscriptionByChargeId } from "../lib/billing/partner-api.server";
 
 const TERMINAL_STATUSES = new Set([
@@ -92,11 +92,11 @@ export async function action({ request }: ActionFunctionArgs) {
 
   // ── 2. Fetch active paid merchants with a stored subscription gid ───────────
   // No subscription gid → nothing to look up. Free tier rows are excluded by
-  // the MONITORING_TIERS filter.
+  // the PAID_TIERS filter.
   const { data: merchants, error: fetchError } = await supabase
     .from("merchants")
     .select("id, shopify_domain, tier, shopify_subscription_id")
-    .in("tier", MONITORING_TIERS as readonly string[])
+    .in("tier", PAID_TIERS as readonly string[])
     .is("uninstalled_at", null)
     .not("shopify_subscription_id", "is", null);
 

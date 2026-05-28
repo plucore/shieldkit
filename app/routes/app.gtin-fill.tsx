@@ -11,10 +11,9 @@
  * loads + previews but the action returns a "scope pending" error rather
  * than attempting a write that would fail.
  *
- * Tier gate: hasRecoveryAccess (Recovery + grandfathered pro).
- * Note the GTIN feature split: this bulk fill on the existing catalog is
- * Recovery-only. Ongoing per-product enrichment on newly-updated products
- * runs from webhooks.products.update.tsx, gated by hasMonitoringAccess.
+ * Tier gate: hasPaidAccess (any paid tier — v4 single paid tier).
+ * Both this bulk-fill route AND the per-product enrichment in
+ * webhooks.products.update.tsx use the same gate now.
  */
 
 import { useCallback, useMemo, useRef } from "react";
@@ -36,7 +35,7 @@ import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
 import { useWebComponentClick } from "../hooks/useWebComponentClick";
 import { wrapAdminClient, getProducts } from "../lib/shopify-api.server";
-import { hasRecoveryAccess } from "../lib/billing/plans";
+import { hasPaidAccess } from "../lib/billing/plans";
 
 const WRITE_METAFIELDS_SCOPE_ENABLED =
   (process.env.SCOPES ?? "").includes("write_products");
@@ -147,7 +146,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   // Bulk catalog fill is Recovery-gated (acute tool). Ongoing per-product
   // enrichment on newly-created products is Monitoring-gated; see
   // webhooks.products.update.tsx for that path.
-  if (!hasRecoveryAccess(merchant.tier)) {
+  if (!hasPaidAccess(merchant.tier)) {
     return {
       gated: true as const,
       tier: merchant.tier as string,
@@ -237,7 +236,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     .select("id, tier")
     .eq("shopify_domain", session.shop)
     .maybeSingle();
-  if (!merchant || !hasRecoveryAccess(merchant.tier))
+  if (!merchant || !hasPaidAccess(merchant.tier))
     return fail(403, "Recovery plan required to bulk-fill the existing catalog.");
 
   // Scope gate

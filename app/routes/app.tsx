@@ -6,10 +6,7 @@ import { NavMenu } from "@shopify/app-bridge-react";
 
 import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
-import {
-  hasMonitoringAccess,
-  hasRecoveryAccess,
-} from "../lib/billing/plans";
+import { hasPaidAccess } from "../lib/billing/plans";
 
 // Mirrors the gate in app.gtin-fill.tsx. We hide the nav entry entirely when
 // write_products has not yet been granted so paying merchants don't click
@@ -43,24 +40,20 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 export default function App() {
   const { apiKey, tier, gtinFillEnabled } = useLoaderData<typeof loader>();
 
-  // Monitoring-gated links: Pro Settings, AI bot access. Available to
-  // monitoring, recovery, and grandfathered pro (Shield Max).
-  const showMonitoring = hasMonitoringAccess(tier);
-  // Recovery-gated links: GMC appeal letter, bulk GTIN auto-filler. Available
-  // to recovery and grandfathered pro only. Appeal letter is moving from
-  // "available to everyone" to recovery-only as part of the v3 cutover.
-  const showRecovery = hasRecoveryAccess(tier);
+  // v4 single paid gate — any non-free tier unlocks all paid nav links.
+  // Includes grandfathered shield/pro/recovery rows.
+  const isPaid = hasPaidAccess(tier);
 
   return (
     <AppProvider embedded apiKey={apiKey}>
       <NavMenu>
         <a href="/app" rel="home">Dashboard</a>
-        {showRecovery && <a href="/app/appeal-letter">Appeal letter</a>}
-        {showMonitoring && <a href="/app/pro-settings">Pro settings</a>}
-        {showRecovery && gtinFillEnabled && (
+        {isPaid && <a href="/app/appeal-letter">Appeal letter</a>}
+        {isPaid && <a href="/app/pro-settings">Store schema settings</a>}
+        {isPaid && gtinFillEnabled && (
           <a href="/app/gtin-fill">GTIN auto-filler</a>
         )}
-        {showMonitoring && <a href="/app/bots/toggle">AI bot access</a>}
+        {isPaid && <a href="/app/bots/toggle">AI bot access</a>}
         <a href="/app/plan-switcher">Manage plan</a>
       </NavMenu>
 

@@ -26,7 +26,7 @@
 
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { supabase } from "../supabase.server";
-import { MONITORING_TIERS } from "../lib/billing/plans";
+import { PAID_TIERS } from "../lib/billing/plans";
 
 function json<T>(body: T, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -65,7 +65,7 @@ export async function action({ request }: ActionFunctionArgs) {
   const { data: merchants, error: fetchError } = await supabase
     .from("merchants")
     .select("id")
-    .in("tier", MONITORING_TIERS as readonly string[])
+    .in("tier", PAID_TIERS as readonly string[])
     .is("uninstalled_at", null);
 
   if (fetchError) {

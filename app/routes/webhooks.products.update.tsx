@@ -14,7 +14,7 @@
  * Behaviour:
  *   1. authenticate.webhook(request) — HMAC verified by Shopify SDK.
  *   2. Look up merchant by shop domain. Bail (200 OK) on no match.
- *   3. Tier gate: hasMonitoringAccess.
+ *   3. Tier gate: hasPaidAccess.
  *   4. Insert pending_scan_triggers row for trigger_type='product_update'
  *      (24h-deduped — drives the storefront scan).
  *   5. Insert pending_scan_triggers row for trigger_type='enrichment' with
@@ -25,7 +25,7 @@
 import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
-import { hasMonitoringAccess } from "../lib/billing/plans";
+import { hasPaidAccess } from "../lib/billing/plans";
 
 const ENRICHMENT_DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -60,7 +60,7 @@ async function maybeRecordScanTrigger(opts: {
   tier: string;
 }): Promise<void> {
   // v3 — only monitoring-access tiers get continuous scan triggers.
-  if (!hasMonitoringAccess(opts.tier)) return;
+  if (!hasPaidAccess(opts.tier)) return;
 
   try {
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -224,8 +224,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   // 3. Tier gate (skip_tier) — ongoing GTIN enrichment on newly-updated
   // products is a Monitoring-level feature. Bulk fill on the existing
-  // catalog is gated separately in app.gtin-fill.tsx via hasRecoveryAccess.
-  if (!hasMonitoringAccess(merchant.tier)) {
+  // catalog is gated by the same hasPaidAccess in app.gtin-fill.tsx (v4
+  // single paid tier).
+  if (!hasPaidAccess(merchant.tier)) {
     return ack();
   }
 

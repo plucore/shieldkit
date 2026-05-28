@@ -22,8 +22,7 @@
  *   - tier='pro'    — "Shield Max" / "Shield Max Annual" — 2 live customers
  *                     on 2026-05-14. Riding existing subscriptions until
  *                     June renewal. Has full access to BOTH monitoring and
- *                     recovery feature gates (hasMonitoringAccess +
- *                     hasRecoveryAccess both return true).
+ *                     full paid feature set via hasPaidAccess.
  *   - tier='shield' — "Shield Pro" / "Shield Pro Annual" — zero live rows,
  *                     kept in the plan/tier maps as a defensive back-stop.
  *                     The helpers below return false for shield-tier; if a
@@ -134,51 +133,44 @@ export function intervalToCycle(
   return null;
 }
 
-// ─── Tier-access helpers (centralised feature gates) ────────────────────────
-// Every feature gate in the codebase should go through one of these two
-// helpers — DO NOT compare merchants.tier to a literal string at call sites.
-// That made the v2→v3 migration fragile (15+ touch points to keep in sync).
+// ─── Tier-access helper (single paid gate) ──────────────────────────────────
+// v4 (2026-05-28) collapsed Monitoring + Recovery into a single paid tier
+// called Monitoring. Every paid feature is now unlocked by hasPaidAccess —
+// there is no longer a per-feature subdivision between "monitoring-class"
+// and "recovery-class". The legacy `recovery` and `pro` tier values still
+// resolve to true so grandfathered subscriptions keep working.
 //
 // Access matrix:
-//                    | monitoring gate | recovery gate
-//   free             |       no        |      no
-//   shield  (grand.) |       no        |      no
-//   monitoring       |      YES        |      no
-//   recovery         |      YES        |     YES
-//   pro     (grand.) |      YES        |     YES   ← 2 live Shield Max custs.
+//                    | hasPaidAccess
+//   free             |    no
+//   shield  (grand.) |    no  ← zero live rows; degrades to free-level
+//   monitoring       |    YES
+//   recovery (grand.)|    YES ← rolled into Monitoring under v4
+//   pro     (grand.) |    YES ← 2 live Shield Max customers
 //
-// "Pro passes both" preserves the full feature set the 2 grandfathered
-// Shield Max customers paid for. They must lose nothing on the v3 cutover.
+// Call sites: every feature gate in the codebase should go through this
+// helper — DO NOT compare merchants.tier to a literal string at call sites.
+// That made the v2→v3 migration fragile (15+ touch points to keep in sync).
+// The only remaining literal comparisons are sentinel "is this free or not"
+// checks (e.g. upgrade-CTA placement) and webhook-payload validation.
 
 /**
- * Returns true if the tier has access to recurring monitoring features:
- * weekly automated scans, weekly digest emails, ongoing GTIN enrichment
- * on newly-created products, AI bot allow/block, llms.txt, Pro Settings,
- * AI-visibility tracking.
+ * Returns true if the tier unlocks the full paid feature set: unlimited
+ * on-demand scans, AI-written policies, GMC appeal letter generator,
+ * bulk GTIN/MPN/brand fill, ongoing per-product enrichment, llms.txt,
+ * AI bot allow/block toggle, Organization/WebSite JSON-LD theme blocks.
  */
-export function hasMonitoringAccess(tier: string | null | undefined): boolean {
+export function hasPaidAccess(tier: string | null | undefined): boolean {
   return tier === "monitoring" || tier === "recovery" || tier === "pro";
 }
 
 /**
- * Returns true if the tier has access to acute "recovery" features:
- * GMC re-review appeal letter generator, AI policy rewrites, bulk
- * GTIN/MPN/brand fill on the existing catalog, unlimited on-demand scans.
- *
- * NOTE the GTIN split: this gates *bulk* fill on the existing catalog.
- * *Ongoing* enrichment on newly-created products (via the products webhook)
- * is gated by hasMonitoringAccess instead.
+ * The set of DB tier values that resolve to paid access. Centralised so
+ * cron queries and any tier-filter code agree on one list. Renamed from
+ * MONITORING_TIERS in v4 for clarity — same set, the name change tracks
+ * the single-paid-tier collapse.
  */
-export function hasRecoveryAccess(tier: string | null | undefined): boolean {
-  return tier === "recovery" || tier === "pro";
-}
-
-/**
- * The set of DB tier values that should receive the weekly cron pipeline
- * (scan + digest). Centralised so the cron queries and webhook scan
- * triggers all agree on the same list.
- */
-export const MONITORING_TIERS: readonly Tier[] = [
+export const PAID_TIERS: readonly Tier[] = [
   "monitoring",
   "recovery",
   "pro",

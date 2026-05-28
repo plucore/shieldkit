@@ -5,7 +5,7 @@
  * /api/cron/reconcile-subscriptions. Verifies:
  *
  *  - File-shape contract: bearer-token auth via CRON_SECRET, queries only
- *    MONITORING_TIERS rows with a non-null shopify_subscription_id, calls
+ *    PAID_TIERS rows with a non-null shopify_subscription_id, calls
  *    getActiveSubscriptionByChargeId, mirrors the webhook's terminal-status
  *    demote write, and never demotes on status === "unknown".
  *
@@ -42,8 +42,8 @@ describe("api.cron.reconcile-subscriptions.ts — file shape", () => {
     expect(src).toContain("unauthorized");
   });
 
-  it("filters merchants by MONITORING_TIERS and uninstalled_at IS NULL", () => {
-    expect(src).toContain("MONITORING_TIERS");
+  it("filters merchants by PAID_TIERS and uninstalled_at IS NULL", () => {
+    expect(src).toContain("PAID_TIERS");
     expect(src).toMatch(/\.is\("uninstalled_at", null\)/);
   });
 

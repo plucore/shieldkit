@@ -30,7 +30,7 @@ import {
   type IssueChange,
 } from "../lib/emails/weekly-digest";
 import { createAdminClient, executeWithRetry } from "../lib/shopify-api.server";
-import { MONITORING_TIERS, hasMonitoringAccess } from "../lib/billing/plans";
+import { PAID_TIERS, hasPaidAccess } from "../lib/billing/plans";
 
 // Fallback recipient when leads.email is missing — fetch the shop owner email
 // from Shopify Admin GraphQL using the merchant's stored offline session token.
@@ -128,7 +128,7 @@ export async function action({ request }: ActionFunctionArgs) {
   const { data: merchants, error: merchantsErr } = await supabase
     .from("merchants")
     .select("id, shopify_domain, shop_name, tier, llms_txt_last_served_at, pro_settings")
-    .in("tier", MONITORING_TIERS as readonly string[])
+    .in("tier", PAID_TIERS as readonly string[])
     .is("uninstalled_at", null);
 
   if (merchantsErr) {
@@ -251,7 +251,7 @@ export async function action({ request }: ActionFunctionArgs) {
       // by MONITORING_TIERS above) and the AI-readiness fields are all
       // monitoring-level data, so the block always renders.
       let proThisWeek: Parameters<typeof renderWeeklyDigest>[0]["proThisWeek"];
-      if (hasMonitoringAccess(merchant.tier)) {
+      if (hasPaidAccess(merchant.tier)) {
         const sevenDaysAgo = new Date(
           Date.now() - 7 * 24 * 60 * 60 * 1000,
         ).toISOString();

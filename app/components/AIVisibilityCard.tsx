@@ -6,7 +6,7 @@
  *
  * Only rendered for merchants with monitoring access (tier='monitoring',
  * 'recovery', or grandfathered 'pro'). The parent gate lives in
- * app/routes/app._index.tsx via hasMonitoringAccess — this component
+ * app/routes/app._index.tsx via hasPaidAccess — this component
  * assumes its props are already filtered.
  */
 

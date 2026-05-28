@@ -32,7 +32,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
 import { useWebComponentClick } from "../hooks/useWebComponentClick";
-import { hasMonitoringAccess } from "../lib/billing/plans";
+import { hasPaidAccess } from "../lib/billing/plans";
 
 interface Bot {
   id: string;
@@ -110,7 +110,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     .eq("shopify_domain", session.shop)
     .maybeSingle();
 
-  if (!current || !hasMonitoringAccess((current as { tier: string }).tier)) {
+  if (!current || !hasPaidAccess((current as { tier: string }).tier)) {
     return data(
       { ok: false, error: "Monitoring plan required to change AI bot preferences." },
       { status: 403 },
@@ -188,7 +188,7 @@ export default function BotsTogglePage() {
   }, [snippet]);
   const copyRef = useWebComponentClick<HTMLElement>(onCopy);
 
-  if (!hasMonitoringAccess(tier)) {
+  if (!hasPaidAccess(tier)) {
     return (
       <s-page heading="AI Bot Access Control">
         <s-section>

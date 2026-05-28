@@ -24,10 +24,10 @@ describe("webhooks.themes.update", () => {
   });
 
   it("acks 200 on free tier (skip_tier branch)", () => {
-    // v3 — gate routed through hasMonitoringAccess helper. Helper returns
+    // v3 — gate routed through hasPaidAccess helper. Helper returns
     // true for monitoring + recovery + grandfathered pro.
-    expect(src).toContain("hasMonitoringAccess");
-    expect(src).toMatch(/if\s*\(\s*!hasMonitoringAccess\(merchant\.tier\)\s*\)/);
+    expect(src).toContain("hasPaidAccess");
+    expect(src).toMatch(/if\s*\(\s*!hasPaidAccess\(merchant\.tier\)\s*\)/);
   });
 
   it("inserts pending_scan_triggers row for paid tiers", () => {
@@ -54,10 +54,10 @@ describe("webhooks.products.update — also enqueues scan triggers", () => {
     expect(src).toContain('from("pending_scan_triggers")');
   });
 
-  it("scan-trigger gate is routed through hasMonitoringAccess helper", () => {
+  it("scan-trigger gate is routed through hasPaidAccess helper", () => {
     // v3 — accepts monitoring + recovery + grandfathered pro.
-    expect(src).toContain("hasMonitoringAccess");
-    expect(src).toMatch(/if\s*\(\s*!hasMonitoringAccess\(opts\.tier\)\s*\)/);
+    expect(src).toContain("hasPaidAccess");
+    expect(src).toMatch(/if\s*\(\s*!hasPaidAccess\(opts\.tier\)\s*\)/);
   });
 
   it("scan-trigger has its own 24h dedup window", () => {

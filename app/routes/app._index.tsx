@@ -33,10 +33,7 @@ import {
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { getActiveSubscriptionByChargeId } from "../lib/billing/partner-api.server";
-import {
-  hasMonitoringAccess,
-  hasRecoveryAccess,
-} from "../lib/billing/plans";
+import { hasPaidAccess } from "../lib/billing/plans";
 import { supabase } from "../supabase.server";
 import { runComplianceScan } from "../lib/compliance-scanner.server";
 import {
@@ -158,7 +155,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   // monitoring (monitoring, recovery, grandfathered pro). Free + shield
   // have no automated scans to compare against.
   let lastAutomatedScan: Scan | null = null;
-  if (hasMonitoringAccess(merchant.tier)) {
+  if (hasPaidAccess(merchant.tier)) {
     const { data: autoRow } = await supabase
       .from("scans")
       .select(
@@ -175,7 +172,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   // Count new issues from automated scan vs last manual scan
   let newAutoIssueCount = 0;
-  if (lastAutomatedScan && hasMonitoringAccess(merchant.tier)) {
+  if (lastAutomatedScan && hasPaidAccess(merchant.tier)) {
     const { data: lastManualRow } = await supabase
       .from("scans")
       .select("id")
@@ -230,7 +227,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   // AI visibility — a Monitoring feature. Available to monitoring,
   // recovery, and grandfathered pro (Shield Max).
   let aiVisibility: { thisWeekHits: number; priorWeekHits: number; topCrawlers: string[] } | null = null;
-  if (hasMonitoringAccess(merchant.tier)) {
+  if (hasPaidAccess(merchant.tier)) {
     const now = Date.now();
     const sevenDaysAgo = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
     const fourteenDaysAgo = new Date(now - 14 * 24 * 60 * 60 * 1000).toISOString();
@@ -317,7 +314,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     // AI policy rewrites are a Recovery feature (also available to
     // grandfathered Shield Max under tier='pro').
-    if (!merchant || !hasRecoveryAccess(merchant.tier)) {
+    if (!merchant || !hasPaidAccess(merchant.tier)) {
       return new Response(
         JSON.stringify({
           success: false,
@@ -757,14 +754,18 @@ export default function Index() {
 
   // tier-aware helpers — v3 has free, monitoring, recovery, plus the
   // grandfathered shield + pro tiers preserved for the 2 live Shield Max
-  // customers. Feature access goes through hasMonitoringAccess /
-  // hasRecoveryAccess; tier-string comparisons here are only for upgrade
+  // customers. Feature access goes through hasPaidAccess; tier-string
+  // comparisons here are only for upgrade
   // CTA placement (which tier the merchant is on, not which features they
   // can use).
   const tier = merchant?.tier ?? "free";
-  const showMonitoring = hasMonitoringAccess(tier);
-  const showRecovery = hasRecoveryAccess(tier);
-  const isPaid = showMonitoring;
+  const isPaid = hasPaidAccess(tier);
+  // v4 collapsed Monitoring + Recovery into a single paid tier; the two
+  // aliases below kept while §6 copy fixes land — every gate is now the
+  // same boolean. The aliases are short-lived; remove after the §6 copy
+  // refactor stops referencing them.
+  const showMonitoring = isPaid;
+  const showRecovery = isPaid;
   const [searchParams, setSearchParams] = useSearchParams();
   const [allExpanded, setAllExpanded]   = useState(false);
   const [localPolicies, setLocalPolicies] = useState(merchant?.generated_policies ?? {});

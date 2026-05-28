@@ -37,7 +37,7 @@ import { supabase } from "../supabase.server";
 import { useWebComponentClick } from "../hooks/useWebComponentClick";
 import { wrapAdminClient, getShopInfo } from "../lib/shopify-api.server";
 import { generateAppealLetter } from "../lib/llm/appeal-letter.server";
-import { hasRecoveryAccess } from "../lib/billing/plans";
+import { hasPaidAccess } from "../lib/billing/plans";
 
 const APPEAL_LIMIT_PER_SCAN = 3;
 
@@ -58,7 +58,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   // Recovery-gated as of v3. NavMenu hides the link for non-recovery tiers,
   // but defend the route too in case a merchant lands here via bookmark.
-  if (!hasRecoveryAccess(merchant.tier)) {
+  if (!hasPaidAccess(merchant.tier)) {
     return redirect("/app/upgrade");
   }
 
@@ -122,7 +122,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     );
   }
 
-  if (!hasRecoveryAccess(merchant.tier)) {
+  if (!hasPaidAccess(merchant.tier)) {
     return data(
       {
         ok: false,

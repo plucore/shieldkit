@@ -4,7 +4,7 @@
  * Sidebar/main upgrade CTA shown to any merchant without Recovery access
  * (free / shield / monitoring / unknown). Recovery-tier merchants and
  * grandfathered Shield Max (tier='pro') do NOT render this card — gate at
- * the call site via hasRecoveryAccess.
+ * the call site via hasPaidAccess.
  *
  * Uses useWebComponentClick for native DOM event handling on <s-button>
  * (synthetic React onClick does not fire on Polaris web components).

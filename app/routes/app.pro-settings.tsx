@@ -10,7 +10,7 @@
  * into the theme editor manually. A future iteration may sync them via
  * metafields once write_products scope is approved.
  *
- * Tier gate: hasMonitoringAccess. Free / shield see an upgrade nudge.
+ * Tier gate: hasPaidAccess. Free / shield see an upgrade nudge.
  */
 
 import { useCallback, useRef } from "react";
@@ -31,7 +31,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
 import { useWebComponentClick } from "../hooks/useWebComponentClick";
-import { hasMonitoringAccess } from "../lib/billing/plans";
+import { hasPaidAccess } from "../lib/billing/plans";
 
 interface ProSettings {
   logo_url?: string;
@@ -148,7 +148,7 @@ export default function ProSettingsPage() {
   }, []);
   const submitRef = useWebComponentClick<HTMLElement>(submitForm);
 
-  if (!hasMonitoringAccess(tier)) {
+  if (!hasPaidAccess(tier)) {
     return (
       <s-page heading="Pro settings">
         <s-section>

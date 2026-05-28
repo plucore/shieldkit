@@ -13,7 +13,7 @@ import {
   checkBorderColor,
   checkRowBg,
 } from "../lib/scan-helpers";
-import { hasRecoveryAccess } from "../lib/billing/plans";
+import { hasPaidAccess } from "../lib/billing/plans";
 
 const POLICY_CHECK_NAMES = new Set([
   "refund_return_policy",
@@ -189,7 +189,7 @@ export default function AuditChecklist({
                       >
                         Resolution Guide
                       </strong>
-                      {hasRecoveryAccess(tier) && !check.passed && POLICY_CHECK_NAMES.has(check.check_name)
+                      {hasPaidAccess(tier) && !check.passed && POLICY_CHECK_NAMES.has(check.check_name)
                         ? PRO_POLICY_FIX
                         : check.fix_instruction
                           ? check.fix_instruction

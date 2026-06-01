@@ -6,7 +6,7 @@ import { redirect } from "react-router";
 // rarely and a 24h freshness lag is acceptable. Embedded merchants are
 // redirected to /app before this cache layer applies (see loader).
 export const headers: HeadersFunction = () => ({
-  "Cache-Control": "public, max-age=0, s-maxage=86400, stale-while-revalidate=604800",
+  "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=604800",
 });
 
 import { MarketingLayout } from "../../components/marketing/MarketingLayout";

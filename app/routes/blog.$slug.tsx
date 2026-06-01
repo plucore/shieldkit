@@ -9,7 +9,7 @@ import type {
 // Posts are effectively immutable once published; the long swr window means
 // even an updated post propagates within 7 days without any origin pressure.
 export const headers: HeadersFunction = () => ({
-  "Cache-Control": "public, max-age=0, s-maxage=86400, stale-while-revalidate=604800",
+  "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=604800",
 });
 import { useLoaderData, isRouteErrorResponse, useRouteError } from "react-router";
 

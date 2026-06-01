@@ -9,7 +9,7 @@ import type {
 // Fix content is effectively static — sourced from app/content/fixes.ts and
 // only changes on redeploy, which busts the CDN cache automatically.
 export const headers: HeadersFunction = () => ({
-  "Cache-Control": "public, max-age=0, s-maxage=86400, stale-while-revalidate=604800",
+  "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=604800",
 });
 import { useLoaderData, isRouteErrorResponse, useRouteError } from "react-router";
 

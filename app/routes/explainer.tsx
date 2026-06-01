@@ -3,7 +3,7 @@ import type { HeadersFunction, LinksFunction, LoaderFunctionArgs, MetaFunction }
 // Cache marketing HTML at Vercel's edge for 24h, stale-while-revalidate for 7
 // days. Explainer content rarely changes; a 24h freshness lag is acceptable.
 export const headers: HeadersFunction = () => ({
-  "Cache-Control": "public, max-age=0, s-maxage=86400, stale-while-revalidate=604800",
+  "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=604800",
 });
 
 import { MarketingArticleLayout } from "../components/marketing/MarketingArticleLayout";

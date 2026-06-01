@@ -7,7 +7,7 @@ import type {
 
 // Cache fix index at Vercel's edge for 24h, stale-while-revalidate for 7 days.
 export const headers: HeadersFunction = () => ({
-  "Cache-Control": "public, max-age=0, s-maxage=86400, stale-while-revalidate=604800",
+  "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=604800",
 });
 import { Link } from "react-router";
 

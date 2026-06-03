@@ -929,6 +929,27 @@ describe("AI usage cap + policy validator (v4 §5)", () => {
     expect(capIdx).toBeLessThan(generateIdx);
   });
 
+  it("appeal-letter persists generated letters and displays saved ones", () => {
+    const src = fs.readFileSync(
+      path.join(APP_DIR, "routes/app.appeal-letter.tsx"),
+      "utf-8"
+    );
+    // Persistence: the action INSERTs the generated body into appeal_letters.
+    expect(src).toMatch(/\.from\("appeal_letters"\)\s*\.insert\(/);
+    expect(src).toContain("generated_letter: letter");
+    // Display fix: the loader fetches this merchant's saved letters (most
+    // recent first) so they survive reload/navigation instead of vanishing
+    // once the action response clears.
+    expect(src).toMatch(
+      /\.from\("appeal_letters"\)\s*\.select\("id, suspension_reason, generated_letter, created_at"\)/
+    );
+    expect(src).toMatch(/\.order\("created_at", \{ ascending: false \}\)/);
+    // …and the component renders them at the bottom of the page.
+    expect(src).toContain("Your saved appeal letters");
+    // Body is rendered with line breaks preserved.
+    expect(src).toContain("whiteSpace: \"pre-wrap\"");
+  });
+
   it("migration adds ai_generations_used/reset_at columns + consume_ai_credit RPC", () => {
     const sql = fs.readFileSync(
       path.join(

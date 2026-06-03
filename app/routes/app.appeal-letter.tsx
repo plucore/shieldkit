@@ -17,7 +17,7 @@
  * 403 from the action and a redirect from the loader.
  */
 
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   data,
   useActionData,
@@ -86,11 +86,37 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     usedCount = count ?? 0;
   }
 
+  // Every generated letter is persisted to appeal_letters by the action.
+  // Surface this merchant's recent letters (most recent first) so they
+  // remain available across reloads / navigation instead of vanishing once
+  // the action response clears.
+  const { data: savedLettersRaw } = await supabase
+    .from("appeal_letters")
+    .select("id, suspension_reason, generated_letter, created_at")
+    .eq("merchant_id", merchant.id)
+    .order("created_at", { ascending: false })
+    .limit(10);
+
+  const savedLetters = (
+    (savedLettersRaw ?? []) as Array<{
+      id: string;
+      suspension_reason: string | null;
+      generated_letter: string | null;
+      created_at: string;
+    }>
+  ).map((row) => ({
+    id: row.id,
+    suspensionReason: row.suspension_reason ?? null,
+    letter: row.generated_letter ?? "",
+    createdAt: row.created_at,
+  }));
+
   return {
     hasScan: !!latestScan,
     usedCount,
     limit: APPEAL_LIMIT_PER_SCAN,
     shopName: merchant.shop_name ?? session.shop,
+    savedLetters,
   };
 };
 
@@ -238,10 +264,97 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   return data({ ok: true, error: null, letter });
 };
 
+// ─── Saved-letter card ──────────────────────────────────────────────────────────
+
+interface SavedLetter {
+  id: string;
+  suspensionReason: string | null;
+  letter: string;
+  createdAt: string;
+}
+
+// One card per persisted letter. Lives in its own component so the
+// useWebComponentClick hook is called exactly once per render (calling it
+// inside the parent's .map() would violate the rules of hooks).
+function SavedLetterCard({ entry }: { entry: SavedLetter }) {
+  const [copied, setCopied] = useState(false);
+  const copy = useCallback(() => {
+    if (!entry.letter || !navigator.clipboard) return;
+    navigator.clipboard.writeText(entry.letter).then(
+      () => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 2000);
+      },
+      () => {
+        /* clipboard denied — the text stays on screen for manual copy */
+      },
+    );
+  }, [entry.letter]);
+  const copyRef = useWebComponentClick<HTMLElement>(copy);
+
+  const date = new Date(entry.createdAt).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+
+  return (
+    <div
+      style={{
+        border: "1px solid #e1e3e5",
+        borderRadius: "8px",
+        padding: "16px",
+        margin: "12px 0 0",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: "8px",
+          marginBottom: "8px",
+        }}
+      >
+        <strong style={{ fontSize: "13px" }}>Generated {date}</strong>
+        {/* @ts-ignore — s-button ref via useWebComponentClick (Polaris web-component type gap) */}
+        <s-button variant="secondary" ref={copyRef}>{copied ? "Copied" : "Copy"}</s-button>
+      </div>
+      {entry.suspensionReason && (
+        <p
+          style={{
+            margin: "0 0 8px",
+            fontSize: "13px",
+            color: "var(--p-color-text-subdued, #6d7175)",
+          }}
+        >
+          <strong>Suspension reason:</strong> {entry.suspensionReason}
+        </p>
+      )}
+      <pre
+        style={{
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
+          background: "#f6f6f7",
+          padding: "16px",
+          borderRadius: "8px",
+          fontFamily: "inherit",
+          fontSize: "14px",
+          lineHeight: 1.6,
+          margin: 0,
+        }}
+      >
+        {entry.letter}
+      </pre>
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function AppealLetterPage() {
-  const { hasScan, usedCount, limit, shopName } = useLoaderData<typeof loader>();
+  const { hasScan, usedCount, limit, shopName, savedLetters } =
+    useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const nav = useNavigation();
   const isGenerating = nav.state === "submitting" || nav.state === "loading";
@@ -391,6 +504,18 @@ export default function AppealLetterPage() {
           >
             {actionData.letter}
           </pre>
+        </s-section>
+      )}
+
+      {savedLetters.length > 0 && (
+        <s-section heading="Your saved appeal letters">
+          <s-paragraph>
+            Every letter you generate is saved here so you can return to it
+            later — these stay available when you reload or leave the page.
+          </s-paragraph>
+          {savedLetters.map((entry) => (
+            <SavedLetterCard key={entry.id} entry={entry} />
+          ))}
         </s-section>
       )}
     </s-page>

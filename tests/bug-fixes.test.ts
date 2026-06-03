@@ -805,7 +805,7 @@ describe("PlanStatusCard two-state value box (v4 §7)", () => {
     expect(src).toContain("from \"../lib/billing/plans\"");
   });
 
-  it("free state CTA includes the v4 price ($49/$449)", () => {
+  it("free state CTA includes the current price ($49/$390)", () => {
     const src = fs.readFileSync(
       path.join(APP_DIR, "components/PlanStatusCard.tsx"),
       "utf-8"

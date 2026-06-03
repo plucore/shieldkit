@@ -23,9 +23,11 @@
  *       SubscriptionChargeExpired     → "expired"
  *       SubscriptionChargeFrozen      → "frozen"
  *
- *   - Billing cycle (monthly/annual) must come from the plan NAME — see
- *     PLAN_NAME_TO_CYCLE in ./plans.ts. The Partner API offers no other
- *     signal for cycle.
+ *   - Billing cycle (monthly/annual): the Partner API offers no `interval`,
+ *     but the charge DOES expose `amount`. Since the 2026-06 dashboard
+ *     collapse "Monitoring" monthly + annual share one plan name, so cycle
+ *     is resolved from the charge amount via cycleFromChargeAmount(), with
+ *     PLAN_NAME_TO_CYCLE as a last-resort fallback (see ./plans.ts).
  *
  * Fail-safe contract: every public function in this module that returns
  * subscription state returns `{ status: "unknown", reason }` on ANY failure
@@ -34,6 +36,7 @@
  */
 
 import {
+  cycleFromChargeAmount,
   PLAN_NAME_TO_CYCLE,
   PLAN_NAME_TO_TIER,
   type PlanName,
@@ -89,7 +92,8 @@ export interface PartnerActiveSubscription {
   /** Mapped via PLAN_NAME_TO_TIER — see ./plans.ts Tier union (v3 widens
    *  the set to include "monitoring" and "recovery"). */
   tier: Tier | null;
-  /** Derived from plan name via PLAN_NAME_TO_CYCLE (Partner API has no interval field). */
+  /** Resolved from the charge amount via cycleFromChargeAmount(), falling back
+   *  to PLAN_NAME_TO_CYCLE (the Partner API has no interval field). */
   cycle: "monthly" | "annual" | null;
   /** Full GraphQL gid, e.g. `gid://shopify/AppSubscription/12345`. */
   subscriptionGid: string | null;
@@ -353,8 +357,9 @@ export async function getEventsByShopGid(
  * its GraphQL gid (`gid://shopify/AppSubscription/...`).
  *
  * Looks at the most-recent AppSubscriptionEvent and maps the event type to
- * a status enum. Plan name → tier comes from PLAN_NAME_TO_TIER; cycle from
- * PLAN_NAME_TO_CYCLE.
+ * a status enum. Plan name → tier comes from PLAN_NAME_TO_TIER; billing
+ * cycle is resolved from the charge `amount` via cycleFromChargeAmount()
+ * (the Partner API exposes no interval), falling back to PLAN_NAME_TO_CYCLE.
  *
  * Fail-safe: returns `status: "unknown"` (with a populated `reason`) on any
  * of: network/GraphQL error, no events returned, charge missing on the
@@ -387,7 +392,17 @@ export async function getActiveSubscriptionByChargeId(
 
   const planName = latest.charge.name as PlanName;
   const tier = PLAN_NAME_TO_TIER[planName] ?? null;
-  const cycle = PLAN_NAME_TO_CYCLE[planName] ?? null;
+  // The Partner API has no `interval` field, and since the 2026-06 dashboard
+  // collapse "Monitoring" monthly + annual share one plan name. Resolve cycle
+  // from the actual charge amount first; fall back to the name only for legacy
+  // distinct-named plans. Never guess — an unresolved amount yields null.
+  const amountNum = latest.charge.amount
+    ? Number.parseFloat(latest.charge.amount.amount)
+    : null;
+  const cycle =
+    cycleFromChargeAmount(tier, amountNum) ??
+    PLAN_NAME_TO_CYCLE[planName] ??
+    null;
 
   if (tier == null) {
     // We can still report status (e.g. "cancelled" with unknown plan), but

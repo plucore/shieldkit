@@ -1257,7 +1257,7 @@ export default function Index() {
 
       {/* Plan/coverage card always renders at the top of the aside.
           Paid → "Your ShieldKit coverage" reassurance.
-          Free → upgrade prompt with locked items + $49/$449 CTA. */}
+          Free → upgrade prompt with locked items + $49/$390 CTA. */}
       {merchant && !showOnboarding && (
         <PlanStatusCard
           isPaid={isPaid}

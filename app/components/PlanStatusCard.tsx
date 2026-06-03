@@ -12,7 +12,7 @@
  *
  *   Free state — "Fix it now — and stay protected."
  *     Upgrade prompt: free items checked, paid items locked + muted.
- *     One CTA → /app/upgrade at $49/mo or $449/yr.
+ *     One CTA → /app/upgrade at $49/mo or $390/yr.
  *
  * Placed at the top of the dashboard aside (above Security Status).
  * Pure component — feature lists come from app/lib/billing/plans.ts so

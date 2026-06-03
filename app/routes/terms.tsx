@@ -90,7 +90,7 @@ export default function Terms() {
           JSON-LD theme extension, plus fix instructions for surfaced findings.
         </li>
         <li>
-          <strong>Monitoring</strong> — $49 / month or $449 / year. The
+          <strong>Monitoring</strong> — $49 / month or $390 / year. The
           single paid tier. Unlocks unlimited on-demand compliance scans,
           AI-written store policies (refund, shipping, privacy, terms), the
           GMC re-review appeal letter generator, bulk GTIN / MPN / brand

@@ -57,7 +57,7 @@ const HOMEPAGE_FAQ: { q: string; aPlain: string }[] = [
   {
     q: "What do I get on the paid plan?",
     aPlain:
-      "Monitoring ($49/mo or $449/yr) unlocks unlimited on-demand scans, AI-written store policies (refund, shipping, privacy, terms), the GMC re-review appeal letter generator, product data fixes (GTIN/MPN/brand), and AI search visibility (structured data for new products, llms.txt, AI crawler allow/block controls).",
+      "Monitoring ($49/mo or $390/yr) unlocks unlimited on-demand scans, AI-written store policies (refund, shipping, privacy, terms), the GMC re-review appeal letter generator, product data fixes (GTIN/MPN/brand), and AI search visibility (structured data for new products, llms.txt, AI crawler allow/block controls).",
   },
 ];
 
@@ -331,7 +331,7 @@ function Pricing() {
               >
                 Annual{" "}
                 <span className="ml-1 text-[10px] font-bold opacity-80">
-                  SAVE 24%
+                  SAVE 34%
                 </span>
               </label>
             </div>
@@ -356,8 +356,8 @@ function Pricing() {
               badge="Everything unlocked"
               highlight
               priceMonthly="$49"
-              priceAnnual="$449"
-              annualSavings="Save $139/yr"
+              priceAnnual="$390"
+              annualSavings="Save $198/yr"
               features={[
                 "Unlimited on-demand scans",
                 "AI-written store policies + GMC appeal letter",
@@ -533,7 +533,7 @@ function FAQ() {
       q: "What do I get on the paid plan?",
       a: (
         <>
-          Monitoring ($49/mo or $449/yr) unlocks unlimited on-demand
+          Monitoring ($49/mo or $390/yr) unlocks unlimited on-demand
           scans, AI-written store policies (refund, shipping, privacy,
           terms), the GMC re-review appeal letter generator, product
           data fixes (GTIN/MPN/brand), and AI search visibility

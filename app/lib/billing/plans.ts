@@ -16,8 +16,11 @@
  *                                       products, llms.txt, AI bot
  *                                       allow/block, store schema settings,
  *                                       Organization & WebSite JSON-LD.
- *                                       Plans: "Monitoring" ($49/mo) and
- *                                       "Monitoring Annual" ($449/yr).
+ *                                       Billed as "Monitoring" at $49/mo
+ *                                       or $390/yr — annual is a discounted
+ *                                       billing option on the single
+ *                                       "Monitoring" plan since the 2026-06
+ *                                       Partner Dashboard collapse.
  *
  * Grandfathered tiers (still in DB, still resolve through reconciliation,
  * NOT offered to new merchants):
@@ -35,10 +38,16 @@
  *                       access (no premature downgrade — they just don't
  *                       gain the new gates without action).
  *
- * Source of truth for billing cycle: under the Partner API path (post-
- * April-28 canonical), AppSubscription has no `interval` field, so cycle
- * must come from the plan name via PLAN_NAME_TO_CYCLE. The Admin API
- * webhook (pre-April-28 supplementary) still uses intervalToCycle().
+ * Source of truth for billing cycle:
+ *   - Admin API webhook (pre-April-28 supplementary): the payload carries
+ *     the real billing interval — use intervalToCycle().
+ *   - Partner API path (post-April-28 canonical): AppSubscription exposes
+ *     no `interval` field, BUT it does expose the charged `amount`. Since
+ *     the 2026-06 dashboard collapse "Monitoring" monthly + annual share
+ *     ONE plan name, so the name alone can no longer tell them apart —
+ *     cycle is resolved from the amount via cycleFromChargeAmount(), with
+ *     PLAN_NAME_TO_CYCLE only as a last-resort fallback for legacy
+ *     distinct-named plans.
  */
 
 // ─── Tier type ──────────────────────────────────────────────────────────────
@@ -51,23 +60,34 @@ export type Tier = "free" | "shield" | "pro" | "monitoring" | "recovery";
 // during webhook reconciliation and Partner API lookups.
 //
 // v4 (2026-05-28): Recovery removed (folded into Monitoring as one paid
-// tier). Monitoring price changed from $30/$290 to $49/$449. Legacy
-// shield_*/pro_* entries kept so grandfathered subscriptions still
+// tier). Monitoring price changed from $30/$290 to $49/$449.
+// 2026-06: the standalone "Monitoring Annual" Partner Dashboard plan was
+// deleted; annual is now a discounted billing option on the single
+// "Monitoring" plan at $390/yr (was $449). The monitoring_annual entry is
+// retained below as the canonical annual-PRICE source and to reconcile any
+// pre-collapse subscriber whose charge is still named "Monitoring Annual".
+// Legacy shield_*/pro_* entries kept so grandfathered subscriptions still
 // reconcile through the PLAN_NAME maps below; the 2 live Shield Max
 // merchants stay on their existing subscriptions.
 export const PLANS = {
   free: { name: "Free", monthly: 0, annual: 0 },
 
-  // Current offerings (the only two paid plans the Partner Dashboard
-  // should advertise post-v4).
+  // Current offering: a single "Monitoring" plan billed monthly OR annually.
+  // Annual is a discounted billing option on the same plan name since the
+  // 2026-06 dashboard collapse — there is no separate "Monitoring Annual"
+  // plan to pick anymore.
   monitoring_monthly: {
     name: "Monitoring",
     monthly: 49,
     interval: "EVERY_30_DAYS",
   },
+  // Retained as the annual-PRICE source ($390) + to reconcile pre-collapse
+  // subscribers whose Partner API charge is still named "Monitoring Annual".
+  // New annual subs arrive as name "Monitoring" + amount 390 → resolved via
+  // cycleFromChargeAmount(). Do NOT treat this name as a live pickable plan.
   monitoring_annual: {
     name: "Monitoring Annual",
-    annual: 449,
+    annual: 390,
     interval: "ANNUAL",
   },
 
@@ -105,9 +125,14 @@ export const PLAN_NAME_TO_TIER: Record<PlanName, Tier> = {
   "Shield Max Annual": "pro",
 };
 
-// ─── Plan name → billing cycle (Partner API path) ───────────────────────────
-// Partner API's `AppSubscription` exposes no `interval` enum — cycle must
-// come from the plan name. Works because all paid plan names are distinct.
+// ─── Plan name → billing cycle (Partner API fallback only) ──────────────────
+// The Partner API's `AppSubscription` exposes no `interval` enum. This map is
+// now a LAST-RESORT fallback: since the 2026-06 collapse, "Monitoring" monthly
+// and annual share one name, so the name can no longer distinguish their cycle
+// — the Partner API path resolves cycle from the charge amount first (see
+// cycleFromChargeAmount). This map still uniquely resolves every grandfathered
+// distinct-named plan, and the legacy "Monitoring Annual" entry still correctly
+// reconciles any pre-collapse annual subscriber.
 export const PLAN_NAME_TO_CYCLE: Record<PlanName, "monthly" | "annual" | null> =
   {
     Free: null,
@@ -135,6 +160,50 @@ export function intervalToCycle(
   const normalized = String(interval).toUpperCase();
   if (normalized === "ANNUAL") return "annual";
   if (normalized === "EVERY_30_DAYS") return "monthly";
+  return null;
+}
+
+// ─── cycleFromChargeAmount (Partner API path) ───────────────────────────────
+// The Partner API's AppSubscription exposes NO `interval` field — only the
+// charged `amount` (Money). Since the 2026-06 Partner Dashboard collapse,
+// "Monitoring" monthly and "Monitoring" annual share ONE plan name, so the
+// name alone can no longer distinguish their cycle. The charge amount can: a
+// monthly subscription bills the monthly price, an annual one bills the
+// (higher) annual price.
+//
+// Resolution is scoped to the tier (already resolved from the plan name) so
+// the $390 figure — which is BOTH Monitoring-annual and the grandfathered
+// Shield Max Annual, two *different* tiers — can never be misattributed.
+//
+// Returns null when the amount matches neither price point for the tier
+// (foreign-currency charge, proration, discount, free/recovery tier with no
+// price points). Callers then fall back to PLAN_NAME_TO_CYCLE and, failing
+// that, write null — never a guessed cycle.
+const TIER_PRICE_POINTS: Partial<
+  Record<Tier, { monthly: number | null; annual: number | null }>
+> = {
+  monitoring: {
+    monthly: PLANS.monitoring_monthly.monthly,
+    annual: PLANS.monitoring_annual.annual,
+  },
+  pro: { monthly: PLANS.pro_monthly.monthly, annual: PLANS.pro_annual.annual },
+  shield: {
+    monthly: PLANS.shield_monthly.monthly,
+    annual: PLANS.shield_annual.annual,
+  },
+};
+
+export function cycleFromChargeAmount(
+  tier: Tier | null | undefined,
+  amount: number | null | undefined,
+): "monthly" | "annual" | null {
+  if (tier == null || amount == null || !Number.isFinite(amount)) return null;
+  const prices = TIER_PRICE_POINTS[tier];
+  if (!prices) return null;
+  // Check annual first as a defensive tiebreak (no tier currently has equal
+  // monthly/annual prices, but prefer the higher-value reading if that changes).
+  if (prices.annual != null && amount === prices.annual) return "annual";
+  if (prices.monthly != null && amount === prices.monthly) return "monthly";
   return null;
 }
 

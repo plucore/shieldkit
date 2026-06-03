@@ -34,6 +34,7 @@ import {
   FREE_FEATURES,
   TIER_GROUPS,
   annualSavings,
+  cycleFromChargeAmount,
   hasPaidAccess,
 } from "../app/lib/billing/plans";
 
@@ -74,24 +75,24 @@ describe("v4 plan reference data", () => {
     expect((PLAN_NAME_TO_CYCLE as Record<string, unknown>)["Recovery"]).toBeUndefined();
   });
 
-  it("Monitoring is priced at $49/mo and $449/yr (v4)", () => {
+  it("Monitoring is priced at $49/mo and $390/yr (annual discounted 2026-06)", () => {
     expect(PLANS.monitoring_monthly.monthly).toBe(49);
-    expect(PLANS.monitoring_annual.annual).toBe(449);
+    expect(PLANS.monitoring_annual.annual).toBe(390);
   });
 
   it("PLANS no longer exposes a recovery_annual entry", () => {
     expect((PLANS as Record<string, unknown>)["recovery_annual"]).toBeUndefined();
   });
 
-  it("TIER_GROUPS has one group ('monitoring') at the v4 price", () => {
+  it("TIER_GROUPS has one group ('monitoring') at the current price", () => {
     expect(Object.keys(TIER_GROUPS)).toEqual(["monitoring"]);
     expect(TIER_GROUPS.monitoring.monthlyPrice).toBe(49);
-    expect(TIER_GROUPS.monitoring.annualPrice).toBe(449);
+    expect(TIER_GROUPS.monitoring.annualPrice).toBe(390);
   });
 
-  it("annualSavings reports the v4 monthly-vs-annual gap", () => {
-    // 49×12 = 588, minus 449 = 139.
-    expect(annualSavings()).toBe(139);
+  it("annualSavings reports the monthly-vs-annual gap", () => {
+    // 49×12 = 588, minus 390 = 198.
+    expect(annualSavings()).toBe(198);
   });
 
   it("PAID_FEATURES is the single canonical paid feature list", () => {
@@ -112,6 +113,39 @@ describe("v4 plan reference data", () => {
     expect([...PAID_TIERS].sort()).toEqual(
       ["monitoring", "pro", "recovery"].sort(),
     );
+  });
+});
+
+describe("cycleFromChargeAmount — Partner API cycle resolution (2026-06 collapse)", () => {
+  // Post-collapse, "Monitoring" monthly + annual share ONE plan name, so the
+  // Partner API path can no longer read cycle from the name. It reads the
+  // charged amount instead: $49 → monthly, $390 → annual. This is the case the
+  // whole billing-hardening task hinges on.
+  it("an annual Monitoring charge ($390) resolves to 'annual'", () => {
+    expect(cycleFromChargeAmount("monitoring", 390)).toBe("annual");
+  });
+
+  it("a monthly Monitoring charge ($49) resolves to 'monthly'", () => {
+    expect(cycleFromChargeAmount("monitoring", 49)).toBe("monthly");
+  });
+
+  it("disambiguates grandfathered tiers by their own price points", () => {
+    // Shield Max Annual is ALSO $390/yr — but it's tier 'pro', resolved from
+    // the plan name first, so the amount lookup is scoped and never collides
+    // with Monitoring annual.
+    expect(cycleFromChargeAmount("pro", 39)).toBe("monthly");
+    expect(cycleFromChargeAmount("pro", 390)).toBe("annual");
+    expect(cycleFromChargeAmount("shield", 14)).toBe("monthly");
+    expect(cycleFromChargeAmount("shield", 140)).toBe("annual");
+  });
+
+  it("returns null (→ caller falls back, never guesses) for unknown amounts/tiers", () => {
+    expect(cycleFromChargeAmount("monitoring", 12345)).toBeNull(); // discount/proration/FX
+    expect(cycleFromChargeAmount("free", 49)).toBeNull(); // no price points
+    expect(cycleFromChargeAmount("recovery", 390)).toBeNull(); // no price points
+    expect(cycleFromChargeAmount(null, 390)).toBeNull();
+    expect(cycleFromChargeAmount("monitoring", null)).toBeNull();
+    expect(cycleFromChargeAmount("monitoring", Number.NaN)).toBeNull();
   });
 });
 

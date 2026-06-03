@@ -6,8 +6,9 @@
  *  - partner-api.server.ts exposes the required surface and fail-safe
  *    contract (every public subscription accessor must default to
  *    `status: "unknown"` on any failure).
- *  - plans.ts ships PLAN_NAME_TO_CYCLE keyed by all four paid plan names —
- *    cycle derivation on the Partner API path depends on the name alone.
+ *  - the Partner API path resolves billing cycle from the charge AMOUNT
+ *    (cycleFromChargeAmount), falling back to PLAN_NAME_TO_CYCLE — since the
+ *    2026-06 collapse "Monitoring" monthly + annual share one plan name.
  *  - app.billing.confirm.tsx prefers the Partner API and keeps
  *    billing.check() only as a clearly marked legacy fallback.
  *  - app._index.tsx self-heals via the Partner API and never demotes on
@@ -49,6 +50,18 @@ describe("partner-api.server.ts", () => {
     expect(src).toContain("export async function getEventsByChargeId");
     expect(src).toContain("export async function getEventsByShopGid");
     expect(src).toContain("export function buildAppSubscriptionGid");
+  });
+
+  it("resolves billing cycle from the charge amount first, name as fallback", () => {
+    // Post-2026-06 collapse "Monitoring" monthly + annual share one plan name,
+    // so the name can no longer tell the cycle apart. The amount can: the path
+    // must call cycleFromChargeAmount(tier, amount) BEFORE PLAN_NAME_TO_CYCLE.
+    expect(src).toContain("cycleFromChargeAmount");
+    expect(src).toMatch(
+      /cycleFromChargeAmount\([^)]*\)\s*\?\?\s*PLAN_NAME_TO_CYCLE/,
+    );
+    // The amount comes from the AppSubscription charge's Money field.
+    expect(src).toContain("latest.charge.amount");
   });
 
   it("queries the documented AppSubscriptionEvent types", () => {

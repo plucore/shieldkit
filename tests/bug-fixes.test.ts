@@ -1287,7 +1287,9 @@ describe("GTIN Auto-Fill button surfaces zero-work outcome", () => {
     // Pre-fix: the success banner was gated on `succeeded > 0`, so when the
     // action returned ok=true with 0 candidates (e.g. test store with no
     // SKUs/barcodes/vendor) the click produced no UI change — looked broken.
-    expect(src).toContain("Nothing to write");
+    // The banner now diagnoses *why* nothing was written (no SKU/barcode to
+    // derive identifiers from) instead of the old passive "Nothing to write".
+    expect(src).toContain("These products need a SKU or barcode first");
     expect(src).toMatch(/actionData\.succeeded\s*===\s*0/);
   });
 

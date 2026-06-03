@@ -510,13 +510,20 @@ export default function GtinFillPage() {
         actionData.succeeded === 0 &&
         actionData.failed === 0 && (
           <s-section>
-            <s-banner tone="info" heading="Nothing to write">
-              Every candidate product already has the identifiers ShieldKit can
-              derive (GTIN from barcode, MPN from SKU, brand from vendor or shop
-              name). For products with no SKU and no barcode, add at least one
-              variant identifier in Shopify and re-run Auto-Fill — or use
-              &quot;Mark &lsquo;no identifier exists&rsquo;&quot; for handmade /
-              vintage items.
+            <s-banner tone="info" heading="These products need a SKU or barcode first">
+              ShieldKit builds identifiers from data your products already have:
+              GTIN comes from a variant&rsquo;s barcode, and MPN comes from its
+              SKU. The products still flagged above have neither, so there&rsquo;s
+              nothing to derive an identifier from yet — that&rsquo;s why this run
+              wrote nothing, not because anything is broken.
+              <br />
+              <br />
+              Two ways forward: add at least one variant identifier (a SKU or a
+              barcode) to these products in Shopify and re-run Auto-Fill, or — for
+              items that genuinely have no manufacturer identifier (handmade,
+              vintage, or custom-made goods) — use the
+              &quot;Mark &lsquo;no identifier exists&rsquo;&quot; button below so
+              Google stops flagging them.
             </s-banner>
           </s-section>
         )}

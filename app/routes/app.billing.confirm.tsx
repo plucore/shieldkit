@@ -32,6 +32,7 @@ import {
   buildAppSubscriptionGid,
   getActiveSubscriptionByChargeId,
 } from "../lib/billing/partner-api.server";
+import { ensureProductWebhooks } from "../lib/webhooks/product-webhooks.server";
 import { sentry } from "../lib/sentry.server";
 
 interface PendingResponse {
@@ -138,6 +139,36 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         `[billing/confirm] Supabase update FAILED for ${session.shop}: ${error.message}`,
       );
     }
+
+    // Provision the per-shop products/create + products/update subscriptions
+    // now that this merchant is paid. products/* is no longer app-level, so
+    // this is the moment the enrichment webhooks start flowing. Best-effort:
+    // a 1–2s Admin API roundtrip is acceptable on this post-approval path
+    // (same tolerance as the inline self-heal), but never block the redirect.
+    try {
+      const summary = await ensureProductWebhooks(session.shop);
+      sentry.addBreadcrumb({
+        category: "billing.confirm",
+        message: "ensure_product_webhooks",
+        level: summary.errors.length ? "warning" : "info",
+        data: {
+          shop: session.shop,
+          created: summary.created,
+          existing: summary.existing,
+          errors: summary.errors,
+        },
+      });
+    } catch (err) {
+      sentry.captureException(err, {
+        tags: { area: "billing.confirm", branch: "ensure_product_webhooks" },
+        extra: { shop: session.shop },
+      });
+      console.error(
+        `[billing/confirm] ensureProductWebhooks threw for ${session.shop}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+
     return redirect("/app");
   }
 

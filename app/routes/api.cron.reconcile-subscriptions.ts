@@ -38,6 +38,11 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { supabase } from "../supabase.server";
 import { PAID_TIERS } from "../lib/billing/plans";
 import { getActiveSubscriptionByChargeId } from "../lib/billing/partner-api.server";
+import {
+  ensureProductWebhooks,
+  removeProductWebhooks,
+} from "../lib/webhooks/product-webhooks.server";
+import { sentry } from "../lib/sentry.server";
 
 const TERMINAL_STATUSES = new Set([
   "cancelled",
@@ -159,6 +164,27 @@ export async function action({ request }: ActionFunctionArgs) {
       console.log(
         `[cron/reconcile-subscriptions] demoted ${m.shopify_domain} — partner-api status=${sub.status} (was tier=${m.tier})`,
       );
+
+      // Now that they're free, tear down their per-shop products/* webhooks so
+      // we stop paying for enrichment deliveries they can no longer use.
+      // Best-effort — never let a webhook cleanup failure abort the cron pass.
+      try {
+        const removal = await removeProductWebhooks(m.shopify_domain);
+        if (removal.errors.length) {
+          console.warn(
+            `[cron/reconcile-subscriptions] removeProductWebhooks errors for ${m.shopify_domain}: ${removal.errors.join("; ")}`,
+          );
+        }
+      } catch (err) {
+        sentry.captureException(err, {
+          tags: {
+            area: "reconcile-subscriptions",
+            branch: "remove_product_webhooks",
+          },
+          extra: { shop: m.shopify_domain },
+        });
+      }
+
       demoted += 1;
       demotedDomains.push(m.shopify_domain);
       continue;
@@ -167,6 +193,29 @@ export async function action({ request }: ActionFunctionArgs) {
     // status === "active" | "pending" — DB and Shopify agree (or merchant
     // is in a pre-approval pending state). Leave the row alone.
     stillActive += 1;
+
+    // Self-heal backstop: re-assert the per-shop products/* subscriptions for
+    // confirmed-active paid merchants. Idempotent and cheap (only paid
+    // merchants are iterated here), this repairs any subscription that a
+    // missed upgrade-path call left unprovisioned, within 24h. Best-effort.
+    if (sub.status === "active") {
+      try {
+        const ensure = await ensureProductWebhooks(m.shopify_domain);
+        if (ensure.errors.length) {
+          console.warn(
+            `[cron/reconcile-subscriptions] ensureProductWebhooks errors for ${m.shopify_domain}: ${ensure.errors.join("; ")}`,
+          );
+        }
+      } catch (err) {
+        sentry.captureException(err, {
+          tags: {
+            area: "reconcile-subscriptions",
+            branch: "ensure_product_webhooks",
+          },
+          extra: { shop: m.shopify_domain },
+        });
+      }
+    }
   }
 
   return json({

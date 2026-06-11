@@ -12,28 +12,16 @@
  * the wiring in shopify.app.toml and vercel.json.
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 const root = join(__dirname, "..");
 
-describe("webhooks.themes.update (v4 no-op ACK)", () => {
-  const src = readFileSync(
-    join(root, "app", "routes", "webhooks.themes.update.tsx"),
-    "utf8",
-  );
-
-  it("exports an action that HMAC-verifies and ACKs 200", () => {
-    expect(src).toMatch(/export const action/);
-    expect(src).toContain("authenticate.webhook(request)");
-    expect(src).toContain("return new Response()");
-  });
-
-  it("no longer enqueues a scan trigger or runs tier gating", () => {
-    expect(src).not.toContain("pending_scan_triggers");
-    expect(src).not.toContain("hasPaidAccess");
-    expect(src).not.toContain("hasMonitoringAccess");
-    expect(src).not.toContain("DEDUP_WINDOW_MS");
+describe("webhooks.themes.update removed (dead no-op handler)", () => {
+  it("the themes handler file no longer exists", () => {
+    expect(
+      existsSync(join(root, "app", "routes", "webhooks.themes.update.tsx")),
+    ).toBe(false);
   });
 });
 
@@ -96,11 +84,10 @@ describe("api.cron.process-scan-triggers (v4 enrichment-only drainer)", () => {
 });
 
 describe("config wiring", () => {
-  it("shopify.app.toml still subscribes to themes/update + themes/publish (subscription kept for registration)", () => {
+  it("shopify.app.toml no longer subscribes to themes/update + themes/publish (dead no-op removed)", () => {
     const toml = readFileSync(join(root, "shopify.app.toml"), "utf8");
-    expect(toml).toMatch(/themes\/update/);
-    expect(toml).toMatch(/themes\/publish/);
-    expect(toml).toContain('uri = "/webhooks/themes/update"');
+    expect(toml).not.toContain('topics = [ "themes/update", "themes/publish" ]');
+    expect(toml).not.toContain('uri = "/webhooks/themes/update"');
   });
 
   it("vercel.json schedules process-scan-triggers daily (safety net for GH Actions)", () => {

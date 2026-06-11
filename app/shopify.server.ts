@@ -7,6 +7,9 @@ import {
 import { SupabaseSessionStorage } from "./lib/session-storage.server";
 import { supabase } from "./supabase.server";
 import { encrypt } from "./lib/crypto.server";
+import { hasPaidAccess } from "./lib/billing/plans";
+import { ensureProductWebhooks } from "./lib/webhooks/product-webhooks.server";
+import { sentry } from "./lib/sentry.server";
 
 const sessionStorage = new SupabaseSessionStorage();
 
@@ -73,6 +76,33 @@ const shopify = shopifyApp({
           error.message
         );
       }
+
+      // Reinstall coverage: products/* webhooks are per-shop (not app-level)
+      // and only provisioned for paid merchants. A reinstall of an existing
+      // PAID merchant must re-assert those subscriptions, otherwise their
+      // enrichment deliveries stay dark until the daily self-heal cron. Read
+      // the current tier in a SEPARATE query — deliberately not folded into the
+      // upsert payload above (the cleanup-batch §6 regression test guards that
+      // payload against growth) — and gate via hasPaidAccess. Fire-and-forget:
+      // OAuth completion must never block on an Admin API roundtrip, and the
+      // reconcile-subscriptions cron is the durable backstop.
+      void (async () => {
+        try {
+          const { data: row } = await supabase
+            .from("merchants")
+            .select("tier")
+            .eq("shopify_domain", session.shop)
+            .maybeSingle();
+          if (hasPaidAccess(row?.tier)) {
+            await ensureProductWebhooks(session.shop);
+          }
+        } catch (err) {
+          sentry.captureException(err, {
+            tags: { area: "afterAuth", branch: "ensure_product_webhooks" },
+            extra: { shop: session.shop },
+          });
+        }
+      })();
     },
   },
 });

@@ -23,13 +23,19 @@ api_version = "2026-04"
   topics = [ "app_subscriptions/update" ]
   uri = "/webhooks/app_subscriptions/update"
 
-  [[webhooks.subscriptions]]
-  topics = [ "products/create", "products/update" ]
-  uri = "/webhooks/products/update"
-
-  [[webhooks.subscriptions]]
-  topics = [ "themes/update", "themes/publish" ]
-  uri = "/webhooks/themes/update"
+  # NOTE: products/create + products/update are intentionally NOT declared
+  # here. They are paid-only (ongoing GTIN/MPN/brand enrichment) and are
+  # registered per-shop for paid merchants via
+  # app/lib/webhooks/product-webhooks.server.ts (ensureProductWebhooks). An
+  # app-level subscription would fire for every install regardless of tier —
+  # free-tier stores generated ~20k wasted invocations/day. The handler at
+  # /webhooks/products/update remains as the per-shop callback target.
+  #
+  # themes/update + themes/publish were removed entirely — the v4 handler was
+  # a pure no-op (the theme-change → re-scan path was retired with the weekly
+  # cron infra). Webhook topic subscriptions are not part of App Store scope
+  # review (only access_scopes are), so dropping them is churn-free. The
+  # read_themes / write_themes scopes are unaffected.
 
 [webhooks.privacy_compliance]
 customer_data_request_url = "/webhooks/customers/data_request"

@@ -1002,17 +1002,15 @@ describe("Weekly auto-scan + digest infra removed (v4 §4)", () => {
     expect(paths).not.toContain("/api/cron/monthly-reset");
   });
 
-  it("webhooks.themes.update.tsx is a no-op ACK", () => {
-    const src = fs.readFileSync(
-      path.join(APP_DIR, "routes/webhooks.themes.update.tsx"),
-      "utf-8"
-    );
-    expect(src).toContain("authenticate.webhook");
-    expect(src).toContain("return new Response()");
-    // No more enqueue, no helper imports, no DB writes from this handler.
-    expect(src).not.toContain("pending_scan_triggers");
-    expect(src).not.toContain("hasPaidAccess");
-    expect(src).not.toContain("hasMonitoringAccess");
+  it("webhooks.themes.update.tsx handler is deleted (dead v4 no-op removed)", () => {
+    // The themes/update + themes/publish handler was a pure no-op (the
+    // theme-change → re-scan path was retired with the weekly cron infra).
+    // Both the handler and its app-level subscription were removed.
+    expect(
+      fs.existsSync(path.join(APP_DIR, "routes/webhooks.themes.update.tsx")),
+    ).toBe(false);
+    const toml = fs.readFileSync(path.join(ROOT_DIR, "shopify.app.toml"), "utf-8");
+    expect(toml).not.toContain('uri = "/webhooks/themes/update"');
   });
 });
 

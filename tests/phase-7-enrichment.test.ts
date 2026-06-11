@@ -206,10 +206,13 @@ describe("Phase 7.1 — webhook + config wiring", () => {
     expect(src).toContain("authenticate.webhook(request)");
   });
 
-  it("shopify.app.toml subscribes to products/create + products/update", () => {
+  it("shopify.app.toml no longer subscribes to products/create + products/update app-wide (now per-shop, paid-only)", () => {
     const toml = readFileSync(join(root, "shopify.app.toml"), "utf8");
-    expect(toml).toMatch(/products\/create.*products\/update|products\/update.*products\/create/s);
-    expect(toml).toContain('uri = "/webhooks/products/update"');
+    // products/* moved to per-shop subscriptions provisioned only for paid
+    // merchants via app/lib/webhooks/product-webhooks.server.ts. An app-level
+    // subscription fired for every install regardless of tier.
+    expect(toml).not.toContain('topics = [ "products/create", "products/update" ]');
+    expect(toml).not.toContain('uri = "/webhooks/products/update"');
   });
 
   it("schema.sql declares enrichment_webhook_log with UUID merchant_id", () => {

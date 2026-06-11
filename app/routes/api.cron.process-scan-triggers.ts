@@ -27,6 +27,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { supabase } from "../supabase.server";
 import { createAdminClient } from "../lib/shopify-api.server";
 import { enrichProductMetafields } from "../lib/enrichment/gtin-enrichment.server";
+import { hasPaidAccess } from "../lib/billing/plans";
 
 // One merchant per invocation. Each enrichment touches one product gid
 // and Shopify metafieldsSet usually returns in <2s; the BATCH_SIZE=1 cap
@@ -150,7 +151,18 @@ export async function action({ request }: ActionFunctionArgs) {
     const productGid = row.payload?.product_gid;
     const numericId = row.payload?.numeric_product_id ?? null;
 
-    if (!merchant || merchant.uninstalled_at || !productGid) {
+    // Correctness guard: enrichment is a paid feature, and the metafield write
+    // it performs must never run for a free merchant. A row enqueued while the
+    // merchant was paid can outlive a downgrade (reconcile-subscriptions demotes
+    // to free on terminal Partner-API status); re-checking hasPaidAccess at
+    // drain time — alongside the missing-merchant / uninstalled / no-gid checks —
+    // closes that leak. Drop the row (mark processed) without writing metafields.
+    if (
+      !merchant ||
+      merchant.uninstalled_at ||
+      !productGid ||
+      !hasPaidAccess(merchant.tier)
+    ) {
       await markProcessed([row.id]);
       triggersProcessed += 1;
       continue;

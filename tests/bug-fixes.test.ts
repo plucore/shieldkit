@@ -1131,18 +1131,26 @@ describe("Uninstall webhook reliability", () => {
     expect(src).toMatch(/WHERE resolved_at IS NULL/i);
   });
 
-  it("reconcile-installs cron probes Shopify Admin API + back-fills uninstalled_at", () => {
+  it("reconcile-installs treats a probe 401/403 as NON-DESTRUCTIVE auth_stale (no uninstalled_at write, no sessions delete)", () => {
     const src = fs.readFileSync(
       path.join(APP_DIR, "routes/api.cron.reconcile-installs.ts"),
       "utf-8"
     );
     expect(src).toContain("CRON_SECRET");
     expect(src).toContain("createAdminClient");
-    // Treats 401/403 from Shopify as definitive uninstall signal.
+    // 401/403 is still detected from the probe...
     expect(src).toMatch(/HTTP 401/);
-    // Audit row insert into webhook_failures with resolved_at set.
-    expect(src).toContain("webhook_failures");
-    expect(src).toMatch(/resolved_at:\s*nowIso/);
+    expect(src).toMatch(/HTTP 403/);
+    // ...but routed to a non-destructive "auth_stale" outcome, never "uninstalled".
+    expect(src).toContain("auth_stale");
+    expect(src).not.toContain('return "uninstalled"');
+    // HARD GUARANTEE — a probe must never soft-delete the merchant or wipe the
+    // sessions row (its refresh_token is the only non-reinstall recovery path).
+    expect(src).not.toMatch(/uninstalled_at:\s*nowIso/);
+    expect(src).not.toMatch(/\.update\(\{\s*uninstalled_at/);
+    expect(src).not.toContain('from("sessions")');
+    // The app/uninstalled webhook remains the authoritative uninstaller.
+    expect(src).toMatch(/app\/uninstalled/);
   });
 
   it("vercel.json schedules reconcile-installs daily at 03:00 UTC", () => {

@@ -24,9 +24,17 @@ const shopify = shopifyApp({
   authPathPrefix: "/auth",
   sessionStorage,
   distribution: AppDistribution.AppStore,
-  future: {
-    expiringOfflineAccessTokens: true,
-  },
+  // Offline access tokens are intentionally LONG-LIVED — the
+  // `expiringOfflineAccessTokens` future flag is deliberately OFF. ShieldKit is
+  // background-heavy: scans, GTIN enrichment, llms.txt, webhook self-heal, and
+  // the install/subscription reconcilers all call the Admin API from cron jobs
+  // with no request context, so they CANNOT run the request-time token exchange
+  // that refreshes an expiring offline token. With the flag on, every merchant's
+  // background token died ~24h after install and never refreshed (merchants
+  // rarely re-open the embedded app), 401'ing all background work. Long-lived
+  // offline tokens are the correct fit; the refresh_token material is still
+  // stored encrypted by SupabaseSessionStorage if request-time rotation is ever
+  // reintroduced. Disabled 2026-06-26 after 42/43 installs went dark.
   // ─── Shopify Managed Pricing ─────────────────────────────────────────────
   // Plans are defined in the Partner Dashboard listing UI, not in code.
   // Merchants pick a plan on Shopify's hosted pricing page; we redirect them

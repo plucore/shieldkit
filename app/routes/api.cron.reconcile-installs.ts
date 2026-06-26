@@ -4,21 +4,26 @@
  * POST /api/cron/reconcile-installs
  *
  * Daily 03:00 UTC. Walks merchants flagged uninstalled_at IS NULL and probes
- * Shopify Admin API with a cheap `{ shop { id } }` query. Token revocation
- * (401 from Shopify, or "No access token" from createAdminClient) means the
- * merchant has uninstalled — we back-fill uninstalled_at and delete sessions
- * to match.
+ * the Shopify Admin API with a cheap `{ shop { id } }` query as a
+ * NON-DESTRUCTIVE auth-health check.
  *
- * This is the durable safety net for app/uninstalled webhook deliveries that
- * fail their Supabase writes (the audit-identified root cause of the ~30%
- * ghost-merchant rate). The webhook itself now also records a webhook_failures
- * row on side-effect failures (Fix 4), but this reconciler closes the loop
- * for any failure mode — including webhooks Shopify never delivered at all.
+ * IMPORTANT (2026-06-26): a probe 401/403 is NOT treated as an uninstall.
+ * Offline tokens could self-expire (the `expiringOfflineAccessTokens` future
+ * flag, now disabled) and background jobs have no request-time path to refresh
+ * them, so a 401 routinely means "our stored token is stale", NOT "the merchant
+ * uninstalled". Acting on a 401 here previously soft-deleted the merchant AND
+ * deleted the sessions row — destroying the refresh_token that is the only
+ * non-reinstall recovery path. That was an irreversible-data-loss landmine
+ * across every still-installed merchant whose token had lapsed (42/43 of them).
+ *
+ * This route therefore NEVER writes uninstalled_at and NEVER deletes sessions.
+ * The app/uninstalled webhook (webhooks.app.uninstalled.tsx) is the
+ * AUTHORITATIVE uninstaller — that path is a real token revoke. Here we only
+ * record a non-destructive `auth_stale` signal (console + Sentry breadcrumb +
+ * response counts) for visibility into token health.
  *
  * Bounded for Vercel Hobby's 60s function ceiling: 500ms pacing between
- * merchants, no concurrent fan-out. Scales to ~80 merchants per tick which
- * comfortably exceeds today's paid base; when it doesn't, mirror the
- * weekly-scan enqueue/drain split.
+ * merchants, no concurrent fan-out.
  *
  * Auth: bearer CRON_SECRET, same as the other crons.
  */
@@ -86,44 +91,41 @@ export async function action({ request }: ActionFunctionArgs) {
       "[cron/reconcile-installs] merchant fetch failed:",
       fetchErr.message,
     );
-    return json(
-      { error: "database_error", message: fetchErr.message },
-      500,
-    );
+    return json({ error: "database_error", message: fetchErr.message }, 500);
   }
 
   if (!merchants || merchants.length === 0) {
-    return json({ checked: 0, reconciled: 0, still_installed: 0, errors: 0 });
+    return json({ checked: 0, still_installed: 0, auth_stale: 0, errors: 0 });
   }
 
-  let reconciled = 0;
   let stillInstalled = 0;
+  let authStale = 0;
   let errors = 0;
-  const reconciledDomains: string[] = [];
+  const authStaleDomains: string[] = [];
 
   for (const m of merchants as Array<{ id: string; shopify_domain: string }>) {
     const outcome = await probeMerchant(m.shopify_domain);
 
-    if (outcome === "uninstalled") {
-      try {
-        await reconcileToUninstalled(m.id, m.shopify_domain);
-        reconciled += 1;
-        reconciledDomains.push(m.shopify_domain);
-        sentry.addBreadcrumb({
-          category: "reconcile-installs",
-          message: "reconciled_to_uninstalled",
-          level: "warning",
-          data: { shop: m.shopify_domain },
-        });
-      } catch (err) {
-        errors += 1;
-        sentry.captureException(err, {
-          tags: { area: "reconcile-installs", branch: "reconcile_failed" },
-          extra: { shop: m.shopify_domain },
-        });
-      }
-    } else if (outcome === "installed") {
+    if (outcome === "installed") {
       stillInstalled += 1;
+    } else if (outcome === "auth_stale") {
+      // NON-DESTRUCTIVE. A stale/expired or missing offline token is not a
+      // reliable uninstall signal — never write uninstalled_at, never delete
+      // the sessions row (its refresh_token is the only non-reinstall recovery
+      // path). Record for visibility only; the app/uninstalled webhook is the
+      // authoritative uninstaller.
+      authStale += 1;
+      authStaleDomains.push(m.shopify_domain);
+      sentry.addBreadcrumb({
+        category: "reconcile-installs",
+        message: "auth_stale",
+        level: "info",
+        data: { shop: m.shopify_domain },
+      });
+      console.warn(
+        `[cron/reconcile-installs] auth_stale (non-destructive) for ${m.shopify_domain} — ` +
+          "stored offline token rejected; leaving install state untouched.",
+      );
     } else {
       errors += 1;
     }
@@ -133,20 +135,21 @@ export async function action({ request }: ActionFunctionArgs) {
 
   return json({
     checked: merchants.length,
-    reconciled,
     still_installed: stillInstalled,
+    auth_stale: authStale,
     errors,
-    reconciled_domains: reconciledDomains,
+    auth_stale_domains: authStaleDomains,
   });
 }
 
-type ProbeOutcome = "installed" | "uninstalled" | "transient_error";
+type ProbeOutcome = "installed" | "auth_stale" | "transient_error";
 
 /**
- * Probe a single merchant. We treat a missing-token state and Shopify 401
- * responses as definitive uninstalls; everything else (5xx, network errors,
- * GraphQL errors) is transient — skip and retry tomorrow rather than risk
- * an erroneous reconciliation.
+ * Probe a single merchant's Admin API reachability. This is a NON-DESTRUCTIVE
+ * health check: a 401/403 or a missing stored token resolves to "auth_stale"
+ * (our token can't authenticate) — NOT to "uninstalled". Nothing in this route
+ * acts on the outcome destructively. Genuine uninstalls are handled by the
+ * app/uninstalled webhook.
  */
 async function probeMerchant(shopifyDomain: string): Promise<ProbeOutcome> {
   let executor;
@@ -155,8 +158,9 @@ async function probeMerchant(shopifyDomain: string): Promise<ProbeOutcome> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("No access token")) {
-      // No token in sessions OR merchants → the OAuth path's already gone.
-      return "uninstalled";
+      // No usable stored token — a lapsed/expired token or a never-completed
+      // OAuth. Either way NOT a reliable uninstall signal: non-destructive.
+      return "auth_stale";
     }
     // Unknown init error — treat as transient.
     console.warn(
@@ -174,58 +178,17 @@ async function probeMerchant(shopifyDomain: string): Promise<ProbeOutcome> {
     return "transient_error";
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    // The executor throws "HTTP 401 from <shop>" on revoked tokens. That's
-    // the unambiguous uninstall signal we want to act on.
+    // The executor throws "HTTP 401 from <shop>" when our stored offline token
+    // is rejected. With self-expiring tokens this is usually a STALE token, not
+    // an uninstall — so it is non-destructive auth_stale, never an uninstall.
+    // See the file header. The app/uninstalled webhook handles real revokes.
     if (msg.includes("HTTP 401") || msg.includes("HTTP 403")) {
-      return "uninstalled";
+      return "auth_stale";
     }
     // 5xx, timeouts, connection resets — try again tomorrow.
     console.warn(
       `[cron/reconcile-installs] probe failed for ${shopifyDomain}: ${msg}`,
     );
     return "transient_error";
-  }
-}
-
-/**
- * Mark merchant uninstalled + delete sessions + record an audit row in
- * webhook_failures so the absence of an inbound webhook is captured.
- */
-async function reconcileToUninstalled(
-  merchantId: string,
-  shop: string,
-): Promise<void> {
-  const nowIso = new Date().toISOString();
-
-  const { error: updateErr } = await supabase
-    .from("merchants")
-    .update({ uninstalled_at: nowIso })
-    .eq("id", merchantId);
-
-  if (updateErr) {
-    throw new Error(
-      `merchants.update failed for ${shop}: ${updateErr.message}`,
-    );
-  }
-
-  // Best-effort session cleanup. Token's revoked anyway; this is just hygiene.
-  await supabase.from("sessions").delete().eq("shop", shop);
-
-  // Audit row — record that this uninstall was discovered by the reconciler
-  // rather than via the webhook. Inserted already-resolved so it doesn't
-  // pollute the unresolved hot set.
-  try {
-    await supabase.from("webhook_failures").insert({
-      topic: "app/uninstalled",
-      shop,
-      payload: { reconciled: true, source: "reconcile-installs" },
-      error_message: "no webhook received — discovered by reconciler",
-      resolved_at: nowIso,
-    });
-  } catch (err) {
-    console.warn(
-      `[cron/reconcile-installs] webhook_failures audit insert failed for ${shop}:`,
-      err instanceof Error ? err.message : err,
-    );
   }
 }

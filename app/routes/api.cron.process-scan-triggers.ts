@@ -1,9 +1,17 @@
 /**
  * app/routes/api.cron.process-scan-triggers.ts
  *
- * Drains pending_scan_triggers, one merchant per invocation. The Vercel
- * Hobby tier function ceiling is 60s; a single-row batch keeps us safely
- * under it.
+ * Drains pending_scan_triggers in a small bounded batch per invocation. The
+ * Vercel Hobby tier function ceiling is 60s; BATCH_SIZE=10 enrichments (~2s
+ * each) keep us comfortably under it.
+ *
+ * Queue-head safety (2026-06-26): the drain SELECT joins merchants with an
+ * INNER join and filters to PAID, still-installed merchants. A free-tier or
+ * demoted merchant's rows are therefore NEVER selected, so they can never
+ * reach — and wedge — the head of the queue. This is the durable fix for the
+ * May-2026 poison pill (~860 demoted-merchant rows that stalled the drainer
+ * under the old single-row, unscoped SELECT). Pre-existing free-tier rows are
+ * removed out-of-band by scripts/purge-free-scan-triggers.ts.
  *
  * Trigger-type vocabulary (v4 — 2026-05-28):
  *   - enrichment   → run enrichProductMetafields against the product gid
@@ -18,7 +26,7 @@
  *
  * Invocation cadence: a GitHub Actions workflow
  * (.github/workflows/process-scan-triggers.yml) curls this endpoint every
- * 30 minutes; Vercel Cron daily 12:00 UTC is the safety net.
+ * 6 hours; Vercel Cron daily 12:00 UTC is the safety net.
  *
  * Auth: bearer CRON_SECRET.
  */
@@ -27,12 +35,15 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { supabase } from "../supabase.server";
 import { createAdminClient } from "../lib/shopify-api.server";
 import { enrichProductMetafields } from "../lib/enrichment/gtin-enrichment.server";
-import { hasPaidAccess } from "../lib/billing/plans";
+import { hasPaidAccess, PAID_TIERS } from "../lib/billing/plans";
+import { sentry } from "../lib/sentry.server";
 
-// One merchant per invocation. Each enrichment touches one product gid
-// and Shopify metafieldsSet usually returns in <2s; the BATCH_SIZE=1 cap
-// inherited from the v3 scan-drain pattern stays for safety.
-const BATCH_SIZE = 1;
+// A bounded batch per invocation. Each enrichment touches one product gid and
+// Shopify metafieldsSet usually returns in <2s, so 10 enrichments stay well
+// under Vercel Hobby's 60s ceiling. Bumped 1→10 (2026-06-26): the legit paid
+// backlog is tiny now, so a batch of 10 clears it in a single pass AND means a
+// single slow/failed row no longer dominates an entire invocation.
+const BATCH_SIZE = 10;
 
 function json<T>(body: T, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -47,6 +58,14 @@ interface TriggerRow {
   trigger_type: string;
   trigger_at: string;
   payload: { product_gid?: string; numeric_product_id?: string } | null;
+  // Embedded via the merchants!inner join in the drain SELECT. The join
+  // restricts the queue head to PAID, still-installed merchants, so a free /
+  // demoted merchant's rows can never reach (and wedge) the drainer.
+  merchants: {
+    shopify_domain: string;
+    tier: string;
+    uninstalled_at: string | null;
+  };
 }
 
 export async function loader(_args: LoaderFunctionArgs) {
@@ -72,10 +91,20 @@ export async function action({ request }: ActionFunctionArgs) {
     return json({ error: "unauthorized" }, 401);
   }
 
+  // Scope the queue head to PAID, still-installed merchants. merchants!inner
+  // drops any row whose merchant fails the tier/uninstall filter, so a
+  // free-tier or demoted merchant's rows are NEVER selected — the poison pill
+  // that froze the queue at the May-2026 backlog cannot recur. Free-tier rows
+  // still sitting in the table are removed out-of-band by
+  // scripts/purge-free-scan-triggers.ts.
   const { data: rows, error: fetchErr } = await supabase
     .from("pending_scan_triggers")
-    .select("id, merchant_id, trigger_type, trigger_at, payload")
+    .select(
+      "id, merchant_id, trigger_type, trigger_at, payload, merchants!inner(shopify_domain, tier, uninstalled_at)",
+    )
     .is("processed_at", null)
+    .is("merchants.uninstalled_at", null)
+    .in("merchants.tier", PAID_TIERS as readonly string[])
     .order("trigger_at", { ascending: true })
     .limit(BATCH_SIZE);
 
@@ -91,11 +120,10 @@ export async function action({ request }: ActionFunctionArgs) {
     return json({ enrichments_processed: 0, legacy_skipped: 0, triggers_processed: 0 });
   }
 
-  const triggerRows = rows as TriggerRow[];
+  const triggerRows = (rows ?? []) as unknown as TriggerRow[];
 
-  // Look up shopify_domain + uninstalled_at for merchants referenced by
-  // active enrichment rows. Legacy-type rows don't need it (they're just
-  // being advanced).
+  // Split paid-scoped rows into enrichment work vs legacy holdovers. Both are
+  // already guaranteed to belong to a paid, installed merchant by the SELECT.
   const enrichmentRows = triggerRows.filter((r) => r.trigger_type === "enrichment");
   const legacyRows = triggerRows.filter((r) => r.trigger_type !== "enrichment");
 
@@ -113,50 +141,16 @@ export async function action({ request }: ActionFunctionArgs) {
     }
   }
 
-  if (enrichmentRows.length === 0) {
-    return json({
-      enrichments_processed: 0,
-      legacy_skipped: legacySkipped,
-      triggers_processed: triggersProcessed,
-      errors,
-    });
-  }
-
-  const merchantIds = Array.from(new Set(enrichmentRows.map((r) => r.merchant_id)));
-  const { data: merchantRows } = await supabase
-    .from("merchants")
-    .select("id, shopify_domain, tier, uninstalled_at")
-    .in("id", merchantIds);
-
-  const merchantsById = new Map<
-    string,
-    { shopify_domain: string; tier: string; uninstalled_at: string | null }
-  >();
-  for (const m of (merchantRows ?? []) as Array<{
-    id: string;
-    shopify_domain: string;
-    tier: string;
-    uninstalled_at: string | null;
-  }>) {
-    merchantsById.set(m.id, {
-      shopify_domain: m.shopify_domain,
-      tier: m.tier,
-      uninstalled_at: m.uninstalled_at,
-    });
-  }
-
   // ── Enrichment triggers ─────────────────────────────────────────────────
+  // The merchants!inner join already guarantees each row belongs to a paid,
+  // installed merchant; the per-row guard below is defensive belt-and-braces
+  // (e.g. a malformed payload with no product gid) that ALSO advances the row
+  // so it can never wedge the head.
   for (const row of enrichmentRows) {
-    const merchant = merchantsById.get(row.merchant_id);
+    const merchant = row.merchants;
     const productGid = row.payload?.product_gid;
     const numericId = row.payload?.numeric_product_id ?? null;
 
-    // Correctness guard: enrichment is a paid feature, and the metafield write
-    // it performs must never run for a free merchant. A row enqueued while the
-    // merchant was paid can outlive a downgrade (reconcile-subscriptions demotes
-    // to free on terminal Partner-API status); re-checking hasPaidAccess at
-    // drain time — alongside the missing-merchant / uninstalled / no-gid checks —
-    // closes that leak. Drop the row (mark processed) without writing metafields.
     if (
       !merchant ||
       merchant.uninstalled_at ||
@@ -198,12 +192,19 @@ export async function action({ request }: ActionFunctionArgs) {
       enrichmentsProcessed++;
     } catch (err) {
       errors++;
+      sentry.captureException(err, {
+        tags: { area: "process-scan-triggers", branch: "enrich" },
+        extra: { shop: merchant.shopify_domain, product_gid: productGid },
+      });
       console.error(
         `[cron/process-scan-triggers] enrichment failed for ${merchant.shopify_domain} product ${productGid}:`,
         err instanceof Error ? err.message : err,
       );
     }
 
+    // Forward-progress guarantee: advance the row regardless of the enrichment
+    // outcome (success, skip, or thrown error) so one bad product can never
+    // block the queue head.
     if (await markProcessed([row.id])) triggersProcessed += 1;
   }
 
@@ -216,18 +217,25 @@ export async function action({ request }: ActionFunctionArgs) {
 }
 
 /**
- * Best-effort mark-processed. Returns true on success, false on failure
- * (errors are logged but never thrown — we'd rather over-deliver than
- * lose track of a row).
+ * Mark-processed. Returns true on success, false on failure. Supabase resolves
+ * with an `error` object rather than throwing, so we check it explicitly: a
+ * silently-swallowed write failure here is exactly what lets a row get
+ * re-selected forever (the old BATCH_SIZE=1 poison pill), so on failure we
+ * report to Sentry instead of returning a quiet false.
  */
 async function markProcessed(ids: number[]): Promise<boolean> {
   try {
-    await supabase
+    const { error } = await supabase
       .from("pending_scan_triggers")
       .update({ processed_at: new Date().toISOString() })
       .in("id", ids);
+    if (error) throw new Error(error.message);
     return true;
   } catch (err) {
+    sentry.captureException(err, {
+      tags: { area: "process-scan-triggers", branch: "mark_processed" },
+      extra: { ids },
+    });
     console.error(
       "[cron/process-scan-triggers] failed to mark processed:",
       err instanceof Error ? err.message : err,

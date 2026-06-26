@@ -77,9 +77,20 @@ describe("api.cron.process-scan-triggers (v4 enrichment-only drainer)", () => {
     expect(src).toContain('.update({ processed_at:');
   });
 
-  it("processes one merchant per invocation to stay under Vercel Hobby's 60s function ceiling", () => {
-    expect(src).toMatch(/const\s+BATCH_SIZE\s*=\s*1\b/);
+  it("drains a bounded batch per invocation to stay under Vercel Hobby's 60s function ceiling", () => {
+    expect(src).toMatch(/const\s+BATCH_SIZE\s*=\s*10\b/);
     expect(src).toContain(".limit(BATCH_SIZE)");
+  });
+
+  it("scopes the queue head to PAID, installed merchants so free-tier rows can't wedge the drainer", () => {
+    expect(src).toContain("merchants!inner");
+    expect(src).toContain('.in("merchants.tier", PAID_TIERS');
+    expect(src).toContain('.is("merchants.uninstalled_at", null)');
+  });
+
+  it("surfaces mark-processed write failures to Sentry instead of swallowing them", () => {
+    expect(src).toContain("captureException");
+    expect(src).toMatch(/branch: "mark_processed"/);
   });
 });
 

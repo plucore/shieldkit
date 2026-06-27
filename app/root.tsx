@@ -1,14 +1,35 @@
+import { useEffect } from "react";
 import { Links, Meta, Outlet, Scripts, ScrollRestoration, useLoaderData } from "react-router";
+import type { LoaderFunctionArgs } from "react-router";
+import { initAnalytics } from "./lib/analytics.client";
 
-export const loader = async () => {
+export const loader = async ({ request }: LoaderFunctionArgs) => {
+  // POSTHOG_API_KEY (phc_…) is a publishable client key — safe to expose to
+  // the browser. The shop param is present on the embedded-admin document load
+  // and is what we identify on. Both null on the public marketing site, where
+  // analytics stays off.
+  const shop = new URL(request.url).searchParams.get("shop");
   return {
     gaId: process.env.GA_MEASUREMENT_ID || null,
     gscToken: process.env.GOOGLE_SITE_VERIFICATION || null,
+    posthogKey: process.env.POSTHOG_API_KEY || null,
+    posthogHost: process.env.POSTHOG_HOST || null,
+    shop,
   };
 };
 
 export default function App() {
-  const { gaId, gscToken } = useLoaderData<typeof loader>();
+  const { gaId, gscToken, posthogKey, posthogHost, shop } = useLoaderData<typeof loader>();
+
+  // Init posthog-js once, guarded by the key. Only when a shop is present
+  // (embedded admin app) — the public marketing site has no merchant to
+  // identify and no client funnel events, so posthog-js never loads there.
+  // initAnalytics is idempotent and self-guarding; the dashboard also inits
+  // defensively in case this loader doesn't re-run on a client navigation.
+  useEffect(() => {
+    if (!shop) return;
+    void initAnalytics({ apiKey: posthogKey, host: posthogHost, shopDomain: shop });
+  }, [posthogKey, posthogHost, shop]);
 
   const gtagInit = gaId
     ? `window.dataLayer = window.dataLayer || [];

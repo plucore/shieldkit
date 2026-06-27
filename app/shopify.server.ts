@@ -10,6 +10,7 @@ import { encrypt } from "./lib/crypto.server";
 import { hasPaidAccess } from "./lib/billing/plans";
 import { ensureProductWebhooks } from "./lib/webhooks/product-webhooks.server";
 import { sentry } from "./lib/sentry.server";
+import { captureEvent } from "./lib/analytics.server";
 
 const sessionStorage = new SupabaseSessionStorage();
 
@@ -84,6 +85,16 @@ const shopify = shopifyApp({
           error.message
         );
       }
+
+      // Analytics: funnel entry point (install). Over-firing on re-auth is
+      // fine — funnels use the first occurrence per merchant. Awaited because
+      // install is a one-time, non-latency-sensitive OAuth completion, so the
+      // event flushes before the serverless function can freeze. captureEvent
+      // is self-guarding: a no-op when POSTHOG_API_KEY is unset and never
+      // throws, so OAuth completes identically whether PostHog is configured
+      // or down. shopify_plan/country are not handy here (they'd need an Admin
+      // API roundtrip and are null on first install), so they're omitted.
+      await captureEvent(session.shop, "install");
 
       // Reinstall coverage: products/* webhooks are per-shop (not app-level)
       // and only provisioned for paid merchants. A reinstall of an existing

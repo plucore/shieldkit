@@ -34,6 +34,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
 import { runComplianceScan } from "../lib/compliance-scanner.server";
+import { captureEvent } from "../lib/analytics.server";
 import { checkRateLimit, recordScanRequest, RATE_LIMIT_MAX_REQUESTS as RATE_LIMIT_MAX } from "../lib/rate-limiter.server";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -256,6 +257,28 @@ export async function action({ request }: ActionFunctionArgs) {
   // ── 5. Record successful scan for rate limiting ──────────────────────────────
   // Quota was already decremented atomically in step 3 (before the scan).
   await recordScanRequest(shopDomain);
+
+  // Analytics: scan_run (same event as the dashboard runScan path). Severity
+  // props drive conversion-by-severity segmentation. Wrapped so the
+  // is_first_scan count query and capture can never affect the API response;
+  // captureEvent is additionally self-guarding.
+  try {
+    const { count: scanCount } = await supabase
+      .from("scans")
+      .select("id", { count: "exact", head: true })
+      .eq("merchant_id", merchant.id);
+    await captureEvent(shopDomain, "scan_run", {
+      compliance_score: scanResult.scan.compliance_score,
+      critical_count: scanResult.scan.critical_count,
+      warning_count: scanResult.scan.warning_count,
+      info_count: scanResult.scan.info_count,
+      tier: merchant.tier,
+      scan_id: scanResult.scan.id,
+      is_first_scan: (scanCount ?? 1) <= 1,
+    });
+  } catch (err) {
+    console.warn(`[API/scan] scan_run analytics failed for ${shopDomain}:`, err);
+  }
 
   // ── 6. Return complete scan results ──────────────────────────────────────────
   //

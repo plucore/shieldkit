@@ -34,6 +34,7 @@ import {
 } from "../lib/billing/partner-api.server";
 import { ensureProductWebhooks } from "../lib/webhooks/product-webhooks.server";
 import { sentry } from "../lib/sentry.server";
+import { captureEvent } from "../lib/analytics.server";
 
 interface PendingResponse {
   state: "pending";
@@ -168,6 +169,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         err instanceof Error ? err.message : err,
       );
     }
+
+    // Analytics: purchase (funnel exit). Only fired here, on the active/paid
+    // branch where the tier is actually written — never on cancelled/pending.
+    // captureEvent is self-guarding and never throws, so the redirect to /app
+    // is unaffected whether PostHog is configured or down.
+    await captureEvent(session.shop, "purchase", {
+      tier: sub.tier,
+      billing_cycle: sub.cycle,
+      shopify_subscription_id: sub.subscriptionGid,
+    });
 
     return redirect("/app");
   }

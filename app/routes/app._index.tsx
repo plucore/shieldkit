@@ -47,6 +47,8 @@ import {
   windowResetIso,
 } from "../lib/ai-usage.server";
 import { wrapAdminClient, getShopInfo } from "../lib/shopify-api.server";
+import { captureEvent } from "../lib/analytics.server";
+import { initAnalytics, captureClient } from "../lib/analytics.client";
 import { getJsonLdThemeEditorUrl } from "../lib/json-ld-deep-link";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import styles from "../styles.css?url";
@@ -110,10 +112,17 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   // the helper used to read it itself and threw on the dashboard.
   const shopifyApiKey = process.env.SHOPIFY_API_KEY ?? "";
 
+  // PostHog config threaded to the client for client-side funnel events
+  // (scan_result_viewed, upgrade_cta_clicked). phc_ key is publishable.
+  const posthogKey = process.env.POSTHOG_API_KEY || null;
+  const posthogHost = process.env.POSTHOG_HOST || null;
+
   if (!merchant) {
     return {
       shopDomain,
       shopifyApiKey,
+      posthogKey,
+      posthogHost,
       merchant:          null as Merchant | null,
       latestScan:        null as Scan | null,
       previousScan:      null as Scan | null,
@@ -289,6 +298,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   return {
     shopDomain,
     shopifyApiKey,
+    posthogKey,
+    posthogHost,
     merchant,
     latestScan,
     previousScan,
@@ -717,6 +728,29 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   collectEmail(); // intentionally not awaited
 
+  // Analytics: scan_run (server-side backbone of the funnel). The severity
+  // props are the whole point — they let us segment conversion by what the
+  // merchant actually saw (do stores that see criticals convert?). Wrapped in
+  // its own try/catch so neither the is_first_scan count query nor the capture
+  // can ever affect the scan response. captureEvent is also self-guarding.
+  try {
+    const { count: scanCount } = await supabase
+      .from("scans")
+      .select("id", { count: "exact", head: true })
+      .eq("merchant_id", merchant.id);
+    await captureEvent(shopDomain, "scan_run", {
+      compliance_score: scanResult.scan.compliance_score,
+      critical_count: scanResult.scan.critical_count,
+      warning_count: scanResult.scan.warning_count,
+      info_count: scanResult.scan.info_count,
+      tier: merchant.tier,
+      scan_id: scanResult.scan.id,
+      is_first_scan: (scanCount ?? 1) <= 1,
+    });
+  } catch (err) {
+    console.warn(`[runScan] scan_run analytics failed for ${shopDomain}:`, err);
+  }
+
   return new Response(
     JSON.stringify({
       success: true,
@@ -734,6 +768,8 @@ export default function Index() {
   const {
     shopDomain,
     shopifyApiKey,
+    posthogKey,
+    posthogHost,
     merchant,
     latestScan,
     previousScan,
@@ -775,6 +811,21 @@ export default function Index() {
   // can use).
   const tier = merchant?.tier ?? "free";
   const isPaid = hasPaidAccess(tier);
+
+  // Client analytics: upgrade_cta_clicked (secondary signal — the
+  // paywall_viewed event fired from the /app/upgrade loader is the reliable
+  // server-side counterpart). The capture is folded into the navigation
+  // handler so it fires before the route change. Two distinct sources so we
+  // can tell which surface drives upgrades.
+  const onUpgradeFromPlanCard = useCallback(() => {
+    captureClient("upgrade_cta_clicked", { source: "plan_status_card", tier });
+    navigateToUpgrade();
+  }, [navigateToUpgrade, tier]);
+  const onUpgradeFromInlineBanner = useCallback(() => {
+    captureClient("upgrade_cta_clicked", { source: "inline_banner", tier });
+    navigateToUpgrade();
+  }, [navigateToUpgrade, tier]);
+
   const [searchParams, setSearchParams] = useSearchParams();
   const [allExpanded, setAllExpanded]   = useState(false);
   const [localPolicies, setLocalPolicies] = useState(merchant?.generated_policies ?? {});
@@ -874,6 +925,30 @@ export default function Index() {
     }
   }, [fetcher.state, fetcher.data, shopify, revalidator, toastId]);
 
+  // Client analytics: scan_result_viewed — fire once per scan when a result is
+  // on screen (secondary to the server-side scan_run event; embedded-iframe
+  // client capture is flaky). Init defensively here too so the capture doesn't
+  // depend on root's effect having run first, then chain the capture after
+  // init resolves so the posthog-js dynamic import has loaded. Deduped by scan
+  // id so revalidations don't re-fire it.
+  const scanViewedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!latestScan) return;
+    if (scanViewedRef.current === latestScan.id) return;
+    scanViewedRef.current = latestScan.id;
+    void initAnalytics({
+      apiKey: posthogKey,
+      host: posthogHost,
+      shopDomain,
+    }).then(() =>
+      captureClient("scan_result_viewed", {
+        critical_count: latestScan.critical_count,
+        compliance_score: latestScan.compliance_score,
+        tier,
+      }),
+    );
+  }, [latestScan, posthogKey, posthogHost, shopDomain, tier]);
+
   const runScan = useCallback(
     () => fetcher.submit({ action: "runScan" }, { method: "POST" }),
     [fetcher],
@@ -917,7 +992,7 @@ export default function Index() {
   const managePlanRef    = useWebComponentClick<HTMLElement>(navigateToPlanSwitcher);
   const upgradeRef2      = useWebComponentClick<HTMLElement>(navigateToUpgrade);
   const upgradeRef3      = useWebComponentClick<HTMLElement>(navigateToUpgrade);
-  const upgradeRef4      = useWebComponentClick<HTMLElement>(navigateToUpgrade);
+  const upgradeRef4      = useWebComponentClick<HTMLElement>(onUpgradeFromInlineBanner);
   const manageJsonLdRef  = useWebComponentClick<HTMLElement>(openJsonLdManager);
   const onboardingScanRef = useWebComponentClick<HTMLElement>(runScan);
 
@@ -1262,7 +1337,7 @@ export default function Index() {
         <PlanStatusCard
           isPaid={isPaid}
           jsonLdEnabled={merchant.json_ld_enabled}
-          onUpgrade={navigateToUpgrade}
+          onUpgrade={onUpgradeFromPlanCard}
         />
       )}
 

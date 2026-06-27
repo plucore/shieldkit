@@ -24,7 +24,9 @@ import {
 import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
+import { supabase } from "../supabase.server";
 import { getManagedPricingUrl } from "../lib/billing/plans";
+import { captureEvent } from "../lib/analytics.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -33,6 +35,24 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     // admin auth. Defensive guard keeps the failure mode visible.
     throw new Error("authenticate.admin returned a session without a shop");
   }
+
+  // Analytics: paywall_viewed. Wrapped so neither the tier read nor the
+  // capture can break the paywall redirect — this path must behave identically
+  // if PostHog is down.
+  try {
+    const { data: row } = await supabase
+      .from("merchants")
+      .select("tier")
+      .eq("shopify_domain", session.shop)
+      .maybeSingle();
+    await captureEvent(session.shop, "paywall_viewed", {
+      tier: row?.tier ?? "free",
+      entry: "upgrade",
+    });
+  } catch (err) {
+    console.warn(`[upgrade] paywall_viewed analytics failed for ${session.shop}:`, err);
+  }
+
   return { url: getManagedPricingUrl(session.shop) };
 };
 

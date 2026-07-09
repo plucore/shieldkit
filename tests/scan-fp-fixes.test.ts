@@ -154,6 +154,64 @@ describe("hidden_fee_detection — negation & positive-charge handling", () => {
   });
 });
 
+describe("hidden_fee_detection — clause-scoped negation (P1-1 regression)", () => {
+  // A negation attached to a DIFFERENT nearby fee (or benign copy) must NOT
+  // suppress a genuine, positively-charged fee in its own clause/sentence.
+  const MUST_FLAG: Array<[string, string]> = [
+    ["negation on a different fee in the same sentence", "There is no handling fee, but a 15% restocking fee applies to returns."],
+    ["chain of reassurance then a real fee", "No restocking fee, no handling fee — a 10% processing fee applies at checkout."],
+    ["benign 'no questions asked' before a real fee", "Satisfaction guaranteed, no questions asked. A 20% restocking fee applies."],
+    ["rhetorical 'Not sure?' before a real fee", "Not sure? A 20% restocking fee applies to opened items."],
+    ["'without' negating a different noun", "Orders without free shipping incur a $5 handling fee."],
+    ["same term negated then charged in a later clause", "No restocking fee on exchanges; a 20% restocking fee applies to refunds."],
+    ["'deducted' verb with amount in the next sentence", "A restocking fee will be deducted from your refund for opened items. The amount is 20% of the item price."],
+  ];
+
+  for (const [label, copy] of MUST_FLAG) {
+    it(`flags CRITICAL: ${label}`, async () => {
+      const r = await checkHiddenFeeDetection(
+        NO_CART_STORE,
+        { html: null },
+        productPage(`<p>${copy}</p>`),
+        policies(),
+      );
+      expect(r.passed).toBe(false);
+      expect(r.severity).toBe("critical");
+    });
+  }
+
+  const MUST_PASS: Array<[string, string]> = [
+    ["plain reassurance 'no restocking fee'", "Easy returns — we charge no restocking fee, ever."],
+    ["'never a handling fee'", "There is never a handling fee on your order."],
+    ["'free shipping, no hidden fees'", "Free shipping, no hidden fees on any order."],
+    ["'we no longer charge a restocking fee'", "Good news: we no longer charge a restocking fee."],
+  ];
+
+  for (const [label, copy] of MUST_PASS) {
+    it(`passes: ${label}`, async () => {
+      const r = await checkHiddenFeeDetection(
+        NO_CART_STORE,
+        { html: null },
+        productPage(`<p>${copy}</p>`),
+        policies(),
+      );
+      expect(r.passed).toBe(true);
+      expect(r.severity).toBe("info");
+    });
+  }
+
+  it("still passes when the charged fee is disclosed in the provided policy text", async () => {
+    const r = await checkHiddenFeeDetection(
+      NO_CART_STORE,
+      { html: null },
+      productPage("<p>A 20% restocking fee applies to all returns.</p>"),
+      policies("", "Returns incur a restocking fee of 20%, as described in this policy."),
+    );
+    expect(r.passed).toBe(true);
+    expect(r.severity).toBe("info");
+  });
+});
+
 describe("contact_information — 1-of-N, WARNING not CRITICAL", () => {
   it("passes with only an email in a page body", () => {
     const r = checkContactInformation(

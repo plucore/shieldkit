@@ -38,9 +38,9 @@ const FEE_TERMS = [
   "surcharge",
 ];
 
-// Number of characters scanned on each side of a fee term when deciding
-// whether it is negated or a positive charge. Wide enough to catch the
-// modifying clause; erring wide only ever suppresses (false-negative bias).
+// Number of characters captured on each side of a fee term for the
+// human-readable `context` audit string only (NOT used for the negated /
+// positive decision — that is now clause-scoped, see scanFees).
 const CONTEXT_WINDOW = 45;
 
 // Reassurance / negation copy near a fee term → treat as benign.
@@ -50,9 +50,52 @@ const NEGATION_RE =
   /\b(?:no|not|never|zero|without|waived?|free\s+of)\b|\b\w+n['’]t\b/i;
 
 // A positive charge asserted near a fee term: a currency amount, a percentage,
-// or an explicit "is charged / applies / fee of / we charge" phrasing.
+// or an explicit "is charged / deducted / applies / fee of / we charge"
+// phrasing. The "deducted / withheld / retained" verbs cover restocking-fee
+// language that describes a charge without an inline amount.
 const POSITIVE_CHARGE_RE =
-  /\$\s?\d|\d+(?:\.\d+)?\s?%|\b\d+(?:\.\d+)?\s?(?:usd|eur|gbp|dollars?|cents?)\b|\bof\s+(?:\$?\d|up\s+to)|\bapplie[sd]\b|\bwill\s+be\s+(?:charged|added|applied)\b|\bwe\s+(?:charge|add|apply)\b|\bcharged?\s+(?:a|an|you|per|at|to)\b|\bfee\s+of\b|\bfee\s+is\b|\bplus\s+(?:a|an|\$?\d)\b|\bsubject\s+to\s+(?:a|an)\b|\bincur/i;
+  /\$\s?\d|\d+(?:\.\d+)?\s?%|\b\d+(?:\.\d+)?\s?(?:usd|eur|gbp|dollars?|cents?)\b|\bof\s+(?:\$?\d|up\s+to)|\bapplie[sd]\b|\bwill\s+be\s+(?:charged|added|applied|deducted|withheld|retained)\b|\bwe\s+(?:charge|add|apply)\b|\bcharged?\s+(?:a|an|you|per|at|to)\b|\b(?:deducts?|deducted|withheld|retained)\b|\bfee\s+of\b|\bfee\s+is\b|\bplus\s+(?:a|an|\$?\d)\b|\bsubject\s+to\s+(?:a|an)\b|\bincur/i;
+
+// Clause / sentence boundaries. Negation is scoped to the fee term's own CLAUSE
+// (so a negation attached to a *different* nearby fee cannot suppress this one);
+// the positive charge only needs to appear in the term's own SENTENCE.
+const CLAUSE_DELIMS = new Set([".", "!", "?", ";", "\n", ",", "—", "–"]);
+const SENTENCE_DELIMS = new Set([".", "!", "?", ";", "\n"]);
+
+// An explicit currency/percentage amount immediately adjacent to the fee term
+// overrides a clause negation that actually modifies a *different* noun — e.g.
+// "without free shipping incur a $5 handling fee" ("without" negates shipping,
+// but "$5" sits right on the fee).
+const ADJACENT_AMOUNT_RE =
+  /\$\s?\d|\d+(?:\.\d+)?\s?%|\b\d+(?:\.\d+)?\s?(?:usd|eur|gbp|dollars?|cents?)\b/i;
+const ADJACENT_WINDOW = 16;
+
+/**
+ * Returns the substring around [start, end) bounded by the nearest delimiters
+ * in `delims` on each side (or the string ends).
+ */
+function spanAround(
+  text: string,
+  start: number,
+  end: number,
+  delims: Set<string>,
+): string {
+  let s = 0;
+  let e = text.length;
+  for (let i = start - 1; i >= 0; i--) {
+    if (delims.has(text[i])) {
+      s = i + 1;
+      break;
+    }
+  }
+  for (let i = end; i < text.length; i++) {
+    if (delims.has(text[i])) {
+      e = i;
+      break;
+    }
+  }
+  return text.slice(s, e);
+}
 
 function visibleText(html: string | null | undefined): string {
   if (!html) return "";
@@ -69,10 +112,17 @@ interface FeeHit {
 }
 
 /**
- * Scans text for positively-asserted, non-negated fee mentions. Every
- * occurrence of each fee term is inspected within CONTEXT_WINDOW: negated
- * mentions are skipped, ambiguous mentions (no positive-charge signal) are
- * skipped, only clear positive charges are returned.
+ * Scans text for positively-asserted, non-negated fee mentions. Each occurrence
+ * of a fee term is judged in two scopes:
+ *  - POSITIVE: a positive charge (amount / % / "deducted" / "applies" / …) must
+ *    appear in the term's own SENTENCE, else the mention is ambiguous → dropped.
+ *  - NEGATED: the term is treated as reassurance only when NEGATION_RE matches
+ *    inside the term's own CLAUSE. Clause-scoping stops a negation attached to a
+ *    *different* nearby fee from suppressing this one ("no handling fee, but a
+ *    15% restocking fee applies" still flags the restocking fee). An explicit
+ *    amount immediately adjacent to the term overrides a clause negation that is
+ *    really modifying a different noun ("without free shipping incur a $5
+ *    handling fee").
  */
 function scanFees(text: string, source: string): FeeHit[] {
   const lower = text.toLowerCase();
@@ -81,19 +131,28 @@ function scanFees(text: string, source: string): FeeHit[] {
     let from = 0;
     let idx = lower.indexOf(term, from);
     while (idx !== -1) {
-      from = idx + term.length;
-      const start = Math.max(0, idx - CONTEXT_WINDOW);
-      const end = idx + term.length + CONTEXT_WINDOW;
-      const windowText = lower.slice(start, end);
+      const termEnd = idx + term.length;
+      from = termEnd;
 
-      // Negated / reassurance copy → benign.
-      // Positive charge required, else ambiguous → drop (false-negative bias).
-      if (!NEGATION_RE.test(windowText) && POSITIVE_CHARGE_RE.test(windowText)) {
-        hits.push({
-          term,
-          source,
-          context: text.slice(start, end).replace(/\s+/g, " ").trim(),
-        });
+      // Positive charge must be asserted somewhere in the term's own sentence.
+      const sentence = spanAround(lower, idx, termEnd, SENTENCE_DELIMS);
+      if (POSITIVE_CHARGE_RE.test(sentence)) {
+        const clause = spanAround(lower, idx, termEnd, CLAUSE_DELIMS);
+        const adjacent =
+          lower.slice(Math.max(0, idx - ADJACENT_WINDOW), idx) +
+          " " +
+          lower.slice(termEnd, termEnd + ADJACENT_WINDOW);
+        const negated = NEGATION_RE.test(clause) && !ADJACENT_AMOUNT_RE.test(adjacent);
+
+        if (!negated) {
+          const start = Math.max(0, idx - CONTEXT_WINDOW);
+          const end = termEnd + CONTEXT_WINDOW;
+          hits.push({
+            term,
+            source,
+            context: text.slice(start, end).replace(/\s+/g, " ").trim(),
+          });
+        }
       }
       idx = lower.indexOf(term, from);
     }

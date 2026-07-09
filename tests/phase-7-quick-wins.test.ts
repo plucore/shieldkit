@@ -136,9 +136,19 @@ describe("Phase 7 quick win 1 — aiReadinessScore", () => {
 });
 
 describe("Phase 7 quick win 2 — computeRiskScore", () => {
-  it("returns 100 when all 8 checks pass", () => {
+  it("returns 90 when all checks pass (checkout_transparency is unweighted)", () => {
+    // P2-2: checkout_transparency can never fail, so it carries no risk weight;
+    // the maximum score is 90 and other checks keep their absolute contribution.
     const checks = ALL_NAMES.map((n) => mkCheck(n, true));
-    expect(computeRiskScore(checks)).toBe(100);
+    expect(computeRiskScore(checks)).toBe(90);
+  });
+
+  it("gives a store zero risk credit for the always-pass checkout check", () => {
+    // Everything fails except checkout_transparency (which structurally passes).
+    const checks = ALL_NAMES.map((n) =>
+      mkCheck(n, n === "checkout_transparency", "info"),
+    );
+    expect(computeRiskScore(checks)).toBe(0);
   });
 
   it("returns 0 when all 8 checks fail", () => {

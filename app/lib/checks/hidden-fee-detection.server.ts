@@ -1,20 +1,27 @@
 /**
  * CHECK 11 — hidden_fee_detection
  *
- * Detects hidden surcharges (handling, restocking, processing, convenience,
- * service, surcharge) that appear on product or cart pages without being
- * disclosed in the merchant's shipping/refund policies. Direct GMC
- * misrepresentation trigger under Google's July 2025 zero-tolerance rule.
+ * Detects UNDISCLOSED, POSITIVELY-ASSERTED surcharges (handling, restocking,
+ * processing, convenience, service, surcharge) on product/cart pages that are
+ * not disclosed in the merchant's shipping/refund policies. Undisclosed
+ * checkout fees are a genuine GMC misrepresentation trigger.
+ *
+ * Detection is deliberately biased toward false negatives so we never accuse a
+ * merchant over benign copy:
+ *  - A fee term wrapped in negation/reassurance ("no restocking fee", "we never
+ *    charge a handling fee", "restocking fee waived") is NOT a fee.
+ *  - A fee term is only counted when a POSITIVE charge is asserted nearby (a
+ *    currency amount, a percentage, "applies", "we charge", "fee of", etc.).
+ *  - Ambiguous mentions with neither negation nor a positive-charge signal are
+ *    dropped rather than flagged.
+ *  - A counted positive fee is only reported when the SAME term is not also
+ *    mentioned in the shipping/refund policy text already fetched by the scan.
  *
  * Inputs:
  *  - shopPolicies: refund + shipping policy bodies (already fetched)
- *  - homepageHtml: the homepage HTML (already pre-fetched by orchestrator)
+ *  - homepageFetch: the homepage HTML (already pre-fetched by orchestrator)
  *  - productPages: pre-fetched product pages
- *  - cartHtml: cart page HTML (fetched here — homepage's host + /cart)
- *
- * The orchestrator passes shopPolicies, homepage HTML, productPageResults.
- * It does NOT currently pre-fetch /cart, so this check fetches it via
- * fetchPublicPage at run time.
+ *  - The cart page (/cart) is fetched here at run time.
  */
 
 import { load as cheerioLoad } from "cheerio";
@@ -31,6 +38,22 @@ const FEE_TERMS = [
   "surcharge",
 ];
 
+// Number of characters scanned on each side of a fee term when deciding
+// whether it is negated or a positive charge. Wide enough to catch the
+// modifying clause; erring wide only ever suppresses (false-negative bias).
+const CONTEXT_WINDOW = 45;
+
+// Reassurance / negation copy near a fee term → treat as benign.
+// Covers "no", "never", "zero", "without", "waived", "free of", and any
+// "*n't" contraction (don't / doesn't / won't / isn't / aren't).
+const NEGATION_RE =
+  /\b(?:no|not|never|zero|without|waived?|free\s+of)\b|\b\w+n['’]t\b/i;
+
+// A positive charge asserted near a fee term: a currency amount, a percentage,
+// or an explicit "is charged / applies / fee of / we charge" phrasing.
+const POSITIVE_CHARGE_RE =
+  /\$\s?\d|\d+(?:\.\d+)?\s?%|\b\d+(?:\.\d+)?\s?(?:usd|eur|gbp|dollars?|cents?)\b|\bof\s+(?:\$?\d|up\s+to)|\bapplie[sd]\b|\bwill\s+be\s+(?:charged|added|applied)\b|\bwe\s+(?:charge|add|apply)\b|\bcharged?\s+(?:a|an|you|per|at|to)\b|\bfee\s+of\b|\bfee\s+is\b|\bplus\s+(?:a|an|\$?\d)\b|\bsubject\s+to\s+(?:a|an)\b|\bincur/i;
+
 function visibleText(html: string | null | undefined): string {
   if (!html) return "";
   const $ = cheerioLoad(html);
@@ -39,16 +62,41 @@ function visibleText(html: string | null | undefined): string {
   return stripHtml($("body").length ? $("body").html() ?? "" : html);
 }
 
-interface MatchHit {
+interface FeeHit {
   term: string;
   source: string; // "product:<url>", "cart", "homepage"
+  context: string; // the surrounding text, for auditability
 }
 
-function findMatches(text: string, source: string): MatchHit[] {
+/**
+ * Scans text for positively-asserted, non-negated fee mentions. Every
+ * occurrence of each fee term is inspected within CONTEXT_WINDOW: negated
+ * mentions are skipped, ambiguous mentions (no positive-charge signal) are
+ * skipped, only clear positive charges are returned.
+ */
+function scanFees(text: string, source: string): FeeHit[] {
   const lower = text.toLowerCase();
-  const hits: MatchHit[] = [];
+  const hits: FeeHit[] = [];
   for (const term of FEE_TERMS) {
-    if (lower.includes(term)) hits.push({ term, source });
+    let from = 0;
+    let idx = lower.indexOf(term, from);
+    while (idx !== -1) {
+      from = idx + term.length;
+      const start = Math.max(0, idx - CONTEXT_WINDOW);
+      const end = idx + term.length + CONTEXT_WINDOW;
+      const windowText = lower.slice(start, end);
+
+      // Negated / reassurance copy → benign.
+      // Positive charge required, else ambiguous → drop (false-negative bias).
+      if (!NEGATION_RE.test(windowText) && POSITIVE_CHARGE_RE.test(windowText)) {
+        hits.push({
+          term,
+          source,
+          context: text.slice(start, end).replace(/\s+/g, " ").trim(),
+        });
+      }
+      idx = lower.indexOf(term, from);
+    }
   }
   return hits;
 }
@@ -61,11 +109,11 @@ export async function checkHiddenFeeDetection(
 ): Promise<CheckResult> {
   const CHECK_NAME = "hidden_fee_detection";
 
-  // Build the combined storefront-side text.
-  const productHits: MatchHit[] = [];
+  // Build the combined storefront-side hits (positive, non-negated only).
+  const productHits: FeeHit[] = [];
   for (const page of productPages.slice(0, 5)) {
     const txt = visibleText(page.html);
-    productHits.push(...findMatches(txt, `product:${page.url}`));
+    productHits.push(...scanFees(txt, `product:${page.url}`));
   }
 
   // Cart page lives at /cart on every Shopify storefront.
@@ -78,22 +126,23 @@ export async function checkHiddenFeeDetection(
     }
   })();
 
-  let cartHits: MatchHit[] = [];
+  let cartHits: FeeHit[] = [];
   if (cartUrl) {
     const cartFetch = await fetchPublicPage(cartUrl, 8_000);
     if (cartFetch?.html) {
-      cartHits = findMatches(visibleText(cartFetch.html), "cart");
+      cartHits = scanFees(visibleText(cartFetch.html), "cart");
     }
   }
 
   // Homepage is opportunistic — we already have it pre-fetched.
-  const homepageHits: MatchHit[] = homepageFetch?.html
-    ? findMatches(visibleText(homepageFetch.html), "homepage")
+  const homepageHits: FeeHit[] = homepageFetch?.html
+    ? scanFees(visibleText(homepageFetch.html), "homepage")
     : [];
 
   const storefrontHits = [...productHits, ...cartHits, ...homepageHits];
 
-  // Now check whether each detected fee term is also disclosed in policies.
+  // Now check whether each positively-charged fee term is also disclosed in
+  // the merchant's shipping/refund policy text.
   const policyText = [
     visibleText(shopPolicies.SHIPPING_POLICY?.body ?? ""),
     visibleText(shopPolicies.REFUND_POLICY?.body ?? ""),
@@ -108,20 +157,22 @@ export async function checkHiddenFeeDetection(
     }
   }
 
-  // No fees found anywhere → pass.
+  // No positively-asserted fees found anywhere → pass. (This covers stores
+  // with reassurance copy like "no restocking fee" — those never become hits.)
   if (storefrontHits.length === 0) {
     return {
       check_name: CHECK_NAME,
       passed: true,
       severity: "info",
       title: "Hidden Fee Detection",
-      description: "No surcharge or extra-fee language detected on storefront pages.",
+      description:
+        "No undisclosed surcharge or extra-fee language detected on storefront pages.",
       fix_instruction: "No action required.",
       raw_data: { fees_detected: [] },
     };
   }
 
-  // Fees mentioned, but each one is also disclosed in policies → pass.
+  // Fees charged, but each one is also disclosed in policies → pass.
   if (undisclosedTerms.size === 0) {
     return {
       check_name: CHECK_NAME,
@@ -137,7 +188,7 @@ export async function checkHiddenFeeDetection(
     };
   }
 
-  // Fees on storefront but NOT in policy → fail (high severity).
+  // Positive fees on storefront but NOT in policy → fail (critical).
   const undisclosedList = Array.from(undisclosedTerms);
   const hitsByTerm = new Map<string, string[]>();
   for (const hit of storefrontHits) {
@@ -147,7 +198,7 @@ export async function checkHiddenFeeDetection(
   }
 
   const description =
-    `Found ${undisclosedList.length} undisclosed fee term${undisclosedList.length === 1 ? "" : "s"} on your storefront (${undisclosedList.join(", ")}) ` +
+    `Found ${undisclosedList.length} undisclosed fee term${undisclosedList.length === 1 ? "" : "s"} charged on your storefront (${undisclosedList.join(", ")}) ` +
     `that are not mentioned in your shipping or refund policy. Google Merchant Center treats undisclosed fees as misrepresentation.`;
 
   return {

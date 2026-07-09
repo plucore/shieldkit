@@ -9,6 +9,7 @@ import { describe, it, expect } from "vitest";
 import { checkHiddenFeeDetection } from "../app/lib/checks/hidden-fee-detection.server";
 import { checkContactInformation } from "../app/lib/checks/contact-information.server";
 import { checkStructuredDataJsonLd } from "../app/lib/checks/structured-data-json-ld.server";
+import { checkCheckoutTransparency } from "../app/lib/checks/checkout-transparency.server";
 import type { ShopInfo, Page } from "../app/lib/shopify-api.server";
 
 function ldPage(schema: unknown) {
@@ -222,5 +223,42 @@ describe("structured_data_json_ld — offers shapes + INFO when absent", () => {
     expect(r.passed).toBe(true);
     expect(r.severity).toBe("info");
     expect(r.severity).not.toBe("warning");
+  });
+});
+
+describe("checkout_transparency — INFO best-practice + broadened detection", () => {
+  it("detects tentree-style inline SVG <title>Visa</title> markup", async () => {
+    const html =
+      '<html><body><footer><svg class="w-12 h-auto" role="img" aria-labelledby="pi-visa">' +
+      '<title id="pi-visa">Visa</title></svg></footer></body></html>';
+    const r = await checkCheckoutTransparency("https://x.example", html);
+    expect(r.passed).toBe(true);
+    expect(r.severity).toBe("info");
+    expect((r.raw_data as { payment_icons_found: string[] }).payment_icons_found).toContain("visa");
+  });
+
+  it("detects data-enabled-payment-types markup", async () => {
+    const html =
+      "<html><body><div data-enabled-payment-types='[&quot;amazon_pay&quot;,&quot;apple_pay&quot;]'></div></body></html>";
+    const r = await checkCheckoutTransparency("https://x.example", html);
+    expect(r.passed).toBe(true);
+    expect(r.severity).toBe("info");
+  });
+
+  it("never fails and stays INFO when no payment signal is present", async () => {
+    const r = await checkCheckoutTransparency(
+      "https://x.example",
+      "<html><body><footer><p>© 2026 My Store</p></footer></body></html>",
+    );
+    expect(r.severity).toBe("info");
+    expect(r.passed).toBe(true);
+    expect(r.description.toLowerCase()).not.toContain("required");
+  });
+
+  it("uses INFO severity and no GMC-requirement language in the not-detected copy", async () => {
+    const r = await checkCheckoutTransparency("https://x.example", "<html><body>nothing</body></html>");
+    expect(r.severity).toBe("info");
+    expect(r.description).not.toMatch(/suspen/i);
+    expect(r.fix_instruction).toContain("Settings → Payments");
   });
 });

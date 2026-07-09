@@ -251,6 +251,31 @@ describe("contact_information — 1-of-N, WARNING not CRITICAL", () => {
     expect(r.severity).toBe("warning");
     expect(r.severity).not.toBe("critical");
   });
+
+  it("does NOT pass on share/intent widget URLs alone (not the merchant's profile)", () => {
+    const shareOnly =
+      '<footer>' +
+      '<a href="https://www.facebook.com/sharer/sharer.php?u=https://store.com">Share</a>' +
+      '<a href="https://pinterest.com/pin/create/button/?url=x">Pin</a>' +
+      '<a href="https://twitter.com/intent/tweet?url=x">Tweet</a>' +
+      '<a href="https://www.facebook.com/share/p/abc/">Share</a>' +
+      '</footer>';
+    const r = checkContactInformation([], null, shareOnly);
+    expect(r.passed).toBe(false);
+    expect(r.severity).toBe("warning");
+    expect((r.raw_data as { social_found: boolean }).social_found).toBe(false);
+  });
+
+  it("still passes when a real social profile link is present alongside share widgets", () => {
+    const mixed =
+      '<footer>' +
+      '<a href="https://www.facebook.com/sharer/sharer.php?u=x">Share</a>' +
+      '<a href="https://www.facebook.com/mystore">Follow us</a>' +
+      '</footer>';
+    const r = checkContactInformation([], null, mixed);
+    expect(r.passed).toBe(true);
+    expect((r.raw_data as { social_found: boolean }).social_found).toBe(true);
+  });
 });
 
 describe("structured_data_json_ld — offers shapes + INFO when absent", () => {

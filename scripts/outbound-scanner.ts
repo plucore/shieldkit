@@ -214,7 +214,7 @@ async function safeCheck(
 // adding a runner (tsx) or bundle step would add a dependency. If you change a
 // detector in the shared module, mirror the change here — and vice versa.
 const SOCIAL_RE =
-  /(?:facebook\.com|fb\.com|instagram\.com|tiktok\.com|wa\.me|whatsapp\.com|twitter\.com|\/\/(?:www\.)?x\.com|youtube\.com|youtu\.be|pinterest\.com|linkedin\.com|snapchat\.com|threads\.net)/i;
+  /(?:facebook\.com|fb\.com|instagram\.com|tiktok\.com|wa\.me|whatsapp\.com|twitter\.com|\/\/(?:www\.)?x\.com|youtube\.com|youtu\.be|pinterest\.com|linkedin\.com|snapchat\.com|threads\.net)(?!\/(?:sharer|intent|pin\/create|sharing|sharearticle|share(?:[\/?]|$)))/i;
 
 const PAYMENT_STRUCTURAL_SIGNALS = [
   "data-enabled-payment-types",

@@ -206,55 +206,93 @@ async function safeCheck(
 // unavailable without the Admin API so that fallback path is omitted.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Shared helpers for the ported false-positive fixes (self-contained — this
+// CLI intentionally does not import from app/lib).
+const SOCIAL_RE =
+  /(?:facebook\.com|fb\.com|instagram\.com|tiktok\.com|wa\.me|whatsapp\.com|twitter\.com|\/\/(?:www\.)?x\.com|youtube\.com|youtu\.be|pinterest\.com|linkedin\.com|snapchat\.com|threads\.net)/i;
+
+const PAYMENT_STRUCTURAL_SIGNALS = [
+  "data-enabled-payment-types",
+  "shopify-payment-button",
+  "shop-pay",
+  "dynamic-checkout",
+  "additional-checkout-buttons",
+  "payment-icons",
+  "list-payment",
+  "icon--payment",
+  "payment-icon",
+];
+
+/** Normalises a JSON-LD `offers` value to an array of offer objects. */
+function normalizeOffers(offers: unknown): Record<string, unknown>[] {
+  if (Array.isArray(offers)) {
+    return offers.filter(
+      (o): o is Record<string, unknown> => !!o && typeof o === "object" && !Array.isArray(o),
+    );
+  }
+  if (offers && typeof offers === "object") return [offers as Record<string, unknown>];
+  return [];
+}
+
+/** True if an offer node carries a usable price (Offer.price or AggregateOffer.low/highPrice). */
+function offerHasPrice(o: Record<string, unknown>): boolean {
+  const present = (v: unknown) => v !== undefined && v !== null && v !== "";
+  return (
+    present(o["price"]) ||
+    present(o["lowPrice"]) ||
+    present(o["highPrice"]) ||
+    (!!o["priceSpecification"] && typeof o["priceSpecification"] === "object")
+  );
+}
+
 function checkContactInformation(
   contactHtml: string | null,
-  aboutHtml: string | null
+  aboutHtml: string | null,
+  homepageHtml: string | null
 ): CheckResult {
   const CHECK_NAME = "contact_information";
 
-  const combinedText = [contactHtml, aboutHtml]
-    .filter(Boolean)
-    .map((h) => stripHtml(h!))
-    .join(" ");
+  const htmls = [contactHtml, aboutHtml, homepageHtml].filter(Boolean) as string[];
+  const visibleText = htmls.map((h) => stripHtml(h)).join(" ");
+  const rawMarkup = htmls.join(" ").toLowerCase();
 
-  if (!combinedText.trim()) {
-    return {
-      check_name: CHECK_NAME,
-      passed: false,
-      severity: "critical",
-      title: "Contact Information — Unable to Scan",
-      description:
-        "Could not fetch any contact or about pages. The store may be password-protected " +
-        "or those pages may not exist.",
-      fix_instruction:
-        "Ensure /pages/contact-us and /pages/about-us are published and publicly accessible.",
-      raw_data: { error: "no_pages_fetched" },
-    };
-  }
-
+  // Google (since Aug 2021) requires only ONE contact method and accepts a
+  // contact form or social profile. Accept any one signal across the
+  // contact/about pages AND the homepage header/footer markup.
   const PHONE_RE =
-    /(?:\+?1[-.\s]?)?\(?([2-9]\d{2})\)?[-.\s]([2-9]\d{2})[-.\s](\d{4})|\+[1-9]\d{1,2}[-.\s]\d{3,5}[-.\s]\d{3,5}(?:[-.\s]\d{2,4})?/g;
-  const phoneFound = PHONE_RE.test(combinedText);
+    /(?:\+?1[-.\s]?)?\(?([2-9]\d{2})\)?[-.\s]([2-9]\d{2})[-.\s](\d{4})|\+[1-9]\d{1,2}[-.\s]\d{3,5}[-.\s]\d{3,5}(?:[-.\s]\d{2,4})?/;
+  const phoneFound = PHONE_RE.test(visibleText) || rawMarkup.includes("tel:");
 
-  const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
-  const emailFound = EMAIL_RE.test(combinedText);
+  const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/;
+  const emailFound = EMAIL_RE.test(visibleText) || rawMarkup.includes("mailto:");
 
   const ADDRESS_RE =
     /\d+\s+[A-Za-z]+(?:\s+[A-Za-z]+){0,2}\s+(?:Street|St\.?|Avenue|Ave\.?|Road|Rd\.?|Drive|Dr\.?|Lane|Ln\.?|Boulevard|Blvd\.?|Way|Place|Pl\.?|Court|Ct\.?|Terrace|Terr\.?)\b/i;
   const PO_BOX_RE = /\bP\.?O\.?\s*Box\b/i;
-  const addressFound = ADDRESS_RE.test(combinedText);
-  const poBoxFound = PO_BOX_RE.test(combinedText);
+  const poBoxFound = PO_BOX_RE.test(visibleText);
+  const addressFound = ADDRESS_RE.test(visibleText) || poBoxFound;
 
-  const methodsFound = [phoneFound, emailFound, addressFound].filter(Boolean).length;
-  const passed = methodsFound >= 2;
+  const contactFormFound =
+    (!!contactHtml && stripHtml(contactHtml).trim().length > 0) ||
+    /href\s*=\s*["'][^"']*\/(?:pages\/)?contact/i.test(rawMarkup);
+  const socialFound = SOCIAL_RE.test(rawMarkup);
+
+  const methods: string[] = [];
+  if (phoneFound) methods.push("phone number");
+  if (emailFound) methods.push("email address");
+  if (addressFound) methods.push("physical address");
+  if (contactFormFound) methods.push("contact page/form");
+  if (socialFound) methods.push("social profile");
+  const passed = methods.length >= 1;
 
   const raw_data = {
     phone_found: phoneFound,
     email_found: emailFound,
     address_found: addressFound,
     po_box_detected: poBoxFound,
-    methods_found: methodsFound,
-    pages_scraped: [contactHtml ? "contact" : null, aboutHtml ? "about" : null].filter(Boolean),
+    contact_form_found: contactFormFound,
+    social_found: socialFound,
+    methods_found: methods,
   };
 
   if (passed) {
@@ -263,31 +301,25 @@ function checkContactInformation(
       passed: true,
       severity: "info",
       title: "Contact Information",
-      description: `${methodsFound} of 3 contact methods found on public pages.`,
+      description: `Contact method${methods.length === 1 ? "" : "s"} detected: ${methods.join(", ")}.`,
       fix_instruction: "No action required.",
       raw_data,
     };
   }
 
-  const missing: string[] = [];
-  if (!phoneFound) missing.push("phone number");
-  if (!emailFound) missing.push("email address");
-  if (!addressFound) missing.push("physical street address");
-
   return {
     check_name: CHECK_NAME,
     passed: false,
-    severity: "critical",
-    title: "Insufficient Contact Information",
+    severity: "warning",
+    title: "No Contact Method Detected",
     description:
-      `Only ${methodsFound} of 3 required contact methods are publicly visible. ` +
-      `Missing: ${missing.join(", ")}.` +
-      (poBoxFound
-        ? " Note: a PO Box was detected — GMC requires a physical street address."
-        : ""),
+      "No contact method (email, phone, address, contact page, or social profile) could be " +
+      "found on the storefront. Google and shoppers expect at least one visible way to reach you. " +
+      "(Contact details rendered only by JavaScript can be missed by an automated scan.)",
     fix_instruction:
-      "Add at least 2 of the following to your Contact or About page: " +
-      "a phone number, an email address, or a physical street address (not a PO Box).",
+      "Add at least one — any of these satisfies Google: a support email or phone in the " +
+      "header/footer, a Contact page (Online Store → Pages; the Contact template includes a form), " +
+      "a physical address, or a link to a social business profile.",
     raw_data,
   };
 }
@@ -433,13 +465,17 @@ function checkCheckoutTransparency(
 ): CheckResult {
   const CHECK_NAME = "checkout_transparency";
 
+  // Displaying payment methods is a trust best-practice, not a GMC requirement
+  // (Google removed that rule in 2021), so this check is informational only.
   if (!homepageHtml) {
     return {
       check_name: CHECK_NAME,
-      passed: false,
-      severity: "warning",
-      title: "Checkout Transparency — Unable to Scan",
-      description: "The public storefront homepage could not be fetched.",
+      passed: true,
+      severity: "info",
+      title: "Payment Methods — Not Verified",
+      description:
+        "The storefront homepage could not be fetched, so accepted payment methods could not be " +
+        "checked. Displaying payment methods is a trust best-practice, not a requirement.",
       fix_instruction:
         "Ensure your store is published and not password-protected, then re-run the scan.",
       raw_data: { store_url: storeUrl, error: "homepage_fetch_failed" },
@@ -473,42 +509,57 @@ function checkCheckoutTransparency(
     checkText($(el).attr("xlink:href") ?? "");
     checkText($(el).attr("href") ?? "");
   });
-  $("[class]").each((_, el) => {
-    checkText($(el).attr("class") ?? "");
+  // SVG <title> text — Shopify stock icons put the brand name here.
+  $("title").each((_, el) => {
+    checkText($(el).text());
   });
-  $("[aria-label], [data-payment-icon], [data-method]").each((_, el) => {
-    checkText($(el).attr("aria-label") ?? "");
-    checkText($(el).attr("data-payment-icon") ?? "");
-    checkText($(el).attr("data-method") ?? "");
-  });
+  // Accessible names/ids (id/aria-labelledby="pi-visa") + payment data attrs.
+  $("[class], [id], [aria-label], [aria-labelledby], [data-payment-icon], [data-method], [data-enabled-payment-types], [data-payment-type]").each(
+    (_, el) => {
+      checkText($(el).attr("class") ?? "");
+      checkText($(el).attr("id") ?? "");
+      checkText($(el).attr("aria-label") ?? "");
+      checkText($(el).attr("aria-labelledby") ?? "");
+      checkText($(el).attr("data-payment-icon") ?? "");
+      checkText($(el).attr("data-method") ?? "");
+      checkText($(el).attr("data-enabled-payment-types") ?? "");
+      checkText($(el).attr("data-payment-type") ?? "");
+    }
+  );
 
+  const lowerHtml = homepageHtml.toLowerCase();
+  const structural = PAYMENT_STRUCTURAL_SIGNALS.filter((s) => lowerHtml.includes(s));
   const found = Array.from(foundIcons);
-  const passed = found.length > 0;
 
-  if (passed) {
+  if (found.length > 0 || structural.length > 0) {
+    const summary =
+      found.length > 0
+        ? `payment method icon(s): ${found.join(", ")}`
+        : `payment display markup: ${structural.join(", ")}`;
     return {
       check_name: CHECK_NAME,
       passed: true,
       severity: "info",
-      title: "Checkout Transparency",
-      description: `${found.length} payment method icon(s) detected: ${found.join(", ")}.`,
+      title: "Payment Methods Displayed",
+      description: `Storefront advertises accepted payment methods (${summary}).`,
       fix_instruction: "No action required.",
-      raw_data: { store_url: storeUrl, payment_icons_found: found, icons_count: found.length },
+      raw_data: { store_url: storeUrl, payment_icons_found: found, structural_signals: structural },
     };
   }
 
   return {
     check_name: CHECK_NAME,
-    passed: false,
-    severity: "warning",
-    title: "No Payment Method Icons Detected",
+    passed: true,
+    severity: "info",
+    title: "Payment Methods — Not Detected",
     description:
-      "No recognisable payment method icons were found on the storefront homepage. " +
-      "GMC shoppers expect to see accepted payment methods before checkout.",
+      "No payment method icons were detected in the storefront's initial HTML. This is a trust " +
+      "best-practice, not a Google Merchant Center requirement, and automated scans can miss icons " +
+      "that load via JavaScript — so no action may be needed.",
     fix_instruction:
-      "In Shopify Admin → Online Store → Themes → Theme settings → Footer, enable payment icons. " +
-      "Verify your payment providers are active under Settings → Payments.",
-    raw_data: { store_url: storeUrl, payment_icons_found: [], icons_count: 0 },
+      "Payment icons usually appear automatically once a provider is active. Verify your providers " +
+      "under Shopify Admin → Settings → Payments; most themes then render the icons from your active gateways.",
+    raw_data: { store_url: storeUrl, payment_icons_found: [], structural_signals: [] },
   };
 }
 
@@ -636,26 +687,15 @@ function checkStructuredDataJsonLd(productPageResults: PageFetchResult[]): Check
     };
   }
 
-  const REQUIRED_FIELDS = ["name", "image", "description", "offers"] as const;
-  const OFFER_REQUIRED = ["price", "priceCurrency", "availability"] as const;
-
-  interface PageReport {
-    url: string;
-    product_schema_found: boolean;
-    missing_required: string[];
-  }
-
-  const reports: PageReport[] = [];
-  let totalMissingRequired = 0;
+  let pagesValid = 0;
+  let pagesIncomplete = 0;
+  let pagesAbsent = 0;
+  const incompleteMissing: string[] = [];
 
   for (const page of productPageResults) {
+    // Could not fetch → cannot verify (not a "missing schema" fault).
     if (!page.html) {
-      reports.push({
-        url: page.url,
-        product_schema_found: false,
-        missing_required: ["page_fetch_failed"],
-      });
-      totalMissingRequired++;
+      pagesAbsent++;
       continue;
     }
 
@@ -673,86 +713,101 @@ function checkStructuredDataJsonLd(productPageResults: PageFetchResult[]): Check
           : [raw];
 
         for (const node of candidates) {
-          if (
-            node &&
-            typeof node === "object" &&
-            !Array.isArray(node) &&
-            (node as Record<string, unknown>)["@type"] === "Product"
-          ) {
-            productSchema = node as Record<string, unknown>;
-            break;
+          if (node && typeof node === "object" && !Array.isArray(node)) {
+            const t = (node as Record<string, unknown>)["@type"];
+            if (t === "Product" || (Array.isArray(t) && t.includes("Product"))) {
+              productSchema = node as Record<string, unknown>;
+              break;
+            }
           }
         }
       } catch {
-        // malformed JSON-LD — treat as missing schema
+        // malformed JSON-LD block — ignore; other blocks may still parse
       }
     });
 
+    // No Product node in the static HTML — either no JSON-LD or JS-injected.
     if (!productSchema) {
-      reports.push({
-        url: page.url,
-        product_schema_found: false,
-        missing_required: [...REQUIRED_FIELDS],
-      });
-      totalMissingRequired += REQUIRED_FIELDS.length;
+      pagesAbsent++;
       continue;
     }
 
-    const missingRequired: string[] = [];
-    for (const field of REQUIRED_FIELDS) {
-      if (!productSchema[field]) missingRequired.push(field);
+    const p = productSchema as Record<string, unknown>;
+    const missing: string[] = [];
+    for (const field of ["name", "image", "description"]) {
+      if (!p[field]) missing.push(field);
     }
-
-    const offers = productSchema["offers"] as Record<string, unknown> | undefined;
-    if (offers) {
-      for (const field of OFFER_REQUIRED) {
-        if (!offers[field]) missingRequired.push(`offers.${field}`);
+    const offers = p["offers"];
+    if (!offers) {
+      missing.push("offers");
+    } else {
+      const offerObjs = normalizeOffers(offers);
+      if (offerObjs.length === 0) {
+        missing.push("offers");
+      } else {
+        if (!offerObjs.some(offerHasPrice)) missing.push("offers.price");
+        if (!offerObjs.some((o) => !!o["priceCurrency"])) missing.push("offers.priceCurrency");
       }
     }
 
-    totalMissingRequired += missingRequired.length;
-    reports.push({ url: page.url, product_schema_found: true, missing_required: missingRequired });
+    if (missing.length === 0) pagesValid++;
+    else {
+      pagesIncomplete++;
+      incompleteMissing.push(...missing);
+    }
   }
 
-  const pagesWithNoSchema = reports.filter((r) => !r.product_schema_found).length;
   const raw_data = {
     pages_scanned: productPageResults.length,
-    pages_with_schema: reports.filter((r) => r.product_schema_found).length,
-    pages_without_schema: pagesWithNoSchema,
-    page_reports: reports,
+    pages_valid: pagesValid,
+    pages_incomplete: pagesIncomplete,
+    pages_absent: pagesAbsent,
   };
 
-  if (totalMissingRequired === 0) {
+  // Present-but-malformed on ≥1 page → WARNING.
+  if (pagesIncomplete > 0) {
+    return {
+      check_name: CHECK_NAME,
+      passed: false,
+      severity: "warning",
+      title: "Incomplete Product JSON-LD Schema",
+      description:
+        `Product JSON-LD schema is present but missing required fields on ${pagesIncomplete} of ` +
+        `${productPageResults.length} scanned page(s). Missing: ${[...new Set(incompleteMissing)].join(", ")}.`,
+      fix_instruction:
+        "Ensure your theme's product template outputs complete Product JSON-LD: name, image, " +
+        "description, and offers with a price and priceCurrency (offers may be a single object, an " +
+        "array of per-variant offers, or an AggregateOffer with lowPrice/highPrice). " +
+        "Validate with: https://search.google.com/test/rich-results",
+      raw_data,
+    };
+  }
+
+  // At least one page validated cleanly → PASS.
+  if (pagesValid > 0) {
     return {
       check_name: CHECK_NAME,
       passed: true,
       severity: "info",
       title: "Structured Data (JSON-LD)",
-      description: `Product JSON-LD schema found and validated on all ${productPageResults.length} sampled page(s).`,
+      description: `Product JSON-LD schema found and validated on ${pagesValid} of ${productPageResults.length} sampled page(s).`,
       fix_instruction: "No action required.",
       raw_data,
     };
   }
 
-  const allMissing = [...new Set(reports.flatMap((r) => r.missing_required))];
-
+  // No Product schema in any static HTML — commonly injected client-side.
   return {
     check_name: CHECK_NAME,
-    passed: false,
-    severity: "warning",
-    title: "Incomplete or Missing Product JSON-LD Schema",
+    passed: true,
+    severity: "info",
+    title: "Structured Data (JSON-LD) — Not Verified",
     description:
-      pagesWithNoSchema === productPageResults.length
-        ? `No Product JSON-LD schema found on any of the ${productPageResults.length} sampled page(s). ` +
-          "Google uses structured data to display products in Shopping results."
-        : `JSON-LD schema is missing required fields on ` +
-          `${reports.filter((r) => r.missing_required.length > 0).length} of ` +
-          `${productPageResults.length} scanned page(s). Missing: ${allMissing.join(", ")}.`,
+      "No Product structured data was found in the initial HTML of the sampled product page(s). " +
+      "Many Shopify themes inject JSON-LD via JavaScript, which an automated fetch cannot see, so this is not necessarily a problem.",
     fix_instruction:
-      "Shopify themes inject Product JSON-LD automatically. " +
-      "If missing, check that your theme's product.liquid template has not had structured data removed. " +
-      "Required fields: name, image, description, offers (price, priceCurrency, availability). " +
-      "Validate with: https://search.google.com/test/rich-results",
+      "Confirm your products emit Product structured data with Google's Rich Results Test: " +
+      "https://search.google.com/test/rich-results. If it passes there, no action is needed.",
     raw_data,
   };
 }
@@ -1030,7 +1085,8 @@ async function main(): Promise<void> {
     safeCheck("contact_information", () =>
       checkContactInformation(
         contactFetch?.status === 200 ? (contactFetch.html ?? null) : null,
-        aboutFetch?.status === 200 ? (aboutFetch.html ?? null) : null
+        aboutFetch?.status === 200 ? (aboutFetch.html ?? null) : null,
+        homepageFetch?.html ?? null
       )
     ),
     safeCheck("shipping_policy", () =>

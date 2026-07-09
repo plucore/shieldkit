@@ -8,7 +8,20 @@
 import { describe, it, expect } from "vitest";
 import { checkHiddenFeeDetection } from "../app/lib/checks/hidden-fee-detection.server";
 import { checkContactInformation } from "../app/lib/checks/contact-information.server";
+import { checkStructuredDataJsonLd } from "../app/lib/checks/structured-data-json-ld.server";
 import type { ShopInfo, Page } from "../app/lib/shopify-api.server";
+
+function ldPage(schema: unknown) {
+  const html = `<html><head><script type="application/ld+json">${JSON.stringify(schema)}</script></head><body>ok</body></html>`;
+  return [{ url: "https://x.example/products/p", status: 200, html }];
+}
+const PRODUCT_BASE = {
+  "@context": "https://schema.org/",
+  "@type": "Product",
+  name: "Cast Iron Skillet",
+  image: ["https://cdn.shopify.com/x.jpg"],
+  description: "A durable skillet.",
+};
 
 function mkShop(overrides: Partial<ShopInfo> = {}): ShopInfo {
   return {
@@ -164,5 +177,50 @@ describe("contact_information — 1-of-N, WARNING not CRITICAL", () => {
     expect(r.passed).toBe(false);
     expect(r.severity).toBe("warning");
     expect(r.severity).not.toBe("critical");
+  });
+});
+
+describe("structured_data_json_ld — offers shapes + INFO when absent", () => {
+  it("passes on a Product whose offers is an ARRAY of valid Offers", async () => {
+    const r = await checkStructuredDataJsonLd(
+      ldPage({
+        ...PRODUCT_BASE,
+        offers: [
+          { "@type": "Offer", price: "59.00", priceCurrency: "USD", availability: "https://schema.org/InStock" },
+          { "@type": "Offer", price: "69.00", priceCurrency: "USD" },
+        ],
+      }),
+    );
+    expect(r.passed).toBe(true);
+    expect(r.severity).toBe("info");
+  });
+
+  it("passes on a Product with an AggregateOffer (lowPrice/highPrice/priceCurrency)", async () => {
+    const r = await checkStructuredDataJsonLd(
+      ldPage({
+        ...PRODUCT_BASE,
+        offers: { "@type": "AggregateOffer", lowPrice: "59.00", highPrice: "69.00", priceCurrency: "USD" },
+      }),
+    );
+    expect(r.passed).toBe(true);
+    expect(r.severity).toBe("info");
+  });
+
+  it("warns when a Product schema is present but has no price anywhere", async () => {
+    const r = await checkStructuredDataJsonLd(
+      ldPage({ ...PRODUCT_BASE, offers: { "@type": "Offer", priceCurrency: "USD" } }),
+    );
+    expect(r.passed).toBe(false);
+    expect(r.severity).toBe("warning");
+    expect(r.description).toContain("offers.price");
+  });
+
+  it("returns INFO (not warning) when no JSON-LD is present in the static HTML", async () => {
+    const r = await checkStructuredDataJsonLd([
+      { url: "https://x.example/products/p", status: 200, html: "<html><body>no schema here</body></html>" },
+    ]);
+    expect(r.passed).toBe(true);
+    expect(r.severity).toBe("info");
+    expect(r.severity).not.toBe("warning");
   });
 });

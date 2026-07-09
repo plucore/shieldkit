@@ -1,58 +1,60 @@
 /**
  * CHECK 1 — contact_information
  *
- * Scans contact/about pages and the store billing address for three contact
- * methods: phone number, store-domain email, and physical street address.
- * The store must have at least 2 of the 3 publicly visible.
+ * Confirms the store exposes AT LEAST ONE reachable, visible contact method.
+ * Google's current bar (since Aug 2021) is one form of contact, and it accepts
+ * an email, phone, physical address, a contact form/page, OR a social business
+ * profile. This check accepts all of those, searched across the store's pages
+ * AND the homepage markup (header/footer) AND the Shopify store contact email.
+ *
+ * Static fetching cannot see JS-rendered contact forms or footers, so detection
+ * is biased toward false negatives: if ANY contact signal is present we pass;
+ * we only warn when no contact of any kind can be found anywhere fetched.
  */
 
 import type { ShopInfo, Page } from "../shopify-api.server";
 import type { CheckResult } from "./types";
 import { stripHtml, extractDomain } from "./helpers.server";
 
+// Social business-profile links (scanned against raw markup hrefs).
+const SOCIAL_RE =
+  /(?:facebook\.com|fb\.com|instagram\.com|tiktok\.com|wa\.me|whatsapp\.com|twitter\.com|\/\/(?:www\.)?x\.com|youtube\.com|youtu\.be|pinterest\.com|linkedin\.com|snapchat\.com|threads\.net)/i;
+
 export function checkContactInformation(
   pages: Page[],
-  shopInfo: ShopInfo | null
+  shopInfo: ShopInfo | null,
+  homepageHtml: string | null = null,
 ): CheckResult {
   const CHECK_NAME = "contact_information";
 
-  // ── Find relevant pages ──────────────────────────────────────────────────
-  const contactPages = pages.filter((p) =>
-    /contact|about/i.test(p.title + " " + p.handle)
-  );
-  const combinedText = contactPages
-    .map((p) => stripHtml(p.body ?? ""))
-    .join(" ");
+  // ── Assemble search corpora ──────────────────────────────────────────────
+  // Visible text (all page bodies + homepage) — for phone/email/address regex.
+  const pageText = pages.map((p) => stripHtml(p.body ?? "")).join(" ");
+  const homepageText = stripHtml(homepageHtml ?? "");
+  const visibleText = `${pageText} ${homepageText}`.trim();
 
-  // ── Phone number detection (international formats) ───────────────────────
-  // Covers: +1 (555) 555-5555 | 555.555.5555 | +44 7911 123456 | etc.
+  // Raw markup (page bodies + homepage) lower-cased — for href-based signals
+  // (mailto:, tel:, social profiles, contact links) that stripHtml would drop.
+  const rawMarkup = `${pages.map((p) => p.body ?? "").join(" ")} ${homepageHtml ?? ""}`.toLowerCase();
+
+  // ── Phone (regex over text, or a tel: link) ──────────────────────────────
   const PHONE_RE =
-    /(?:\+?1[-.\s]?)?\(?([2-9]\d{2})\)?[-.\s]([2-9]\d{2})[-.\s](\d{4})|\+[1-9]\d{1,2}[-.\s]\d{3,5}[-.\s]\d{3,5}(?:[-.\s]\d{2,4})?/g;
-  const phoneFound = PHONE_RE.test(combinedText);
+    /(?:\+?1[-.\s]?)?\(?([2-9]\d{2})\)?[-.\s]([2-9]\d{2})[-.\s](\d{4})|\+[1-9]\d{1,2}[-.\s]\d{3,5}[-.\s]\d{3,5}(?:[-.\s]\d{2,4})?/;
+  const phoneFound = PHONE_RE.test(visibleText) || rawMarkup.includes("tel:");
 
-  // ── Email detection (must match primary store domain) ────────────────────
-  const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@([a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})/g;
-  let emailFound = false;
-  const storeDomain = shopInfo
-    ? extractDomain(shopInfo.primaryDomain.host)
-    : null;
-  let match: RegExpExecArray | null;
-  while ((match = EMAIL_RE.exec(combinedText)) !== null) {
-    if (storeDomain && match[1].toLowerCase().includes(storeDomain)) {
-      emailFound = true;
-      break;
-    }
-  }
+  // ── Email (ANY email in text, a mailto: link, or the Shopify contact email) ─
+  const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/;
+  const emailFound =
+    EMAIL_RE.test(visibleText) ||
+    rawMarkup.includes("mailto:") ||
+    !!shopInfo?.contactEmail?.trim();
 
-  // ── Physical address detection ────────────────────────────────────────────
-  // Matches patterns like "123 Main Street", "456 Oak Ave"
+  // ── Physical address (regex, or the store's billing address on file) ─────
   const ADDRESS_RE =
     /\d+\s+[A-Za-z]+(?:\s+[A-Za-z]+){0,2}\s+(?:Street|St\.?|Avenue|Ave\.?|Road|Rd\.?|Drive|Dr\.?|Lane|Ln\.?|Boulevard|Blvd\.?|Way|Place|Pl\.?|Court|Ct\.?|Terrace|Terr\.?)\b/i;
   const PO_BOX_RE = /\bP\.?O\.?\s*Box\b/i;
-  const poBoxFound = PO_BOX_RE.test(combinedText);
-  let addressFound = ADDRESS_RE.test(combinedText);
-
-  // Billing address on file also counts as a verifiable physical address.
+  const poBoxFound = PO_BOX_RE.test(visibleText);
+  let addressFound = ADDRESS_RE.test(visibleText) || poBoxFound;
   if (!addressFound && shopInfo?.billingAddress?.address1) {
     const ba = shopInfo.billingAddress;
     const hasStreet = ADDRESS_RE.test(ba.address1 ?? "");
@@ -60,22 +62,43 @@ export function checkContactInformation(
     if (hasStreet || hasCity) addressFound = true;
   }
 
-  const methodsFound = [phoneFound, emailFound, addressFound].filter(Boolean)
-    .length;
-  const passed = methodsFound >= 2;
+  // ── Contact form / contact page (a /contact page exists or is linked) ────
+  const hasContactPage = pages.some((p) =>
+    /contact/i.test(`${p.title} ${p.handle}`),
+  );
+  const hasContactLink =
+    /href\s*=\s*["'][^"']*\/(?:pages\/)?contact/i.test(rawMarkup);
+  const contactFormFound = hasContactPage || hasContactLink;
+
+  // ── Social business profile ──────────────────────────────────────────────
+  const socialFound = SOCIAL_RE.test(rawMarkup);
+
+  // ── Any single signal passes (1-of-N) ────────────────────────────────────
+  const methods: string[] = [];
+  if (phoneFound) methods.push("phone number");
+  if (emailFound) methods.push("email address");
+  if (addressFound) methods.push("physical address");
+  if (contactFormFound) methods.push("contact page/form");
+  if (socialFound) methods.push("social profile");
+  const passed = methods.length >= 1;
+
+  const storeDomain = shopInfo
+    ? extractDomain(shopInfo.primaryDomain.host)
+    : null;
 
   const raw_data = {
-    contact_pages_checked: contactPages.map((p) => ({
-      title: p.title,
-      handle: p.handle,
-    })),
-    billing_address: shopInfo?.billingAddress ?? null,
+    pages_checked: pages.map((p) => ({ title: p.title, handle: p.handle })),
+    homepage_searched: !!homepageHtml,
+    store_domain: storeDomain,
+    store_contact_email_present: !!shopInfo?.contactEmail?.trim(),
     phone_found: phoneFound,
     email_found: emailFound,
-    store_domain_checked: storeDomain,
     address_found: addressFound,
     po_box_detected: poBoxFound,
-    methods_found: methodsFound,
+    contact_form_found: contactFormFound,
+    social_found: socialFound,
+    methods_found: methods,
+    methods_count: methods.length,
   };
 
   if (passed) {
@@ -84,34 +107,31 @@ export function checkContactInformation(
       passed: true,
       severity: "info",
       title: "Contact Information",
-      description: `${methodsFound} of 3 contact methods found on public pages.`,
+      description: `Contact method${methods.length === 1 ? "" : "s"} detected: ${methods.join(", ")}.`,
       fix_instruction: "No action required.",
       raw_data,
     };
   }
 
-  const missing: string[] = [];
-  if (!phoneFound) missing.push("phone number");
-  if (!emailFound) missing.push("store-domain email address");
-  if (!addressFound) missing.push("physical street address");
-
   return {
     check_name: CHECK_NAME,
     passed: false,
-    severity: "critical",
-    title: "Insufficient Contact Information",
+    severity: "warning",
+    title: "No Contact Method Detected",
     description:
-      `Only ${methodsFound} of 3 required contact methods are publicly visible. ` +
-      `Missing: ${missing.join(", ")}.` +
-      (poBoxFound
-        ? " Note: a PO Box was detected — GMC requires a physical street address."
-        : ""),
+      "No contact method (email, phone, physical address, contact page, or " +
+      "social profile) could be found on your storefront. Google Merchant " +
+      "Center and shoppers expect at least one visible way to reach you. " +
+      "(Note: contact details rendered only by JavaScript can be missed by an " +
+      "automated scan — if you already show one, you can disregard this.)",
     fix_instruction:
-      "1. Create or update your 'Contact Us' or 'About' page.\n" +
-      "2. Add at least 2 of the following: a phone number, an email address " +
-      "using your store's domain (e.g. support@yourdomain.com), and a physical " +
-      "street address (PO Boxes are not accepted by Google Merchant Center).\n" +
-      "3. In Shopify Admin → Online Store → Pages, publish the updated page.",
+      "Add at least one contact method — any one of these satisfies Google:\n" +
+      "1. Set a public support email in Shopify Admin → Settings → General → " +
+      "Store contact details, or add one to your footer/contact page.\n" +
+      "2. Add a Contact page (Shopify Admin → Online Store → Pages) — the " +
+      "'Contact' page template includes a contact form, which Google accepts.\n" +
+      "3. Or link a social business profile (Instagram, Facebook, TikTok, etc.) " +
+      "in your footer. A phone number or physical address also qualifies.",
     raw_data,
   };
 }

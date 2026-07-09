@@ -156,7 +156,7 @@ export async function runComplianceScan(
     await Promise.all([
       Promise.all([
         safeCheck("contact_information", () =>
-          checkContactInformation(pages, shopInfo)
+          checkContactInformation(pages, shopInfo, homepageFetch?.html ?? null)
         ),
         safeCheck("refund_return_policy", () =>
           checkRefundPolicy(shopPolicies, pages)

@@ -7,6 +7,28 @@
 
 import { describe, it, expect } from "vitest";
 import { checkHiddenFeeDetection } from "../app/lib/checks/hidden-fee-detection.server";
+import { checkContactInformation } from "../app/lib/checks/contact-information.server";
+import type { ShopInfo, Page } from "../app/lib/shopify-api.server";
+
+function mkShop(overrides: Partial<ShopInfo> = {}): ShopInfo {
+  return {
+    name: "Test Store",
+    contactEmail: "",
+    billingAddress: { address1: null, city: null, province: null, country: null, zip: null },
+    myshopifyDomain: "test.myshopify.com",
+    currencyCode: "USD",
+    primaryDomain: { url: "https://teststore.com", host: "teststore.com" },
+    shopOwnerName: null,
+    ianaTimezone: null,
+    createdAt: null,
+    plan: { displayName: null, shopifyPlus: null, partnerDevelopment: null },
+    ...overrides,
+  };
+}
+
+function page(partial: Partial<Page>): Page {
+  return { title: "", body: "", handle: "", url: null, ...partial };
+}
 
 // A storeUrl whose host cannot resolve, so the /cart fetch fails safely (null)
 // and no real network egress happens during the test.
@@ -101,5 +123,46 @@ describe("hidden_fee_detection — negation & positive-charge handling", () => {
       policies(),
     );
     expect(r.passed).toBe(true);
+  });
+});
+
+describe("contact_information — 1-of-N, WARNING not CRITICAL", () => {
+  it("passes with only an email in a page body", () => {
+    const r = checkContactInformation(
+      [page({ title: "FAQ", handle: "faq", body: "<p>Reach us at hello@teststore.com</p>" })],
+      null,
+    );
+    expect(r.passed).toBe(true);
+    expect(r.severity).toBe("info");
+  });
+
+  it("passes with only the Shopify store contact email (misen.com regression — no contact page)", () => {
+    const r = checkContactInformation([], mkShop({ contactEmail: "support@teststore.com" }));
+    expect(r.passed).toBe(true);
+  });
+
+  it("passes with only social profile links in the homepage footer", () => {
+    const r = checkContactInformation(
+      [],
+      null,
+      '<footer><a href="https://instagram.com/teststore">Instagram</a></footer>',
+    );
+    expect(r.passed).toBe(true);
+  });
+
+  it("passes with only a contact form/page link in the homepage markup", () => {
+    const r = checkContactInformation(
+      [],
+      null,
+      '<nav><a href="/pages/contact">Contact us</a></nav>',
+    );
+    expect(r.passed).toBe(true);
+  });
+
+  it("warns (not critical) only when zero contact of any kind is found", () => {
+    const r = checkContactInformation([], null, "<main><p>Welcome to our store.</p></main>");
+    expect(r.passed).toBe(false);
+    expect(r.severity).toBe("warning");
+    expect(r.severity).not.toBe("critical");
   });
 });

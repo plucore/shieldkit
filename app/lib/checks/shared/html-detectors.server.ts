@@ -167,6 +167,18 @@ export function offerHasPrice(o: Record<string, unknown>): boolean {
   );
 }
 
+/** True if an offer node carries a currency, either top-level or nested in priceSpecification. */
+export function offerHasCurrency(o: Record<string, unknown>): boolean {
+  if (o["priceCurrency"]) return true;
+  const ps = o["priceSpecification"];
+  return (
+    !!ps &&
+    typeof ps === "object" &&
+    !Array.isArray(ps) &&
+    !!(ps as Record<string, unknown>)["priceCurrency"]
+  );
+}
+
 /**
  * Parses a page's HTML and returns the first `@type: "Product"` JSON-LD node
  * (handling top-level arrays and `@graph`), plus whether any ld+json block was
@@ -231,7 +243,7 @@ export function missingRequiredProductFields(
       missing.push("offers");
     } else {
       if (!offerObjs.some(offerHasPrice)) missing.push("offers.price");
-      if (!offerObjs.some((o) => !!o["priceCurrency"])) missing.push("offers.priceCurrency");
+      if (!offerObjs.some(offerHasCurrency)) missing.push("offers.priceCurrency");
     }
   }
   return missing;

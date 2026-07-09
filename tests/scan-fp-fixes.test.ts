@@ -279,6 +279,24 @@ describe("structured_data_json_ld — offers shapes + INFO when absent", () => {
     expect(r.severity).toBe("info");
   });
 
+  it("passes when price AND priceCurrency are nested inside priceSpecification", async () => {
+    const r = await checkStructuredDataJsonLd(
+      ldPage({
+        ...PRODUCT_BASE,
+        offers: {
+          "@type": "Offer",
+          priceSpecification: {
+            "@type": "UnitPriceSpecification",
+            price: "10.00",
+            priceCurrency: "USD",
+          },
+        },
+      }),
+    );
+    expect(r.passed).toBe(true);
+    expect(r.severity).toBe("info");
+  });
+
   it("warns when a Product schema is present but has no price anywhere", async () => {
     const r = await checkStructuredDataJsonLd(
       ldPage({ ...PRODUCT_BASE, offers: { "@type": "Offer", priceCurrency: "USD" } }),

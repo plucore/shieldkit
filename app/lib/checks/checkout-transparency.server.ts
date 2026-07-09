@@ -13,23 +13,8 @@
  * and dynamic-checkout button markup.
  */
 
-import { load as cheerioLoad } from "cheerio";
 import type { CheckResult } from "./types";
-import { PAYMENT_KEYWORDS } from "./constants";
-
-// Structural markers that indicate payment methods are advertised even when no
-// individual brand keyword is present (Shopify dynamic checkout / footer lists).
-const STRUCTURAL_SIGNALS = [
-  "data-enabled-payment-types",
-  "shopify-payment-button",
-  "shop-pay",
-  "dynamic-checkout",
-  "additional-checkout-buttons",
-  "payment-icons",
-  "list-payment",
-  "icon--payment",
-  "payment-icon",
-];
+import { detectPaymentSignals } from "./shared/html-detectors.server";
 
 export async function checkCheckoutTransparency(
   storeUrl: string,
@@ -53,56 +38,9 @@ export async function checkCheckoutTransparency(
     };
   }
 
-  const $ = cheerioLoad(homepageHtml);
-
-  const foundIcons = new Set<string>();
-  const checkText = (text: string) => {
-    const lower = text.toLowerCase();
-    for (const kw of PAYMENT_KEYWORDS) {
-      if (lower.includes(kw)) foundIcons.add(kw);
-    }
-  };
-
-  // <img> — src and alt attributes
-  $("img").each((_, el) => {
-    checkText($(el).attr("src") ?? "");
-    checkText($(el).attr("alt") ?? "");
-  });
-
-  // SVG <use> sprite references
-  $("use").each((_, el) => {
-    checkText($(el).attr("xlink:href") ?? "");
-    checkText($(el).attr("href") ?? "");
-  });
-
-  // SVG <title> element TEXT — Shopify's stock payment icons put the brand
-  // name here (e.g. <title id="pi-visa">Visa</title>), never in an attribute
-  // the older detector scanned.
-  $("title").each((_, el) => {
-    checkText($(el).text());
-  });
-
-  // Accessible names and identifiers: class, id, aria-label, aria-labelledby
-  // (Shopify uses id/aria-labelledby="pi-visa" etc.) + payment data attributes.
-  $("[class], [id], [aria-label], [aria-labelledby], [data-payment-icon], [data-method], [data-enabled-payment-types], [data-payment-type]").each(
-    (_, el) => {
-      checkText($(el).attr("class") ?? "");
-      checkText($(el).attr("id") ?? "");
-      checkText($(el).attr("aria-label") ?? "");
-      checkText($(el).attr("aria-labelledby") ?? "");
-      checkText($(el).attr("data-payment-icon") ?? "");
-      checkText($(el).attr("data-method") ?? "");
-      checkText($(el).attr("data-enabled-payment-types") ?? "");
-      checkText($(el).attr("data-payment-type") ?? "");
-    }
-  );
-
-  // Structural signals (dynamic checkout buttons, footer payment lists).
-  const lowerHtml = homepageHtml.toLowerCase();
-  const structuralFound = STRUCTURAL_SIGNALS.filter((s) => lowerHtml.includes(s));
-
-  const found = Array.from(foundIcons);
-  const detected = found.length > 0 || structuralFound.length > 0;
+  // Payment-icon detection (shared, HTML-only): brand keywords across img/use/
+  // <title>/id/aria-labelledby/data attrs + structural dynamic-checkout markers.
+  const { found, structural: structuralFound, detected } = detectPaymentSignals(homepageHtml);
 
   if (detected) {
     const summary =

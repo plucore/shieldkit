@@ -14,11 +14,8 @@
 
 import type { ShopInfo, Page } from "../shopify-api.server";
 import type { CheckResult } from "./types";
-import { stripHtml, extractDomain } from "./helpers.server";
-
-// Social business-profile links (scanned against raw markup hrefs).
-const SOCIAL_RE =
-  /(?:facebook\.com|fb\.com|instagram\.com|tiktok\.com|wa\.me|whatsapp\.com|twitter\.com|\/\/(?:www\.)?x\.com|youtube\.com|youtu\.be|pinterest\.com|linkedin\.com|snapchat\.com|threads\.net)/i;
+import { extractDomain } from "./helpers.server";
+import { detectContactSignals, ADDRESS_RE } from "./shared/html-detectors.server";
 
 export function checkContactInformation(
   pages: Page[],
@@ -27,34 +24,18 @@ export function checkContactInformation(
 ): CheckResult {
   const CHECK_NAME = "contact_information";
 
-  // ── Assemble search corpora ──────────────────────────────────────────────
-  // Visible text (all page bodies + homepage) — for phone/email/address regex.
-  const pageText = pages.map((p) => stripHtml(p.body ?? "")).join(" ");
-  const homepageText = stripHtml(homepageHtml ?? "");
-  const visibleText = `${pageText} ${homepageText}`.trim();
+  // ── HTML-only signals (shared detector) across page bodies + homepage ────
+  const html = detectContactSignals([...pages.map((p) => p.body ?? ""), homepageHtml]);
 
-  // Raw markup (page bodies + homepage) lower-cased — for href-based signals
-  // (mailto:, tel:, social profiles, contact links) that stripHtml would drop.
-  const rawMarkup = `${pages.map((p) => p.body ?? "").join(" ")} ${homepageHtml ?? ""}`.toLowerCase();
+  // ── Phone ────────────────────────────────────────────────────────────────
+  const phoneFound = html.phoneFound;
 
-  // ── Phone (regex over text, or a tel: link) ──────────────────────────────
-  const PHONE_RE =
-    /(?:\+?1[-.\s]?)?\(?([2-9]\d{2})\)?[-.\s]([2-9]\d{2})[-.\s](\d{4})|\+[1-9]\d{1,2}[-.\s]\d{3,5}[-.\s]\d{3,5}(?:[-.\s]\d{2,4})?/;
-  const phoneFound = PHONE_RE.test(visibleText) || rawMarkup.includes("tel:");
+  // ── Email: HTML signal, OR the Shopify store contact email (Admin API) ────
+  const emailFound = html.emailFound || !!shopInfo?.contactEmail?.trim();
 
-  // ── Email (ANY email in text, a mailto: link, or the Shopify contact email) ─
-  const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/;
-  const emailFound =
-    EMAIL_RE.test(visibleText) ||
-    rawMarkup.includes("mailto:") ||
-    !!shopInfo?.contactEmail?.trim();
-
-  // ── Physical address (regex, or the store's billing address on file) ─────
-  const ADDRESS_RE =
-    /\d+\s+[A-Za-z]+(?:\s+[A-Za-z]+){0,2}\s+(?:Street|St\.?|Avenue|Ave\.?|Road|Rd\.?|Drive|Dr\.?|Lane|Ln\.?|Boulevard|Blvd\.?|Way|Place|Pl\.?|Court|Ct\.?|Terrace|Terr\.?)\b/i;
-  const PO_BOX_RE = /\bP\.?O\.?\s*Box\b/i;
-  const poBoxFound = PO_BOX_RE.test(visibleText);
-  let addressFound = ADDRESS_RE.test(visibleText) || poBoxFound;
+  // ── Address: HTML signal, OR the store's billing address on file (Admin) ──
+  const poBoxFound = html.poBoxFound;
+  let addressFound = html.addressFound;
   if (!addressFound && shopInfo?.billingAddress?.address1) {
     const ba = shopInfo.billingAddress;
     const hasStreet = ADDRESS_RE.test(ba.address1 ?? "");
@@ -62,16 +43,14 @@ export function checkContactInformation(
     if (hasStreet || hasCity) addressFound = true;
   }
 
-  // ── Contact form / contact page (a /contact page exists or is linked) ────
+  // ── Contact form / page: a /contact page exists (Admin) or is linked (HTML) ─
   const hasContactPage = pages.some((p) =>
     /contact/i.test(`${p.title} ${p.handle}`),
   );
-  const hasContactLink =
-    /href\s*=\s*["'][^"']*\/(?:pages\/)?contact/i.test(rawMarkup);
-  const contactFormFound = hasContactPage || hasContactLink;
+  const contactFormFound = hasContactPage || html.contactLinkFound;
 
   // ── Social business profile ──────────────────────────────────────────────
-  const socialFound = SOCIAL_RE.test(rawMarkup);
+  const socialFound = html.socialFound;
 
   // ── Any single signal passes (1-of-N) ────────────────────────────────────
   const methods: string[] = [];

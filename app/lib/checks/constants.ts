@@ -68,6 +68,30 @@ export const PAYMENT_KEYWORDS = [
   "clearpay",
 ] as const;
 
+/**
+ * Structural markers that a storefront advertises payment methods even when no
+ * individual brand keyword is present (Shopify dynamic checkout / footer lists).
+ * Consumed by the shared payment-icon detector (shared/html-detectors.server.ts).
+ */
+export const PAYMENT_STRUCTURAL_SIGNALS = [
+  "data-enabled-payment-types",
+  "shopify-payment-button",
+  "shop-pay",
+  "dynamic-checkout",
+  "additional-checkout-buttons",
+  "payment-icons",
+  "list-payment",
+  "icon--payment",
+  "payment-icon",
+] as const;
+
+/**
+ * Social business-profile link hosts — a valid contact method under Google's
+ * current one-form-of-contact rule. Consumed by the shared contact detector.
+ */
+export const SOCIAL_RE =
+  /(?:facebook\.com|fb\.com|instagram\.com|tiktok\.com|wa\.me|whatsapp\.com|twitter\.com|\/\/(?:www\.)?x\.com|youtube\.com|youtu\.be|pinterest\.com|linkedin\.com|snapchat\.com|threads\.net)/i;
+
 export const STOP_WORDS = new Set([
   "the", "a", "an", "and", "or", "of", "in", "on", "at", "to", "for",
   "by", "with", "my", "your", "our", "this", "it", "is", "are", "be",

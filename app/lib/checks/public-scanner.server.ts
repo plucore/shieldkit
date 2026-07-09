@@ -21,50 +21,13 @@
 
 import { load as cheerioLoad } from "cheerio";
 import dns from "node:dns/promises";
-import { PAYMENT_KEYWORDS } from "./constants";
+import {
+  detectContactSignals,
+  detectPaymentSignals,
+  evaluateStructuredDataPages,
+} from "./shared/html-detectors.server";
 
 export type Severity = "critical" | "warning" | "info" | "error";
-
-// Social business-profile links (scanned against raw markup hrefs) — a valid
-// contact method under Google's current one-contact rule.
-const SOCIAL_RE =
-  /(?:facebook\.com|fb\.com|instagram\.com|tiktok\.com|wa\.me|whatsapp\.com|twitter\.com|\/\/(?:www\.)?x\.com|youtube\.com|youtu\.be|pinterest\.com|linkedin\.com|snapchat\.com|threads\.net)/i;
-
-// Structural markers that payment methods are advertised even without a brand
-// keyword (Shopify dynamic checkout / footer payment lists).
-const PAYMENT_STRUCTURAL_SIGNALS = [
-  "data-enabled-payment-types",
-  "shopify-payment-button",
-  "shop-pay",
-  "dynamic-checkout",
-  "additional-checkout-buttons",
-  "payment-icons",
-  "list-payment",
-  "icon--payment",
-  "payment-icon",
-];
-
-/** Normalises a JSON-LD `offers` value to an array of offer objects. */
-function normalizeOffers(offers: unknown): Record<string, unknown>[] {
-  if (Array.isArray(offers)) {
-    return offers.filter(
-      (o): o is Record<string, unknown> => !!o && typeof o === "object" && !Array.isArray(o),
-    );
-  }
-  if (offers && typeof offers === "object") return [offers as Record<string, unknown>];
-  return [];
-}
-
-/** True if an offer node carries a usable price (Offer.price or AggregateOffer.low/highPrice). */
-function offerHasPrice(o: Record<string, unknown>): boolean {
-  const present = (v: unknown) => v !== undefined && v !== null && v !== "";
-  return (
-    present(o["price"]) ||
-    present(o["lowPrice"]) ||
-    present(o["highPrice"]) ||
-    (!!o["priceSpecification"] && typeof o["priceSpecification"] === "object")
-  );
-}
 
 export interface PublicCheckResult {
   check_name: string;
@@ -236,30 +199,18 @@ export function checkContactInformation(
   aboutHtml: string | null,
   homepageHtml: string | null
 ): PublicCheckResult {
-  const htmls = [contactHtml, aboutHtml, homepageHtml].filter(Boolean) as string[];
-  const visibleText = htmls.map((h) => stripHtml(h)).join(" ");
-  const rawMarkup = htmls.join(" ").toLowerCase();
-
   // Google (since Aug 2021) requires only ONE contact method and accepts a
   // contact form or social profile. Accept any one signal, searched across the
-  // contact/about pages AND the homepage header/footer markup.
-  const PHONE_RE =
-    /(?:\+?1[-.\s]?)?\(?([2-9]\d{2})\)?[-.\s]([2-9]\d{2})[-.\s](\d{4})|\+[1-9]\d{1,2}[-.\s]\d{3,5}[-.\s]\d{3,5}(?:[-.\s]\d{2,4})?/;
-  const phoneFound = PHONE_RE.test(visibleText) || rawMarkup.includes("tel:");
-
-  const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/;
-  const emailFound = EMAIL_RE.test(visibleText) || rawMarkup.includes("mailto:");
-
-  const ADDRESS_RE =
-    /\d+\s+[A-Za-z]+(?:\s+[A-Za-z]+){0,2}\s+(?:Street|St\.?|Avenue|Ave\.?|Road|Rd\.?|Drive|Dr\.?|Lane|Ln\.?|Boulevard|Blvd\.?|Way|Place|Pl\.?|Court|Ct\.?|Terrace|Terr\.?)\b/i;
-  const PO_BOX_RE = /\bP\.?O\.?\s*Box\b/i;
-  const poBoxFound = PO_BOX_RE.test(visibleText);
-  const addressFound = ADDRESS_RE.test(visibleText) || poBoxFound;
+  // contact/about pages AND the homepage header/footer markup (shared detector).
+  const signals = detectContactSignals([contactHtml, aboutHtml, homepageHtml]);
+  const phoneFound = signals.phoneFound;
+  const emailFound = signals.emailFound;
+  const poBoxFound = signals.poBoxFound;
+  const addressFound = signals.addressFound;
 
   const contactFormFound =
-    (!!contactHtml && stripHtml(contactHtml).trim().length > 0) ||
-    /href\s*=\s*["'][^"']*\/(?:pages\/)?contact/i.test(rawMarkup);
-  const socialFound = SOCIAL_RE.test(rawMarkup);
+    (!!contactHtml && stripHtml(contactHtml).trim().length > 0) || signals.contactLinkFound;
+  const socialFound = signals.socialFound;
 
   const methods: string[] = [];
   if (phoneFound) methods.push("phone number");
@@ -472,39 +423,8 @@ export function checkCheckoutTransparency(
       raw_data: { store_url: storeUrl },
     };
   }
-  const $ = cheerioLoad(homepageHtml);
-  const found = new Set<string>();
-  const scan = (text: string) => {
-    const lower = text.toLowerCase();
-    for (const kw of PAYMENT_KEYWORDS) if (lower.includes(kw)) found.add(kw);
-  };
-  $("img").each((_, el) => {
-    scan($(el).attr("src") ?? "");
-    scan($(el).attr("alt") ?? "");
-  });
-  $("use").each((_, el) => {
-    scan($(el).attr("xlink:href") ?? "");
-    scan($(el).attr("href") ?? "");
-  });
-  // SVG <title> text — Shopify stock icons put the brand name here.
-  $("title").each((_, el) => scan($(el).text()));
-  // Accessible names/ids (id/aria-labelledby="pi-visa") + payment data attrs.
-  $("[class], [id], [aria-label], [aria-labelledby], [data-payment-icon], [data-method], [data-enabled-payment-types], [data-payment-type]").each(
-    (_, el) => {
-      scan($(el).attr("class") ?? "");
-      scan($(el).attr("id") ?? "");
-      scan($(el).attr("aria-label") ?? "");
-      scan($(el).attr("aria-labelledby") ?? "");
-      scan($(el).attr("data-payment-icon") ?? "");
-      scan($(el).attr("data-method") ?? "");
-      scan($(el).attr("data-enabled-payment-types") ?? "");
-      scan($(el).attr("data-payment-type") ?? "");
-    }
-  );
-
-  const lowerHtml = homepageHtml.toLowerCase();
-  const structural = PAYMENT_STRUCTURAL_SIGNALS.filter((s) => lowerHtml.includes(s));
-  const list = Array.from(found);
+  // Payment-icon detection (shared, HTML-only).
+  const { found: list, structural } = detectPaymentSignals(homepageHtml);
 
   if (list.length > 0 || structural.length > 0) {
     const summary =
@@ -617,68 +537,10 @@ export function checkStructuredDataJsonLd(
       raw_data: { pages_scanned: 0 },
     };
   }
-  let pagesValid = 0;
-  let pagesIncomplete = 0;
-  let pagesAbsent = 0;
-  const incompleteMissing: string[] = [];
-
-  for (const page of productPageResults) {
-    if (!page.html) {
-      pagesAbsent++;
-      continue;
-    }
-    const $ = cheerioLoad(page.html);
-    let product: Record<string, unknown> | null = null;
-    $('script[type="application/ld+json"]').each((_, el) => {
-      if (product) return;
-      try {
-        const raw = JSON.parse($(el).html() ?? "{}");
-        const candidates: unknown[] = Array.isArray(raw)
-          ? raw
-          : Array.isArray(raw["@graph"])
-            ? raw["@graph"]
-            : [raw];
-        for (const node of candidates) {
-          if (node && typeof node === "object" && !Array.isArray(node)) {
-            const t = (node as Record<string, unknown>)["@type"];
-            if (t === "Product" || (Array.isArray(t) && t.includes("Product"))) {
-              product = node as Record<string, unknown>;
-              break;
-            }
-          }
-        }
-      } catch {
-        // ignore malformed block
-      }
-    });
-    // No Product node in the static HTML — likely JS-injected → unverified.
-    if (!product) {
-      pagesAbsent++;
-      continue;
-    }
-
-    const p = product as Record<string, unknown>;
-    const missing: string[] = [];
-    for (const f of ["name", "image", "description"]) if (!p[f]) missing.push(f);
-    const offers = p["offers"];
-    if (!offers) {
-      missing.push("offers");
-    } else {
-      const offerObjs = normalizeOffers(offers);
-      if (offerObjs.length === 0) {
-        missing.push("offers");
-      } else {
-        if (!offerObjs.some(offerHasPrice)) missing.push("offers.price");
-        if (!offerObjs.some((o) => !!o["priceCurrency"])) missing.push("offers.priceCurrency");
-      }
-    }
-
-    if (missing.length === 0) pagesValid++;
-    else {
-      pagesIncomplete++;
-      incompleteMissing.push(...missing);
-    }
-  }
+  // HTML-only structured-data evaluation (shared): absent (no Product node in
+  // static HTML) is treated as unverified, not a failure.
+  const { pagesValid, pagesIncomplete, pagesAbsent, incompleteMissing } =
+    evaluateStructuredDataPages(productPageResults);
 
   const raw_data = {
     pages_scanned: productPageResults.length,

@@ -206,8 +206,13 @@ async function safeCheck(
 // unavailable without the Admin API so that fallback path is omitted.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Shared helpers for the ported false-positive fixes (self-contained — this
-// CLI intentionally does not import from app/lib).
+// ⚠ SOURCE OF TRUTH: app/lib/checks/shared/html-detectors.server.ts
+// This CLI keeps a self-contained MIRROR of the shared contact/payment/JSON-LD
+// detectors below. It cannot import the shared module because it must run
+// standalone via `node --experimental-strip-types`, whose resolver rejects the
+// extensionless relative imports the app uses (ERR_MODULE_NOT_FOUND), and
+// adding a runner (tsx) or bundle step would add a dependency. If you change a
+// detector in the shared module, mirror the change here — and vice versa.
 const SOCIAL_RE =
   /(?:facebook\.com|fb\.com|instagram\.com|tiktok\.com|wa\.me|whatsapp\.com|twitter\.com|\/\/(?:www\.)?x\.com|youtube\.com|youtu\.be|pinterest\.com|linkedin\.com|snapchat\.com|threads\.net)/i;
 

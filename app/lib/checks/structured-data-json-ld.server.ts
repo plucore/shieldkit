@@ -15,34 +15,13 @@
  * present in the HTML but genuinely missing required fields.
  */
 
-import { load as cheerioLoad } from "cheerio";
 import type { CheckResult, PageFetchResult, PageReport } from "./types";
+import {
+  findProductSchema,
+  missingRequiredProductFields,
+} from "./shared/html-detectors.server";
 
 const RECOMMENDED_FIELDS = ["sku", "itemCondition", "gtin", "mpn"] as const;
-
-/** Normalises the `offers` value to an array of offer objects. */
-function normalizeOffers(offers: unknown): Record<string, unknown>[] {
-  if (Array.isArray(offers)) {
-    return offers.filter(
-      (o): o is Record<string, unknown> => !!o && typeof o === "object" && !Array.isArray(o),
-    );
-  }
-  if (offers && typeof offers === "object") {
-    return [offers as Record<string, unknown>];
-  }
-  return [];
-}
-
-/** True if an offer node carries a usable price (Offer.price or AggregateOffer.low/highPrice). */
-function offerHasPrice(o: Record<string, unknown>): boolean {
-  const present = (v: unknown) => v !== undefined && v !== null && v !== "";
-  return (
-    present(o["price"]) ||
-    present(o["lowPrice"]) ||
-    present(o["highPrice"]) ||
-    (!!o["priceSpecification"] && typeof o["priceSpecification"] === "object")
-  );
-}
 
 export async function checkStructuredDataJsonLd(
   productPageResults: PageFetchResult[]
@@ -79,36 +58,8 @@ export async function checkStructuredDataJsonLd(
       continue;
     }
 
-    const $ = cheerioLoad(page.html);
-    let productSchema: Record<string, unknown> | null = null;
-    let sawAnyJsonLd = false;
-
-    $('script[type="application/ld+json"]').each((_, el) => {
-      sawAnyJsonLd = true;
-      if (productSchema) return;
-      try {
-        const raw = JSON.parse($(el).html() ?? "{}") as Record<string, unknown>;
-        const candidates: unknown[] = Array.isArray(raw)
-          ? raw
-          : Array.isArray(raw["@graph"])
-          ? (raw["@graph"] as unknown[])
-          : [raw];
-
-        for (const node of candidates) {
-          if (node && typeof node === "object" && !Array.isArray(node)) {
-            const t = (node as Record<string, unknown>)["@type"];
-            const isProduct =
-              t === "Product" || (Array.isArray(t) && t.includes("Product"));
-            if (isProduct) {
-              productSchema = node as Record<string, unknown>;
-              break;
-            }
-          }
-        }
-      } catch {
-        // Malformed JSON-LD block — ignore; other blocks may still parse.
-      }
-    });
+    // Find the first Product JSON-LD node in the static HTML (shared detector).
+    const { productSchema, sawAnyJsonLd } = findProductSchema(page.html);
 
     // No Product node in the static HTML — either no JSON-LD at all, or the
     // Product schema is injected client-side. Either way we cannot confidently
@@ -124,26 +75,8 @@ export async function checkStructuredDataJsonLd(
       continue;
     }
 
-    // Product schema IS present — validate required fields.
-    const missingRequired: string[] = [];
-    for (const field of ["name", "image", "description"] as const) {
-      if (!productSchema[field]) missingRequired.push(field);
-    }
-
-    const offers = productSchema["offers"];
-    if (!offers) {
-      missingRequired.push("offers");
-    } else {
-      const offerObjs = normalizeOffers(offers);
-      if (offerObjs.length === 0) {
-        missingRequired.push("offers");
-      } else {
-        // Accept if ANY offer conveys the field (arrays hold one Offer/variant).
-        if (!offerObjs.some(offerHasPrice)) missingRequired.push("offers.price");
-        if (!offerObjs.some((o) => !!o["priceCurrency"]))
-          missingRequired.push("offers.priceCurrency");
-      }
-    }
+    // Product schema IS present — validate required fields (shared detector).
+    const missingRequired = missingRequiredProductFields(productSchema);
 
     const missingRecommended: string[] = [];
     for (const field of RECOMMENDED_FIELDS) {

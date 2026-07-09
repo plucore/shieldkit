@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /app
+Disallow: /app/
+Disallow: /api/
+Disallow: /auth/
+Disallow: /webhooks/
+
+Sitemap: https://shieldkit.app/sitemap.xml

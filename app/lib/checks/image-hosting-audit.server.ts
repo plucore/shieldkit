@@ -11,7 +11,9 @@
  * so we surface them at WARNING severity to prompt a review, without accusing
  * the merchant of anything.
  *
- * Sample: first 20 products from the already-fetched product set.
+ * Sample: up to 50 products from the already-fetched product set (the scan
+ * fetches at most 50), so supplier-hosted images on products beyond the first 20
+ * of a large dropship catalog are no longer silently missed.
  */
 
 import type { Product } from "../graphql-queries.server";
@@ -52,7 +54,7 @@ function findDropshipperHosts(html: string): string[] {
 
 export function checkImageHostingAudit(products: Product[]): CheckResult {
   const CHECK_NAME = "image_hosting_audit";
-  const sample = products.slice(0, 20);
+  const sample = products.slice(0, 50);
 
   const flagged: FlaggedProduct[] = [];
   for (const p of sample) {

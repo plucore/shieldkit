@@ -400,4 +400,14 @@ describe("image_hosting_audit — WARNING advisory, no accusatory framing", () =
     expect(r.passed).toBe(true);
     expect(r.severity).toBe("info");
   });
+
+  it("samples beyond the first 20 products (supplier CDN on product #21 is caught)", () => {
+    const clean = Array.from({ length: 20 }, () =>
+      mkProduct('<img src="https://cdn.shopify.com/s/files/1/x.jpg">'),
+    );
+    const dropship = mkProduct('<img src="https://ae01.alicdn.com/kf/abc.jpg">');
+    const r = checkImageHostingAudit([...clean, dropship]);
+    expect(r.passed).toBe(false);
+    expect(r.severity).toBe("warning");
+  });
 });

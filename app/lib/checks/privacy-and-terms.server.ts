@@ -130,13 +130,13 @@ export function checkPrivacyAndTerms(
           "CCPA, and other privacy laws, and is mandatory for Google " +
           "Merchant Center approval.",
       fix_instruction:
-        "1. In Shopify Admin → Settings → Policies, click 'Create from template' " +
-        "under Privacy Policy to generate a baseline policy.\n" +
+        "1. In Shopify Admin → Settings → Policies, create a Privacy Policy " +
+        "(Shopify provides a starting template you can adapt).\n" +
         "2. Customise it to reflect your actual data practices " +
         "(what data you collect, how it is used, third-party sharing).\n" +
         "3. Ensure the policy is linked in your store footer.\n" +
         (missingBoth
-          ? "4. Also create a Terms of Service policy covering purchase terms, " +
+          ? "4. Also create a Terms of Service covering purchase terms, " +
             "liability limitations, and governing law."
           : ""),
       raw_data,
@@ -155,9 +155,9 @@ export function checkPrivacyAndTerms(
       "the legal framework for customer purchases and are strongly " +
       "recommended for GMC-listed stores.",
     fix_instruction:
-      "1. In Shopify Admin → Settings → Policies, click 'Create from template' " +
-      "under Terms of Service.\n" +
-      "2. Review and customise the template — particularly sections covering " +
+      "1. In Shopify Admin → Settings → Policies, create a Terms of Service " +
+      "(Shopify provides a starting template you can adapt).\n" +
+      "2. Review and customise it — particularly sections covering " +
       "payment terms, liability, and governing law.\n" +
       "3. Link the Terms of Service in your store footer.",
     raw_data,

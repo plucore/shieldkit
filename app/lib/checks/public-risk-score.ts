@@ -6,11 +6,19 @@
  * component can import it without dragging server-only deps (cheerio,
  * node:dns, etc.) into the client bundle.
  *
- * Higher = lower risk. Weights sum to 100 across the 8 checks the
- * public scanner emits. See note in public-scanner.server.ts for the
- * mapping rationale (some original-spec check IDs aren't computable
- * from the public Admin-API-less scanner, so their weight is
- * redistributed across what we can measure).
+ * Higher = lower risk. The raw weights below sum to less than 100 (an
+ * always-pass check was removed — see below), so computeRiskScore normalizes
+ * the earned weight against the total available weight: a fully-passing store
+ * scores exactly 100 and each check keeps its RELATIVE proportion. See note in
+ * public-scanner.server.ts for the mapping rationale (some original-spec check
+ * IDs aren't computable from the public Admin-API-less scanner, so their weight
+ * is redistributed across what we can measure).
+ *
+ * checkout_transparency is intentionally NOT weighted: it is an INFO-only
+ * best-practice check that can never fail, so awarding it weight added a fixed,
+ * non-discriminating floor to the risk score. It is removed rather than
+ * re-tuned into the other weights; proportional normalization (not per-check
+ * hand-tuning) restores the 0–100 range without changing relative ordering.
  */
 
 export interface RiskScoreCheck {
@@ -25,16 +33,22 @@ export const RISK_WEIGHTS: Record<string, number> = {
   privacy_and_terms: 15,
   structured_data_json_ld: 15,
   storefront_accessibility: 10,
-  checkout_transparency: 10,
   page_speed: 5,
 };
 
+/** Total available weight — a fully-passing store earns exactly this. */
+const TOTAL_WEIGHT = Object.values(RISK_WEIGHTS).reduce((sum, w) => sum + w, 0);
+
 export function computeRiskScore(checks: RiskScoreCheck[]): number {
-  let total = 0;
+  let earned = 0;
   for (const check of checks) {
     const weight = RISK_WEIGHTS[check.check_name];
     if (weight === undefined) continue;
-    if (check.passed) total += weight;
+    if (check.passed) earned += weight;
   }
-  return Math.max(0, Math.min(100, Math.round(total)));
+  // Normalize against the total available weight so a fully-passing store scores
+  // exactly 100 (the raw weights sum to <100) while preserving each check's
+  // relative contribution.
+  const score = TOTAL_WEIGHT > 0 ? (earned / TOTAL_WEIGHT) * 100 : 0;
+  return Math.max(0, Math.min(100, Math.round(score)));
 }

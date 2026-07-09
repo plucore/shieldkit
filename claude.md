@@ -97,6 +97,7 @@ app/
     useWebComponentClick.ts    (native DOM events for Polaris web components)
   lib/                    # Server-only business logic
     checks/               # 12 compliance check modules + orchestrator + shared regex constants
+      shared/             # html-detectors.server.ts — pure HTML-only detectors for contact/checkout/json-ld, shared by all 3 scan surfaces
     billing/
       plans.ts             (PLANS, PLAN_NAME_TO_TIER, PLAN_NAME_TO_CYCLE,
                             hasPaidAccess, PAID_TIERS, PAID_FEATURES,
@@ -138,7 +139,7 @@ supabase/
   migrations/          # Numbered — source of truth for ordering
 extensions/
   json-ld-schema/      # Theme extension: Product/Organization/WebSite JSON-LD blocks
-tests/                 # Vitest regression suites (9 files, 255 tests on 2026-05-29)
+tests/                 # Vitest regression suites (14 files, 329 tests on 2026-07-09)
 ```
 
 ---
@@ -445,20 +446,22 @@ Shared 12-generation rolling 30-day window across `generatePolicy` and `generate
 7. Persist: INSERT `scans` + bulk INSERT `violations` rows.
 
 ### The 12 Compliance Checks
-Categories + severities unchanged from v3. Adding a new check: import in `index.server.ts`, add to one of the two `Promise.all` batches, add to the destructured array, add to `checkResults`. **No auto-discovery.**
+Adding a new check: import in `index.server.ts`, add to one of the two `Promise.all` batches, add to the destructured array, add to `checkResults`. **No auto-discovery.** Severities below reflect the **2026-07 false-positive remediation** (see `docs/scan-reliability-audit.md`); the checks are all retained (12-point count intact), several were re-scoped toward false negatives because a false accusation churns a non-technical merchant.
 
-1. `contact_information` (critical) — ≥2 of 3 contact methods publicly visible
+1. `contact_information` (**warning**) — **1-of-N**: passes on ANY single contact method (email/`mailto:`, phone/`tel:`, physical address, contact page/form link, or a social business profile), searched across page bodies + homepage markup + the Shopify store contact email. Demoted from critical + 2-of-3 (Google requires only one form of contact since Aug 2021).
 2. `refund_return_policy` (critical) — Settings → Policies first; Pages fallback (Fix 2). Page-fallback PASS surfaces `info` advisory.
 3. `shipping_policy` (critical) — same Page-fallback pattern.
 4. `privacy_and_terms` (critical/warning) — Privacy + Terms independently. Privacy missing = critical; Terms missing alone = warning.
 5. `product_data_quality` (warning) — flag short descriptions, missing images, bad pricing, missing SKUs.
-6. `checkout_transparency` (warning) — payment-method icon search on homepage.
+6. `checkout_transparency` (**info**) — payment-method advertising is a **trust best-practice, not a GMC requirement** (Google removed that rule in 2021), so this check is informational and **never fails a store**. Detection is broad: SVG `<title>`/`id`/`aria-labelledby` (`pi-*`), `data-enabled-payment-types`, footer payment classes, Shop Pay / dynamic-checkout markup, `PAYMENT_KEYWORDS`.
 7. `storefront_accessibility` (critical) — detect password protection + verify product-page HTTP 200.
-8. `structured_data_json_ld` (warning) — Product JSON-LD required-field validation. **This check is the authoritative source for whether structured data is actually rendering on the storefront** — v4 removed the separate verifier in favor of this scan-driven signal.
+8. `structured_data_json_ld` (**warning** when present-but-malformed / **info** when absent) — validates Product JSON-LD (`offers` accepted as a single object, an array of per-variant Offers, or an AggregateOffer with `lowPrice`/`highPrice`). When NO Product schema is in the static HTML it reports INFO "not verified" (themes often inject via JS), never a confident WARNING. Still the authoritative signal for whether structured data renders on the storefront.
 9. `page_speed` (warning) — Google PageSpeed Insights mobile + intrusive interstitial detection.
 10. `business_identity_consistency` (info) — Jaccard similarity 60% domain + 40% about-page.
-11. `hidden_fee_detection` (critical) — visible-text scan for fee terms vs disclosed policies.
-12. `image_hosting_audit` (critical) — dropshipper-host regex over `src/srcset/data-src`.
+11. `hidden_fee_detection` (**critical**, retained) — flags a genuine **undisclosed positive fee** only: a fee term asserting an actual charge (currency/%/“applies”/“we charge”) that is NOT negated ("no"/"never"/"zero"/"without"/"no hidden"/…) nearby AND NOT disclosed in the fetched refund/shipping policy. Negation-aware so reassurance copy ("no restocking fee") passes.
+12. `image_hosting_audit` (**warning** advisory) — dropshipper-host regex over `src/srcset/data-src`. Demoted from critical; accusatory "dropshipper/misrepresentation" framing dropped — GMC does not evaluate the image CDN host, only the feed `image_link` quality (overlays/watermarks, resolution, not placeholder), which the copy now points to.
+
+**Shared HTML detectors (2026-07 dedupe).** The pure HTML-only detection for checks 1, 6, and 8 lives in **`app/lib/checks/shared/html-detectors.server.ts`** (`detectContactSignals`, `detectPaymentSignals`, `findProductSchema` / `normalizeOffers` / `offerHasPrice` / `missingRequiredProductFields` / `evaluateStructuredDataPages`). All three scan surfaces consume it — the authenticated checks (`app/lib/checks/*`) layer Admin-API augmentation on top of it, and the public `/scan` scanner (`public-scanner.server.ts`) uses it directly. Shared constants `PAYMENT_KEYWORDS`, `PAYMENT_STRUCTURAL_SIGNALS`, and `SOCIAL_RE` live in `constants.ts`. **Rule: fix these three checks' detection in the shared module, never re-copy per surface** — the pre-dedupe triple-copy is what caused the 2026-07 incident. The CLI (`scripts/outbound-scanner.ts`) keeps a self-contained MIRROR (it must run standalone via `node --experimental-strip-types`, which can't resolve the app's extensionless imports, and a runner/bundler would add a dependency); its header flags the shared module as source of truth — keep the two in sync.
 
 ---
 
@@ -708,8 +711,8 @@ Singleton (dev caches on `global` for hot-reload survival). `service_role` key �
 
 * **Framework:** Vitest ^4.1.2.
 * **Run:** `npm test` → `vitest run`.
-* **Files (9):** `bug-fixes.test.ts` (large regression suite), `partner-api.test.ts`, `phase-7-ai-visibility.test.ts`, `phase-7-dashboard.test.ts`, `phase-7-enrichment.test.ts`, `phase-7-monitoring.test.ts`, `phase-7-quick-wins.test.ts`, `reconcile-subscriptions.test.ts`, `v3-pricing.test.ts`.
-* **Count on 2026-05-29:** **255 / 255 passing** (was 233 pre-v4, 249 pre-cleanup-batch, +6 new regression tests from cleanup batch §1, §6, §7, §8).
+* **Files (14):** the nine listed below plus the 2026-07 false-positive suites — `scan-fp-fixes.test.ts` (authenticated checks) and `public-scanner-fp.test.ts` (/scan), which exercise the real modules and are biased to false negatives (reassurance copy / JS-rendered content / valid-but-unusual schemas must PASS): `bug-fixes.test.ts` (large regression suite), `partner-api.test.ts`, `phase-7-ai-visibility.test.ts`, `phase-7-dashboard.test.ts`, `phase-7-enrichment.test.ts`, `phase-7-monitoring.test.ts`, `phase-7-quick-wins.test.ts`, `reconcile-subscriptions.test.ts`, `v3-pricing.test.ts`.
+* **Count on 2026-07-09:** **329 / 329 passing** (255 pre-v4-pricing → +FP-remediation + shared-detector suites). The 2026-07 shared-detector extraction (`shared/html-detectors.server.ts`) was a zero-behavior-change refactor: every pre-existing test passed unchanged.
 * **Style:** Most tests are file-content assertions (regex / string matching) to avoid needing env vars for module initialisation. Trade-off: brittle when implementation details rotate; rebalance toward behaviour tests if maintenance burden grows.
 
 ---

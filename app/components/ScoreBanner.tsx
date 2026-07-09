@@ -106,14 +106,18 @@ export default function ScoreBanner({
           </div>
 
           {/* v4 §8 — ongoing-value reassurance line for paid merchants whose
-              latest scan is clean (score ≥ 80, no critical issues). Reframes
-              the "fixed" moment as continuous protection rather than a done
-              job — reduces the post-fix cancellation reflex. */}
+              latest scan is clean (score ≥ 80, no critical AND no warning
+              issues). Reframes the "fixed" moment as continuous protection
+              rather than a done job — reduces the post-fix cancellation reflex.
+              Warnings must be zero too: several checks are now WARNING (not
+              CRITICAL), so gating on critical_count alone would assert "clean"
+              while real warnings remain (mirrors SecurityStatusAside). */}
           {hasPaidAccess(merchant.tier) &&
             !isScanning &&
             score !== null &&
             score >= 80 &&
-            (latestScan.critical_count ?? 0) === 0 && (
+            (latestScan.critical_count ?? 0) === 0 &&
+            (latestScan.warning_count ?? 0) === 0 && (
               <div
                 style={{
                   marginTop: "12px",

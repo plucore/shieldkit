@@ -1,12 +1,19 @@
 /**
  * CHECK 12 — image_hosting_audit
  *
- * Flags products whose `descriptionHtml` references images hosted on known
- * dropshipper / supplier CDNs. Direct misrepresentation trigger for GMC —
- * Google considers using supplier-hosted assets a strong signal that the
- * merchant is reselling someone else's product without authorisation.
+ * Flags products whose `descriptionHtml` embeds images loaded from known
+ * marketplace / supplier CDNs. This is an ADVISORY heuristic, not a Google
+ * Merchant Center enforcement signal: GMC does not evaluate the CDN host of a
+ * description image. What GMC actually checks is the feed's `image_link` (the
+ * primary product photo) against its image requirements — no promotional
+ * overlays/watermarks, adequate resolution, not generic/placeholder, and a
+ * stable crawlable URL. Supplier-hosted images correlate with those problems,
+ * so we surface them at WARNING severity to prompt a review, without accusing
+ * the merchant of anything.
  *
- * Sample: first 20 products from the already-fetched product set.
+ * Sample: up to 50 products from the already-fetched product set (the scan
+ * fetches at most 50), so supplier-hosted images on products beyond the first 20
+ * of a large dropship catalog are no longer silently missed.
  */
 
 import type { Product } from "../graphql-queries.server";
@@ -47,7 +54,7 @@ function findDropshipperHosts(html: string): string[] {
 
 export function checkImageHostingAudit(products: Product[]): CheckResult {
   const CHECK_NAME = "image_hosting_audit";
-  const sample = products.slice(0, 20);
+  const sample = products.slice(0, 50);
 
   const flagged: FlaggedProduct[] = [];
   for (const p of sample) {
@@ -66,11 +73,11 @@ export function checkImageHostingAudit(products: Product[]): CheckResult {
       check_name: CHECK_NAME,
       passed: true,
       severity: "info",
-      title: "Image Hosting Audit",
+      title: "Product Image Hosting",
       description:
         sample.length === 0
           ? "No products available to scan."
-          : `Scanned ${sample.length} product${sample.length === 1 ? "" : "s"} — no dropshipper-hosted images detected.`,
+          : `Scanned ${sample.length} product${sample.length === 1 ? "" : "s"} — no externally-hosted supplier images detected in product descriptions.`,
       fix_instruction: "No action required.",
       raw_data: { sample_size: sample.length, flagged_products: [] },
     };
@@ -84,17 +91,20 @@ export function checkImageHostingAudit(products: Product[]): CheckResult {
   return {
     check_name: CHECK_NAME,
     passed: false,
-    severity: "critical",
-    title: "Dropshipper-Hosted Images Detected",
+    severity: "warning",
+    title: "Product Images Hosted on External CDNs",
     description:
-      `${flagged.length} of ${sample.length} sampled product${flagged.length === 1 ? "" : "s"} embed images hosted on supplier/dropshipper CDNs ` +
+      `${flagged.length} of ${sample.length} sampled product${flagged.length === 1 ? "" : "s"} embed images loaded from external supplier/marketplace CDNs ` +
       `(${Array.from(new Set(flagged.flatMap((f) => f.matched_hosts))).join(", ")}). ` +
-      `Google Merchant Center treats this as a misrepresentation signal. Affected: ${productList}${flagged.length > 10 ? "…" : ""}.`,
+      `Google evaluates your feed's main product image (image_link) against its image requirements, and supplier-hosted images are more likely to include promotional overlays or watermarks, be low-resolution, or be generic — any of which can get a listing's image disapproved. Worth reviewing: ${productList}${flagged.length > 10 ? "…" : ""}.`,
     fix_instruction:
-      "1. Open each affected product in Shopify Admin -> Products.\n" +
-      "2. Re-host the product images on Shopify's CDN (cdn.shopify.com) by uploading new copies to the product's image gallery.\n" +
-      "3. Edit the product description: replace any image tags pointing at the supplier CDN with the Shopify-hosted versions, or remove the inline images entirely.\n" +
-      "4. After saving each product, re-run the scan to confirm.",
+      "1. Check that each product's main image meets Google's image requirements: a clear, " +
+      "unobstructed product photo with no promotional text, watermarks, or added borders; at " +
+      "least 100x100px (250x250px for apparel); not a placeholder or generic stock image.\n" +
+      "2. Host product images on Shopify's CDN (upload them to the product's media gallery in " +
+      "Shopify Admin → Products) so the feed image_link is stable and crawlable.\n" +
+      "3. Replace or remove any supplier-hosted images embedded in the product description.\n" +
+      "4. After updating, re-run the scan to confirm.",
     raw_data: {
       sample_size: sample.length,
       flagged_count: flagged.length,

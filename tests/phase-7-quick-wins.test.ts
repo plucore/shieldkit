@@ -6,7 +6,7 @@
 import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { computeRiskScore } from "../app/lib/checks/public-risk-score";
+import { computeRiskScore, RISK_WEIGHTS } from "../app/lib/checks/public-risk-score";
 
 interface PublicCheckResult {
   check_name: string;
@@ -136,26 +136,44 @@ describe("Phase 7 quick win 1 — aiReadinessScore", () => {
 });
 
 describe("Phase 7 quick win 2 — computeRiskScore", () => {
-  it("returns 100 when all 8 checks pass", () => {
+  const wt = (name: string): number => RISK_WEIGHTS[name] ?? 0;
+  const TOTAL = Object.values(RISK_WEIGHTS).reduce((a, b) => a + b, 0);
+  const norm = (w: number) => Math.round((w / TOTAL) * 100);
+  const only = (name: string) =>
+    computeRiskScore(ALL_NAMES.map((n) => mkCheck(n, n === name)));
+
+  it("returns exactly 100 when every failable check passes (normalized)", () => {
+    // Weights sum to <100 (checkout_transparency is unweighted), so the score
+    // is normalized — a fully-passing store scores exactly 100.
     const checks = ALL_NAMES.map((n) => mkCheck(n, true));
     expect(computeRiskScore(checks)).toBe(100);
   });
 
-  it("returns 0 when all 8 checks fail", () => {
+  it("gives a store zero risk credit for the always-pass checkout check", () => {
+    // Everything fails except checkout_transparency (which structurally passes).
+    const checks = ALL_NAMES.map((n) =>
+      mkCheck(n, n === "checkout_transparency", "info"),
+    );
+    expect(computeRiskScore(checks)).toBe(0);
+  });
+
+  it("returns 0 when all checks fail", () => {
     const checks = ALL_NAMES.map((n) => mkCheck(n, false, "critical"));
     expect(computeRiskScore(checks)).toBe(0);
   });
 
-  it("weights contact_information at 15", () => {
-    const checks = ALL_NAMES.map((n) =>
-      mkCheck(n, n === "contact_information"),
-    );
-    expect(computeRiskScore(checks)).toBe(15);
+  it("contact_information contributes its normalized weight", () => {
+    expect(only("contact_information")).toBe(norm(wt("contact_information")));
   });
 
-  it("weights page_speed at 5", () => {
-    const checks = ALL_NAMES.map((n) => mkCheck(n, n === "page_speed"));
-    expect(computeRiskScore(checks)).toBe(5);
+  it("page_speed contributes its normalized weight", () => {
+    expect(only("page_speed")).toBe(norm(wt("page_speed")));
+  });
+
+  it("preserves relative ordering of check contributions after normalization", () => {
+    // contact (15) > storefront (10) > page_speed (5) — proportions intact.
+    expect(only("contact_information")).toBeGreaterThan(only("storefront_accessibility"));
+    expect(only("storefront_accessibility")).toBeGreaterThan(only("page_speed"));
   });
 
   it("ignores unknown check names", () => {
@@ -163,13 +181,16 @@ describe("Phase 7 quick win 2 — computeRiskScore", () => {
     expect(computeRiskScore(checks)).toBe(0);
   });
 
-  it("computes mixed pass/fail correctly (3 policies pass, all else fail = 45)", () => {
+  it("computes mixed pass/fail correctly (3 policies pass, all else fail)", () => {
     const passing = new Set([
       "shipping_policy",
       "refund_return_policy",
       "privacy_and_terms",
     ]);
     const checks = ALL_NAMES.map((n) => mkCheck(n, passing.has(n)));
-    expect(computeRiskScore(checks)).toBe(45);
+    const expected = norm(
+      wt("shipping_policy") + wt("refund_return_policy") + wt("privacy_and_terms"),
+    );
+    expect(computeRiskScore(checks)).toBe(expected);
   });
 });

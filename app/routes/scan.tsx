@@ -4,7 +4,7 @@ import type {
   MetaFunction,
   LinksFunction,
 } from "react-router";
-import { Form, useActionData, useNavigation, useFetcher } from "react-router";
+import { Form, useActionData, useNavigation, useFetcher, data } from "react-router";
 import { useEffect, useState } from "react";
 
 import { MarketingLayout } from "../components/marketing/MarketingLayout";
@@ -18,8 +18,27 @@ import {
   type PublicCheckResult,
 } from "../lib/checks/public-scanner.server";
 import { computeRiskScore } from "../lib/checks/public-risk-score";
+import {
+  checkRateLimit,
+  recordScanRequest,
+  PUBLIC_SCAN_RATE_LIMIT_MAX,
+} from "../lib/rate-limiter.server";
 import { supabase } from "../supabase.server";
 import marketingStyles from "../marketing.css?url";
+
+/**
+ * Best-effort client IP from Vercel's forwarding headers. `x-forwarded-for` is
+ * a comma-separated list with the originating client first. Falls back to a
+ * shared "unknown" bucket so requests without a resolvable IP are still capped.
+ */
+function clientIp(request: Request): string {
+  const xff = request.headers.get("x-forwarded-for");
+  if (xff) {
+    const first = xff.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  return request.headers.get("x-real-ip") ?? "unknown";
+}
 
 export const links: LinksFunction = () => [
   { rel: "stylesheet", href: marketingStyles },
@@ -73,7 +92,7 @@ interface ScanActionData {
 
 export async function action({
   request,
-}: ActionFunctionArgs): Promise<ScanActionData> {
+}: ActionFunctionArgs) {
   const form = await request.formData();
   const intent = String(form.get("intent") ?? "");
 
@@ -82,6 +101,26 @@ export async function action({
     if (!rawUrl) {
       return { intent: "error", error: "Please enter a store URL." };
     }
+
+    // Rate-limit the unauthenticated scanner by client IP. Each scan fetches +
+    // cheerio-parses several pages against an attacker-supplied URL, so an
+    // unthrottled endpoint is a serverless-CPU amplification vector (the
+    // authenticated /api/scan is already auth- + quota- + rate-limited).
+    const ipKey = `ip:${clientIp(request)}`;
+    const rl = await checkRateLimit(ipKey, PUBLIC_SCAN_RATE_LIMIT_MAX);
+    if (!rl.allowed) {
+      const mins = Math.max(1, Math.ceil(rl.retryAfterSeconds / 60));
+      return data(
+        {
+          intent: "error",
+          error: `You've run several scans recently. Please try again in about ${mins} minute${mins === 1 ? "" : "s"}.`,
+          storeUrl: rawUrl,
+        } satisfies ScanActionData,
+        { status: 429 }
+      );
+    }
+    await recordScanRequest(ipKey);
+
     const result = await runPublicScan(rawUrl);
     if (!(result as PublicScanError).ok && (result as PublicScanError).ok === false) {
       return {

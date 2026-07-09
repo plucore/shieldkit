@@ -10,7 +10,21 @@ import { checkHiddenFeeDetection } from "../app/lib/checks/hidden-fee-detection.
 import { checkContactInformation } from "../app/lib/checks/contact-information.server";
 import { checkStructuredDataJsonLd } from "../app/lib/checks/structured-data-json-ld.server";
 import { checkCheckoutTransparency } from "../app/lib/checks/checkout-transparency.server";
+import { checkImageHostingAudit } from "../app/lib/checks/image-hosting-audit.server";
 import type { ShopInfo, Page } from "../app/lib/shopify-api.server";
+import type { Product } from "../app/lib/graphql-queries.server";
+
+function mkProduct(descriptionHtml: string): Product {
+  return {
+    title: "Widget",
+    description: "",
+    descriptionHtml,
+    handle: "widget",
+    onlineStoreUrl: null,
+    images: [],
+    variants: [],
+  };
+}
 
 function ldPage(schema: unknown) {
   const html = `<html><head><script type="application/ld+json">${JSON.stringify(schema)}</script></head><body>ok</body></html>`;
@@ -260,5 +274,29 @@ describe("checkout_transparency — INFO best-practice + broadened detection", (
     expect(r.severity).toBe("info");
     expect(r.description).not.toMatch(/suspen/i);
     expect(r.fix_instruction).toContain("Settings → Payments");
+  });
+});
+
+describe("image_hosting_audit — WARNING advisory, no accusatory framing", () => {
+  it("flags supplier-CDN images at WARNING (not CRITICAL) with no misrepresentation/dropshipper wording", () => {
+    const r = checkImageHostingAudit([
+      mkProduct('<p>Great item</p><img src="https://ae01.alicdn.com/kf/abc.jpg">'),
+    ]);
+    expect(r.passed).toBe(false);
+    expect(r.severity).toBe("warning");
+    expect(r.severity).not.toBe("critical");
+    const copy = `${r.title} ${r.description} ${r.fix_instruction}`.toLowerCase();
+    expect(copy).not.toContain("misrepresentation");
+    expect(copy).not.toContain("dropshipper");
+    // Reframed around the real feed requirement.
+    expect(copy).toContain("image_link");
+  });
+
+  it("passes cleanly when images are on a non-supplier CDN", () => {
+    const r = checkImageHostingAudit([
+      mkProduct('<img src="https://cdn.shopify.com/s/files/1/x.jpg">'),
+    ]);
+    expect(r.passed).toBe(true);
+    expect(r.severity).toBe("info");
   });
 });

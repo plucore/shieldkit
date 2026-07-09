@@ -5,10 +5,21 @@
  * Mirrors the auth + model + extraction pattern from policy-generator.server.ts.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
+import type AnthropicClient from "@anthropic-ai/sdk";
 import type { ShopInfo } from "../shopify-api.server";
 
-const client = new Anthropic(); // reads ANTHROPIC_API_KEY
+// Lazily import + construct the Anthropic client on first use — keeps the SDK
+// out of the server bundle's cold-start evaluation for every non-appeal route.
+// The `import type` above is erased at build time, so it adds no runtime cost.
+let clientPromise: Promise<AnthropicClient> | null = null;
+function getAnthropicClient(): Promise<AnthropicClient> {
+  if (!clientPromise) {
+    clientPromise = import("@anthropic-ai/sdk").then(
+      ({ default: Anthropic }) => new Anthropic(), // reads ANTHROPIC_API_KEY
+    );
+  }
+  return clientPromise;
+}
 
 export interface AppealLetterInput {
   shopInfo: ShopInfo;
@@ -58,7 +69,7 @@ export async function generateAppealLetter(
     "Please draft my re-review request letter. Use only the fixes listed above; do not invent or embellish any others. For any fix that points to a page on my store, leave a bracketed placeholder such as \"[paste the link to your refund policy]\" for me to fill in. Do not mention how long my business has operated and do not add generic trust statements.",
   ].join("\n");
 
-  const message = await client.messages.create({
+  const message = await (await getAnthropicClient()).messages.create({
     model: "claude-sonnet-4-20250514",
     max_tokens: 1024,
     system: systemPrompt,

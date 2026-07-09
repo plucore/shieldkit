@@ -8,11 +8,24 @@
  * Requires ANTHROPIC_API_KEY environment variable.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
+import type AnthropicClient from "@anthropic-ai/sdk";
 import sanitizeHtml from "sanitize-html";
 import type { ShopInfo } from "./shopify-api.server";
 
-const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
+// Lazily import + construct the Anthropic client on first use. A static
+// top-level import pulls the sizeable @anthropic-ai/sdk into the single server
+// bundle's cold-start evaluation for EVERY route; deferring it keeps that cost
+// off cold starts that never generate a policy (a paid, rare path). The
+// `import type` above is erased at build time, so it adds no runtime cost.
+let clientPromise: Promise<AnthropicClient> | null = null;
+function getAnthropicClient(): Promise<AnthropicClient> {
+  if (!clientPromise) {
+    clientPromise = import("@anthropic-ai/sdk").then(
+      ({ default: Anthropic }) => new Anthropic(), // reads ANTHROPIC_API_KEY from env
+    );
+  }
+  return clientPromise;
+}
 
 export type PolicyType = "refund" | "shipping" | "privacy" | "terms";
 
@@ -116,7 +129,7 @@ export async function generatePolicy(
     .filter((line): line is string => typeof line === "string" && line.length > 0)
     .join("\n");
 
-  const message = await client.messages.create({
+  const message = await (await getAnthropicClient()).messages.create({
     model: "claude-sonnet-4-20250514",
     max_tokens: 2048,
     messages: [

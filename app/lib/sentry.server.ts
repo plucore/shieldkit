@@ -25,29 +25,38 @@ let initialized = false;
 
 function initSentry(): void {
   if (initialized) return;
-  initialized = true;
 
   const dsn = process.env.SENTRY_DSN;
+  // No DSN → skip Sentry.init() entirely. Calling init even with an undefined
+  // DSN still builds a client and registers global error/unhandledRejection
+  // handlers — pure wasted CPU on every serverless cold start when we have
+  // nowhere to send events. The wrappers below no-op while uninitialized, so
+  // call sites stay identical across environments.
+  if (!dsn) return;
+
+  initialized = true;
   Sentry.init({
-    dsn: dsn || undefined,
+    dsn,
     environment: process.env.NODE_ENV ?? "development",
     // Keep traces off by default — breadcrumb + capture is what we need.
     tracesSampleRate: 0,
     // Strip Authorization headers and cookies from breadcrumbs by default.
     sendDefaultPii: false,
-    // Without a DSN, init still succeeds but no events are sent. That keeps
-    // sentry.* call sites identical across environments.
   });
 }
 
 initSentry();
 
 export const sentry = {
-  addBreadcrumb: (breadcrumb: Sentry.Breadcrumb) => Sentry.addBreadcrumb(breadcrumb),
+  addBreadcrumb: (breadcrumb: Sentry.Breadcrumb) => {
+    if (!initialized) return;
+    Sentry.addBreadcrumb(breadcrumb);
+  },
   captureException: (
     err: unknown,
     context?: { tags?: Record<string, string>; extra?: Record<string, unknown> },
   ) => {
+    if (!initialized) return;
     Sentry.captureException(err, {
       tags: context?.tags,
       extra: context?.extra,
@@ -58,6 +67,7 @@ export const sentry = {
     level: Sentry.SeverityLevel = "info",
     context?: { tags?: Record<string, string>; extra?: Record<string, unknown> },
   ) => {
+    if (!initialized) return;
     Sentry.captureMessage(message, {
       level,
       tags: context?.tags,

@@ -341,6 +341,17 @@ describe("Component extraction from app._index.tsx", () => {
     }
   });
 
+  it('ScoreBanner "clean" reassurance requires zero warnings, not just zero criticals', () => {
+    const content = fs.readFileSync(
+      path.join(APP_DIR, "components/ScoreBanner.tsx"),
+      "utf-8"
+    );
+    // Regression for P1-2: after critical→warning demotions, gating the
+    // "Your store is clean." line on critical_count alone over-claims.
+    expect(content).toContain("(latestScan.critical_count ?? 0) === 0");
+    expect(content).toContain("(latestScan.warning_count ?? 0) === 0");
+  });
+
 });
 
 // ─── Shared types and helpers ────────────────────────────────────────────────

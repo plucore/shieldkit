@@ -39,3 +39,11 @@ export const CHECK_ERROR_COLOR = "#8c9196";
 // ─── Brand ───────────────────────────────────────────────────────────────────
 
 export const BRAND_COLOR = "#0f172a";
+
+// ─── Cross-promo ─────────────────────────────────────────────────────────────
+
+/**
+ * Shopify App Store listing for Beacon (AI search visibility), promoted from
+ * the ShieldKit dashboard aside. Single source of truth for the external link.
+ */
+export const BEACON_LISTING_URL = "https://apps.shopify.com/beacon-4";

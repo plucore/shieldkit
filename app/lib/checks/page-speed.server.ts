@@ -3,14 +3,46 @@
  *
  * Calls the Google PageSpeed Insights API to measure mobile performance.
  * Uses GOOGLE_PAGESPEED_API_KEY if set; falls back to the unauthenticated tier.
- * Skips gracefully (info pass) if the API cannot be reached.
+ *
+ * PageSpeed Insights is an EXTERNAL Google service we don't control. When it
+ * times out, rate-limits, or returns no score, that says nothing about the
+ * merchant's store — so those outcomes degrade to a calm, non-scorable INFO
+ * ("not measured") rather than an alarming error or a warning. Only a
+ * SUCCESSFUL response with a real performance score produces a pass/warning
+ * that participates in the compliance score.
  */
 
 import type { CheckResult } from "./types";
 
-export async function checkPageSpeed(storeUrl: string): Promise<CheckResult> {
-  const CHECK_NAME = "page_speed";
+const CHECK_NAME = "page_speed";
 
+/**
+ * Build a "couldn't measure" result: a calm INFO note, passed (not a failure),
+ * and scorable:false so a transient external hiccup is excluded from BOTH the
+ * numerator and the denominator of the compliance score (never moves it). See
+ * compliance-score.ts.
+ */
+function notMeasured(
+  storeUrl: string,
+  lead: string,
+  extraRaw: Record<string, unknown>,
+): CheckResult {
+  return {
+    check_name: CHECK_NAME,
+    passed: true,
+    severity: "info",
+    scorable: false,
+    title: "Page Speed — Not Measured",
+    description: `${lead} This doesn't affect your compliance status.`,
+    fix_instruction:
+      "No action needed on your end. Page speed is measured by Google's " +
+      "PageSpeed Insights service — re-run your scan later for a fresh reading, " +
+      "or check it any time at https://pagespeed.web.dev.",
+    raw_data: { store_url: storeUrl, measured: false, ...extraRaw },
+  };
+}
+
+export async function checkPageSpeed(storeUrl: string): Promise<CheckResult> {
   const apiKey = process.env.GOOGLE_PAGESPEED_API_KEY;
   const apiUrl =
     `https://www.googleapis.com/pagespeedonline/v5/runPagespeed` +
@@ -23,27 +55,18 @@ export async function checkPageSpeed(storeUrl: string): Promise<CheckResult> {
     });
 
     if (!res.ok) {
-      // Log a specific message for 429 (quota exhausted) so it's easy to spot in logs.
-      console.warn(
-        res.status === 429
-          ? `[Scanner] PageSpeed API throttled (HTTP 429) — defaulting performance score to 50`
-          : `[Scanner] PageSpeed API returned HTTP ${res.status} — defaulting performance score to 50`
+      // Non-200 (429 quota, 5xx, etc.) — Google's side, not the store's.
+      // Log calmly (not "failed") and skip scoring.
+      console.info(
+        `[Scanner] page_speed not measured — PageSpeed Insights returned HTTP ${res.status}`,
       );
-      // Return a neutral result with score 50 (at the passing threshold) so the
-      // overall scan is never blocked by transient API quota or availability issues.
-      return {
-        check_name: CHECK_NAME,
-        passed: true,
-        severity: "info",
-        title: "Page Speed — API Unavailable",
-        description:
-          res.status === 429
-            ? "PageSpeed Insights API rate-limited this request (HTTP 429). Performance score defaulted to 50/100 so the scan could complete."
-            : `PageSpeed Insights API returned HTTP ${res.status}. Performance score defaulted to 50/100 so the scan could complete.`,
-        fix_instruction:
-          "Set GOOGLE_PAGESPEED_API_KEY in your environment to increase quota and avoid throttling.",
-        raw_data: { store_url: storeUrl, api_status: res.status, performance_score: 50, skipped: false },
-      };
+      return notMeasured(
+        storeUrl,
+        res.status === 429
+          ? "Couldn't measure page speed right now — Google's PageSpeed API is rate-limited (HTTP 429)."
+          : `Couldn't measure page speed right now — Google's PageSpeed API is temporarily unavailable (HTTP ${res.status}).`,
+        { api_status: res.status },
+      );
     }
 
     const psiData = (await res.json()) as {
@@ -58,6 +81,16 @@ export async function checkPageSpeed(storeUrl: string): Promise<CheckResult> {
     const rawScore = psiData.lighthouseResult?.categories?.performance?.score ?? null;
     const performanceScore = rawScore !== null ? Math.round(rawScore * 100) : null;
 
+    if (performanceScore === null) {
+      // Successful response but no score (brand-new / private-domain stores).
+      // Nothing to measure → skip scoring rather than award a free pass.
+      return notMeasured(
+        storeUrl,
+        "Couldn't measure page speed right now — Google's PageSpeed API didn't return a score for this store yet.",
+        { authenticated: !!apiKey },
+      );
+    }
+
     const interstitialsAudit =
       psiData.lighthouseResult?.audits?.["intrusive-interstitials"];
     const interstitialsFailed =
@@ -69,21 +102,8 @@ export async function checkPageSpeed(storeUrl: string): Promise<CheckResult> {
       intrusive_interstitials_failed: interstitialsFailed,
       intrusive_interstitials_display: interstitialsAudit?.displayValue ?? null,
       authenticated: !!apiKey,
+      measured: true,
     };
-
-    if (performanceScore === null) {
-      return {
-        check_name: CHECK_NAME,
-        passed: true,
-        severity: "info",
-        title: "Page Speed — No Score Returned",
-        description:
-          "Google PageSpeed Insights did not return a performance score for this store.",
-        fix_instruction:
-          "This can occur for brand-new or private-domain stores. Run the scan again after publishing.",
-        raw_data,
-      };
-    }
 
     const issues: string[] = [];
     if (performanceScore < 50)
@@ -122,18 +142,17 @@ export async function checkPageSpeed(storeUrl: string): Promise<CheckResult> {
       raw_data,
     };
   } catch (err) {
+    // Timeout / abort / network error — Google's API was slow or unreachable.
+    // This is NOT a store problem, so log calmly and skip scoring entirely
+    // instead of surfacing an alarming "check failed".
     const message = err instanceof Error ? err.message : String(err);
-    console.warn(`[Scanner] PageSpeed check failed: ${message}`);
-    return {
-      check_name: CHECK_NAME,
-      passed: true,
-      severity: "info",
-      title: "Page Speed — Check Skipped",
-      description:
-        "PageSpeed Insights could not be reached. This check was skipped to avoid blocking the scan.",
-      fix_instruction:
-        "Ensure the server has outbound internet access and a valid GOOGLE_PAGESPEED_API_KEY is set.",
-      raw_data: { store_url: storeUrl, error: message, skipped: true },
-    };
+    console.info(
+      `[Scanner] page_speed not measured — PageSpeed Insights API unavailable (${message})`,
+    );
+    return notMeasured(
+      storeUrl,
+      "Couldn't measure page speed right now — Google's PageSpeed API didn't respond in time.",
+      { error: message },
+    );
   }
 }

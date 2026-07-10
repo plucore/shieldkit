@@ -15,6 +15,16 @@ export interface CheckResult {
   description: string;
   fix_instruction: string;
   raw_data: Record<string, unknown>;
+  /**
+   * When `false`, this check is excluded from BOTH the numerator and the
+   * denominator of the compliance score — the same treatment errored checks
+   * (severity "error") get. Used for signals we couldn't actually measure, e.g.
+   * page_speed when Google's external PageSpeed API times out: an unmeasurable
+   * external signal must never move the merchant's score up or down. Defaults
+   * to scorable (undefined ⇒ counted). Not persisted — transient scoring hint
+   * only. See {@link ./compliance-score}.
+   */
+  scorable?: boolean;
 }
 
 /** A fully persisted violation row as returned from Supabase. */

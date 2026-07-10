@@ -15,6 +15,7 @@ import {
 import { supabase } from "../../supabase.server";
 import { fetchPublicPage } from "./helpers.server";
 import { safeCheck } from "./safe-check.server";
+import { computeComplianceScore } from "./compliance-score";
 import type {
   CheckResult,
   PageFetchResult,
@@ -223,15 +224,12 @@ export async function runComplianceScan(
   const criticalCount = failedChecks.filter((r) => r.severity === "critical").length;
   const warningCount  = failedChecks.filter((r) => r.severity === "warning").length;
   const infoCount     = failedChecks.filter((r) => r.severity === "info").length;
-  const errorCount    = failedChecks.filter((r) => r.severity === "error").length;
 
-  // Errored checks are excluded from the compliance score denominator so a
-  // transient network failure doesn't artificially lower a merchant's score.
-  const scorableTotalChecks = totalChecks - errorCount;
-  const complianceScore =
-    scorableTotalChecks > 0
-      ? Math.round((passedChecks / scorableTotalChecks) * 10_000) / 100
-      : 0;
+  // Errored checks AND unmeasurable checks (scorable === false, e.g. page_speed
+  // when Google's PageSpeed API times out) are excluded from BOTH the numerator
+  // and the denominator, so a transient external failure never moves the score.
+  // See compliance-score.ts.
+  const { complianceScore } = computeComplianceScore(checkResults);
 
   // ── 6. Persist: INSERT scan row ──────────────────────────────────────────────
   const { data: scanData, error: scanError } = await supabase

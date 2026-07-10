@@ -54,6 +54,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import styles from "../styles.css?url";
 
 import type { Merchant, Scan, CheckResult, ApiScanResponse } from "../lib/types";
+import { BEACON_LISTING_URL } from "../lib/constants";
 import { sortChecks } from "../lib/scan-helpers";
 import { useWebComponentClick } from "../hooks/useWebComponentClick";
 
@@ -1442,6 +1443,43 @@ export default function Index() {
               </button>
             </>
           )}
+        </div>
+      </s-section>
+
+      {/* Beacon cross-promo — shown to ALL tiers (free + paid); AI search
+          visibility is audience-agnostic. Non-dismissable, no DB column, no
+          storage. The button reuses the review banner's external-link pattern
+          (native <button> → window.open(_blank)) so it escapes the embedded
+          iframe instead of reloading it. */}
+      <s-section slot="aside">
+        <div style={{ marginBottom: "12px" }}>
+          <div style={{ fontSize: "16px", fontWeight: 700, color: "#0f172a" }}>
+            New from ShieldKit: Beacon
+          </div>
+        </div>
+        <s-paragraph>
+          Get your store found by AI search (ChatGPT, Perplexity, Google's AI
+          Overviews). See how visible your store is.
+        </s-paragraph>
+        <div style={{ marginTop: "12px" }}>
+          <button
+            type="button"
+            onClick={() =>
+              window.open(BEACON_LISTING_URL, "_blank", "noopener,noreferrer")
+            }
+            style={{
+              fontSize: "14px",
+              fontWeight: 600,
+              color: "#fff",
+              background: "#0f172a",
+              border: "none",
+              borderRadius: "8px",
+              padding: "8px 16px",
+              cursor: "pointer",
+            }}
+          >
+            Get Beacon
+          </button>
         </div>
       </s-section>
 

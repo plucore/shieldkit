@@ -41,6 +41,11 @@ export default {
   // serves them from the CDN instead of cold-starting a streaming SSR function
   // on every hit. `/` is intentionally excluded — its loader redirects
   // ?shop=... visitors to /app and must stay dynamic.
+  //
+  // /sitemap.xml and /llms.txt are resource routes (loader-only) whose bodies
+  // are pure functions of the static content registries — no per-request data —
+  // so they prerender to static files too, keeping crawler/AI-bot hits off the
+  // 1.1MB SSR function. (/robots.txt is served as a static public/ file.)
   async prerender() {
     return [
       "/blog",
@@ -48,6 +53,8 @@ export default {
       "/explainer",
       "/privacy",
       "/terms",
+      "/sitemap.xml",
+      "/llms.txt",
       ...blogSlugs().map((slug) => `/blog/${slug}`),
       ...fixSlugs().map((slug) => `/fix/${slug}`),
     ];

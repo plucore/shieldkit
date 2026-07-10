@@ -24,7 +24,30 @@
     { "source": "/.git/:path*",       "destination": "/", "permanent": true },
     { "source": "/xmlrpc.php",        "destination": "/", "permanent": true },
     { "source": "/phpmyadmin/:path*", "destination": "/", "permanent": true },
-    { "source": "/phpinfo.php",       "destination": "/", "permanent": true }
+    { "source": "/phpinfo.php",       "destination": "/", "permanent": true },
+
+    { "source": "/.svn/:path*",        "destination": "/", "permanent": true },
+    { "source": "/.vscode/:path*",     "destination": "/", "permanent": true },
+    { "source": "/.github/:path*",     "destination": "/", "permanent": true },
+    { "source": "/actuator/:path*",    "destination": "/", "permanent": true },
+    { "source": "/@vite/:path*",       "destination": "/", "permanent": true },
+    { "source": "/.envrc",             "destination": "/", "permanent": true },
+    { "source": "/.env~",              "destination": "/", "permanent": true },
+    { "source": "/.bash_history",      "destination": "/", "permanent": true },
+    { "source": "/api/.env",           "destination": "/", "permanent": true },
+    { "source": "/app/.env",           "destination": "/", "permanent": true },
+    { "source": "/backend/.env",       "destination": "/", "permanent": true },
+    { "source": "/config/.env",        "destination": "/", "permanent": true },
+    { "source": "/config.php",         "destination": "/", "permanent": true },
+    { "source": "/ss.php",             "destination": "/", "permanent": true },
+    { "source": "/wp-config.php",      "destination": "/", "permanent": true },
+    { "source": "/wp-config.php.:ext", "destination": "/", "permanent": true },
+    { "source": "/web.config",         "destination": "/", "permanent": true },
+    { "source": "/secrets.json",       "destination": "/", "permanent": true },
+    { "source": "/docker-compose.yml", "destination": "/", "permanent": true },
+    { "source": "/dump.sql",           "destination": "/", "permanent": true },
+    { "source": "/database.sql",       "destination": "/", "permanent": true },
+    { "source": "/backup.sql",         "destination": "/", "permanent": true }
   ],
   "headers": [
     {

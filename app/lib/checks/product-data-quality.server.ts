@@ -125,11 +125,11 @@ export function checkProductDataQuality(products: Product[]): CheckResult {
       "1. Empty/short description: Write at least 100 characters describing " +
       "the product's features, materials, dimensions, and use case.\n" +
       "2. No images: Upload at least one high-quality product image " +
-      "(minimum 800×800px, white or clean background recommended by GMC).\n" +
+      "(minimum 800×800px, white or clean background recommended by Google).\n" +
       "3. Zero/missing price: Set a valid selling price on each variant. " +
       "Free products should be listed as $0.00 intentionally, but verify this.\n" +
-      "4. Missing SKU: Add a unique SKU to each variant. GMC uses SKUs as " +
-      "item identifiers — duplicates or blanks cause feed rejections.",
+      "4. Missing SKU: Add a unique SKU to each variant. Google uses SKUs to " +
+      "tell your products apart, so duplicates or blanks can get products rejected.",
     raw_data,
   };
 }

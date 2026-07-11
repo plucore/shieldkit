@@ -4,7 +4,7 @@
  * Replaces the v3 UpgradeCard. Single component, two states driven by
  * hasPaidAccess(tier):
  *
- *   Paid state — "Your ShieldKit coverage"
+ *   Paid state — "What your plan covers"
  *     Reassurance card: every paid feature with a green check, no CTA,
  *     no urgency. The JSON-LD row reflects actual state (Active vs Off)
  *     as a display-only status — the enable action lives in the JSON-LD
@@ -12,14 +12,15 @@
  *
  *   Free state — "Fix it now — and stay protected."
  *     Upgrade prompt: free items checked, paid items locked + muted.
- *     One CTA → /app/upgrade at $49/mo or $390/yr.
+ *     One CTA → /app/upgrade. No price is rendered in-app — the live price
+ *     is shown on Shopify's hosted managed-pricing page after click-through.
  *
  * Placed at the top of the dashboard aside (above Security Status).
  * Pure component — feature lists come from app/lib/billing/plans.ts so
  * pricing-page copy and dashboard copy stay in lockstep.
  */
 
-import { PAID_FEATURES, FREE_FEATURES, PLANS } from "../lib/billing/plans";
+import { PAID_FEATURES, FREE_FEATURES } from "../lib/billing/plans";
 import { useWebComponentClick } from "../hooks/useWebComponentClick";
 
 interface PlanStatusCardProps {
@@ -35,13 +36,14 @@ interface PlanStatusCardProps {
   onUpgrade: () => void;
 }
 
-// Single index points at the JSON-LD entry so we know which row to mark
-// "active" vs "off" without string-matching.
+// Locates the Google-visibility row (the storefront product-listing feature)
+// so the paid card can mark it "active" vs "off". Copy-coupled: this substring
+// must match that feature's label in PAID_FEATURES / FREE_FEATURES.
 const PAID_JSON_LD_INDEX = PAID_FEATURES.findIndex((f) =>
-  f.toLowerCase().includes("json-ld product schema"),
+  f.toLowerCase().includes("show up better on google"),
 );
 const FREE_JSON_LD_INDEX = FREE_FEATURES.findIndex((f) =>
-  f.toLowerCase().includes("json-ld product schema"),
+  f.toLowerCase().includes("show up better on google"),
 );
 
 export default function PlanStatusCard({
@@ -62,7 +64,7 @@ function PaidCoverageCard({ jsonLdEnabled }: { jsonLdEnabled: boolean }) {
     <s-section slot="aside">
       <div style={{ marginBottom: "12px" }}>
         <div style={{ fontSize: "16px", fontWeight: 700, color: "#0f172a" }}>
-          Your ShieldKit coverage
+          What your plan covers
         </div>
       </div>
       <s-card>
@@ -136,8 +138,7 @@ function FreeUpgradeCard({ onUpgrade }: { onUpgrade: () => void }) {
         </div>
         <div style={{ marginTop: "14px" }}>
           <s-button variant="primary" ref={upgradeRef}>
-            Unlock everything — ${PLANS.monitoring_monthly.monthly}/mo or $
-            {PLANS.monitoring_annual.annual}/yr
+            Unlock everything
           </s-button>
         </div>
       </s-card>

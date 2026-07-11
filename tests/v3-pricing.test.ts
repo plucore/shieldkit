@@ -96,16 +96,16 @@ describe("v4 plan reference data", () => {
   });
 
   it("PAID_FEATURES is the single canonical paid feature list", () => {
-    expect(PAID_FEATURES).toContain("Unlimited on-demand scans");
-    expect(PAID_FEATURES).toContain("GMC re-review appeal letter generator");
-    expect(PAID_FEATURES).toContain("Product data fixes (GTIN / MPN / brand)");
+    expect(PAID_FEATURES).toContain("Unlimited store scans — re-check anytime");
+    expect(PAID_FEATURES).toContain("Appeal letters to help lift a Google suspension");
+    expect(PAID_FEATURES).toContain("Auto-fill the product IDs Google requires");
     // The v3 "Everything in Monitoring, plus:" header is gone — there's
     // only one paid tier in v4.
     expect(PAID_FEATURES.some((f) => f.includes("Everything in Monitoring"))).toBe(false);
   });
 
   it("FREE_FEATURES describes one-time scan, not monthly", () => {
-    expect(FREE_FEATURES).toContain("One free compliance scan");
+    expect(FREE_FEATURES).toContain("One free store scan");
     expect(FREE_FEATURES.some((f) => /per month|monthly/i.test(f))).toBe(false);
   });
 

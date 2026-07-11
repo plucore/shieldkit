@@ -86,12 +86,13 @@ export default function Terms() {
       </h2>
       <ul>
         <li>
-          <strong>Free</strong> — one compliance scan per 30 days, plus the
-          JSON-LD theme extension, plus fix instructions for surfaced findings.
+          <strong>Free</strong> — one compliance scan, granted at install and
+          not refilled, plus the JSON-LD theme extension, plus fix instructions
+          for surfaced findings.
         </li>
         <li>
-          <strong>Monitoring</strong> — $49 / month or $390 / year. The
-          single paid tier. Unlocks unlimited on-demand compliance scans,
+          <strong>Monitoring</strong> — billed monthly or annually at the
+          price shown on the Shopify plan selection page. The single paid tier. Unlocks unlimited on-demand compliance scans,
           AI-written store policies (refund, shipping, privacy, terms), the
           GMC re-review appeal letter generator, bulk GTIN / MPN / brand
           fill on the existing catalog, ongoing per-product enrichment on

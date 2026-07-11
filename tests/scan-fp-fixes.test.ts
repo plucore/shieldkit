@@ -328,7 +328,10 @@ describe("structured_data_json_ld — offers shapes + INFO when absent", () => {
     );
     expect(r.passed).toBe(false);
     expect(r.severity).toBe("warning");
-    expect(r.description).toContain("offers.price");
+    // De-jargoned: the missing "offers.price" token surfaces as the plain
+    // "price" detail, not the raw schema field name.
+    expect(r.description).toContain("price");
+    expect(r.description).not.toContain("offers.price");
   });
 
   it("returns INFO (not warning) when no JSON-LD is present in the static HTML", async () => {
@@ -389,8 +392,11 @@ describe("image_hosting_audit — WARNING advisory, no accusatory framing", () =
     const copy = `${r.title} ${r.description} ${r.fix_instruction}`.toLowerCase();
     expect(copy).not.toContain("misrepresentation");
     expect(copy).not.toContain("dropshipper");
-    // Reframed around the real feed requirement.
-    expect(copy).toContain("image_link");
+    // Reframed in plain language around the real requirement (the main product
+    // photo), with no "image_link"/"CDN" jargon.
+    expect(copy).toContain("main product photo");
+    expect(copy).not.toContain("image_link");
+    expect(copy).not.toContain("cdn");
   });
 
   it("passes cleanly when images are on a non-supplier CDN", () => {

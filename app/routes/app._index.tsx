@@ -1099,7 +1099,7 @@ export default function Index() {
                 letterSpacing: "-0.02em",
               }}
             >
-              Your GMC Compliance Dashboard
+              Your Google Compliance Dashboard
             </div>
             <div
               style={{
@@ -1136,7 +1136,7 @@ export default function Index() {
               {
                 num: 2,
                 bg: "var(--p-color-bg-surface-warning, #fff5ea)",
-                title: "Why GMC Compliance Matters",
+                title: "Why Google Merchant Center Compliance Matters",
                 text: "Google frequently suspends Shopify stores for vague policy violations like \"Misrepresentation\", instantly cutting off your Google Shopping traffic. Worse, Google only gives you a limited number of appeals before a permanent ban. You must fix all trust signals before requesting a review.",
               },
               {
@@ -1333,7 +1333,7 @@ export default function Index() {
 
       {/* Plan/coverage card always renders at the top of the aside.
           Paid → "Your ShieldKit coverage" reassurance.
-          Free → upgrade prompt with locked items + $49/$390 CTA. */}
+          Free → upgrade prompt with locked items + upgrade CTA (no price). */}
       {merchant && !showOnboarding && (
         <PlanStatusCard
           isPaid={isPaid}
@@ -1366,15 +1366,19 @@ export default function Index() {
 
       {/* AI visibility — a Monitoring feature. Available to monitoring,
           recovery, and grandfathered pro. */}
-      {merchant && isPaid && aiVisibility && !showOnboarding && (
-        <s-section slot="aside">
-          <AIVisibilityCard
-            thisWeekHits={aiVisibility.thisWeekHits}
-            priorWeekHits={aiVisibility.priorWeekHits}
-            topCrawlers={aiVisibility.topCrawlers}
-          />
-        </s-section>
-      )}
+      {merchant &&
+        isPaid &&
+        aiVisibility &&
+        (aiVisibility.thisWeekHits > 0 || aiVisibility.priorWeekHits > 0) &&
+        !showOnboarding && (
+          <s-section slot="aside">
+            <AIVisibilityCard
+              thisWeekHits={aiVisibility.thisWeekHits}
+              priorWeekHits={aiVisibility.priorWeekHits}
+              topCrawlers={aiVisibility.topCrawlers}
+            />
+          </s-section>
+        )}
 
       {/* Free JSON-LD Structured Data — two-state card driven solely by
           merchant.json_ld_enabled. Click flips enabled=true via the
@@ -1388,7 +1392,7 @@ export default function Index() {
       <s-section slot="aside">
         <div style={{ marginBottom: "12px" }}>
           <div style={{ fontSize: "16px", fontWeight: 700, color: "#0f172a" }}>
-            Free JSON-LD Structured Data
+            Show up better on Google
           </div>
         </div>
         <div
@@ -1403,18 +1407,21 @@ export default function Index() {
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <s-icon type="check-circle-filled" tone="success" size="base" />
                 <span style={{ fontSize: "14px", fontWeight: 600, color: "#1a9e5c" }}>
-                  JSON-LD Active
+                  On
                 </span>
               </div>
               <s-paragraph>
-                Product structured data is being added to your product pages.
+                Your products are set up so Google and AI search can read their
+                details and show them richly in results.
               </s-paragraph>
               <s-button ref={manageJsonLdRef}>Manage</s-button>
             </>
           ) : (
             <>
               <s-paragraph>
-                Opens your theme editor — add the Product Schema block and click Save.
+                Turn this on to help Google show your products with their price
+                and photos in search results. It opens your theme editor — add
+                the ShieldKit product block and click Save.
               </s-paragraph>
               <button
                 type="button"
@@ -1439,7 +1446,7 @@ export default function Index() {
                   cursor: "pointer",
                 }}
               >
-                Enable JSON-LD
+                Turn on
               </button>
             </>
           )}
@@ -1491,8 +1498,8 @@ export default function Index() {
           </div>
         </div>
         <s-paragraph>
-          ShieldKit scans your store against Google Merchant Center policies
-          and shows you exactly what to fix to avoid suspension.
+          ShieldKit finds what could get your store suspended by Google
+          Merchant Center — and shows you how to fix it.
         </s-paragraph>
       </s-section>
 

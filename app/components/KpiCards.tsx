@@ -31,7 +31,7 @@ export default function KpiCards({
     },
     {
       value: criticalCount,
-      label: "Critical Threats",
+      label: "Critical Issues",
       bg: criticalCount > 0 ? "#fff4f4" : "#f1f8f5",
     },
     {
@@ -41,7 +41,7 @@ export default function KpiCards({
     },
     {
       value: skippedCount,
-      label: "Skipped",
+      label: "Not scored",
       bg: skippedCount > 0 ? "#f4f6f8" : "transparent",
     },
   ];

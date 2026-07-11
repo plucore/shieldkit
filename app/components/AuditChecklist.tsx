@@ -175,6 +175,10 @@ export default function AuditChecklist({
                         padding: "10px 14px",
                         fontSize: "13px",
                         lineHeight: 1.6,
+                        // Preserve the "\n" step breaks authored in each check's
+                        // fix_instruction so the numbered steps render as lines,
+                        // not one run-on paragraph.
+                        whiteSpace: "pre-line",
                       }}
                     >
                       <strong

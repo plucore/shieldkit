@@ -41,6 +41,8 @@ type Severity = "critical" | "warning" | "info" | "error";
 interface CheckResult {
   check_name: string;
   passed: boolean;
+  /** false = ran but couldn't be measured; excluded from the score. */
+  scorable?: boolean;
   severity: Severity;
   title: string;
   description: string;
@@ -849,6 +851,7 @@ async function checkPageSpeed(storeUrl: string): Promise<CheckResult> {
       return {
         check_name: CHECK_NAME,
         passed: true,
+        scorable: false,
         severity: "info",
         title: "Page Speed — API Unavailable",
         description:
@@ -891,6 +894,7 @@ async function checkPageSpeed(storeUrl: string): Promise<CheckResult> {
       return {
         check_name: CHECK_NAME,
         passed: true,
+        scorable: false,
         severity: "info",
         title: "Page Speed — No Score Returned",
         description:
@@ -939,6 +943,7 @@ async function checkPageSpeed(storeUrl: string): Promise<CheckResult> {
     return {
       check_name: CHECK_NAME,
       passed: true,
+      scorable: false,
       severity: "info",
       title: "Page Speed — Check Skipped",
       description: "PageSpeed Insights could not be reached. Check skipped.",
@@ -960,9 +965,17 @@ function printReport(storeUrl: string, results: CheckResult[]): void {
   const warnings = failed.filter((r) => r.severity === "warning").length;
   const erroredChecks = results.filter((r) => r.severity === "error").length;
 
-  // Errored checks are excluded from the score denominator (same logic as the server scanner).
-  const scorable = results.filter((r) => r.severity !== "error").length;
-  const score = scorable > 0 ? Math.round((passed / scorable) * 100) : 0;
+  // Errored AND unmeasured (scorable:false, e.g. a PageSpeed API timeout) checks
+  // are excluded from BOTH the numerator and the denominator — same rule as the
+  // authenticated scanner, so a transient external failure never moves the score.
+  const scorableResults = results.filter(
+    (r) => r.severity !== "error" && r.scorable !== false,
+  );
+  const scorablePassed = scorableResults.filter((r) => r.passed).length;
+  const score =
+    scorableResults.length > 0
+      ? Math.round((scorablePassed / scorableResults.length) * 100)
+      : 0;
 
   const SEP = "─".repeat(72);
   const ICON = { pass: "✓", critical: "✗", warning: "⚠", info: "·", error: "?" };

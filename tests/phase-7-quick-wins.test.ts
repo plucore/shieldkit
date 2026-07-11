@@ -193,4 +193,26 @@ describe("Phase 7 quick win 2 — computeRiskScore", () => {
     );
     expect(computeRiskScore(checks)).toBe(expected);
   });
+
+  it("excludes an unmeasured (scorable:false) page_speed from numerator and denominator", () => {
+    // Everything measurable passes; page_speed timed out (scorable:false). Its
+    // weight is dropped from BOTH sides, so a fully-passing store still scores 100.
+    const allPassPageSpeedUnmeasured = ALL_NAMES.map((n) =>
+      n === "page_speed"
+        ? { ...mkCheck(n, true), scorable: false }
+        : mkCheck(n, true),
+    );
+    expect(computeRiskScore(allPassPageSpeedUnmeasured)).toBe(100);
+
+    // A scorable:false page_speed is neither a free pass nor a penalty: dropping
+    // its weight changes the denominator from 90 to 85, so a store that also
+    // fails contact_information (15) scores 70/85 (82), not the old free-pass
+    // 75/90 (83).
+    const failContact = ALL_NAMES.map((n) => {
+      if (n === "page_speed") return { ...mkCheck(n, true), scorable: false };
+      if (n === "contact_information") return mkCheck(n, false, "warning");
+      return mkCheck(n, true);
+    });
+    expect(computeRiskScore(failContact)).toBe(Math.round((70 / 85) * 100));
+  });
 });

@@ -24,6 +24,13 @@
 export interface RiskScoreCheck {
   check_name: string;
   passed: boolean;
+  /**
+   * false = the check ran but couldn't obtain a real signal (e.g. page_speed
+   * when Google's PageSpeed API times out). Excluded from BOTH the numerator
+   * and the denominator so a transient external failure never moves the score —
+   * mirrors isScorable() in the authenticated compliance-score.ts.
+   */
+  scorable?: boolean;
 }
 
 export const RISK_WEIGHTS: Record<string, number> = {
@@ -41,14 +48,22 @@ const TOTAL_WEIGHT = Object.values(RISK_WEIGHTS).reduce((sum, w) => sum + w, 0);
 
 export function computeRiskScore(checks: RiskScoreCheck[]): number {
   let earned = 0;
+  let excludedWeight = 0;
   for (const check of checks) {
     const weight = RISK_WEIGHTS[check.check_name];
     if (weight === undefined) continue;
+    if (check.scorable === false) {
+      // Unmeasured (e.g. PageSpeed API timeout) — drop its weight from the
+      // available denominator so it is neither a free pass nor a penalty.
+      excludedWeight += weight;
+      continue;
+    }
     if (check.passed) earned += weight;
   }
-  // Normalize against the total available weight so a fully-passing store scores
-  // exactly 100 (the raw weights sum to <100) while preserving each check's
-  // relative contribution.
-  const score = TOTAL_WEIGHT > 0 ? (earned / TOTAL_WEIGHT) * 100 : 0;
+  // Normalize against the AVAILABLE weight (total minus any unmeasured checks)
+  // so a fully-passing store scores exactly 100 (the raw weights sum to <100)
+  // while preserving each check's relative contribution.
+  const availableWeight = TOTAL_WEIGHT - excludedWeight;
+  const score = availableWeight > 0 ? (earned / availableWeight) * 100 : 0;
   return Math.max(0, Math.min(100, Math.round(score)));
 }

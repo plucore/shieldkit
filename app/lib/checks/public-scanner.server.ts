@@ -32,6 +32,8 @@ export type Severity = "critical" | "warning" | "info" | "error";
 export interface PublicCheckResult {
   check_name: string;
   passed: boolean;
+  /** false = ran but couldn't be measured; excluded from the risk score. */
+  scorable?: boolean;
   severity: Severity;
   title: string;
   description: string;
@@ -607,6 +609,7 @@ async function checkPageSpeed(storeUrl: string): Promise<PublicCheckResult> {
       return {
         check_name: "page_speed",
         passed: true,
+        scorable: false,
         severity: "info",
         title: "Page Speed — API Unavailable",
         description: `PageSpeed Insights API returned HTTP ${res.status}. Check skipped.`,
@@ -623,6 +626,7 @@ async function checkPageSpeed(storeUrl: string): Promise<PublicCheckResult> {
       return {
         check_name: "page_speed",
         passed: true,
+        scorable: false,
         severity: "info",
         title: "Page Speed — No Score Returned",
         description: "PageSpeed Insights did not return a score.",
@@ -656,6 +660,7 @@ async function checkPageSpeed(storeUrl: string): Promise<PublicCheckResult> {
     return {
       check_name: "page_speed",
       passed: true,
+      scorable: false,
       severity: "info",
       title: "Page Speed — Check Skipped",
       description: "PageSpeed Insights could not be reached.",

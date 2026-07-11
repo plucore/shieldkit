@@ -816,14 +816,18 @@ describe("PlanStatusCard two-state value box (v4 §7)", () => {
     expect(src).toContain("from \"../lib/billing/plans\"");
   });
 
-  it("free state CTA includes the current price ($49/$390)", () => {
+  it("free state CTA is price-free (Shopify managed pricing is the source of truth)", () => {
     const src = fs.readFileSync(
       path.join(APP_DIR, "components/PlanStatusCard.tsx"),
       "utf-8"
     );
-    // Price is interpolated from PLANS.monitoring_*; both values present
-    expect(src).toContain("PLANS.monitoring_monthly.monthly");
-    expect(src).toContain("PLANS.monitoring_annual.annual");
+    // In-app prices were removed — the live price is shown on Shopify's hosted
+    // managed-pricing page after click-through, so no PLANS price is
+    // interpolated and the CTA carries a neutral, price-free label.
+    expect(src).toContain("Unlock everything");
+    expect(src).not.toContain("PLANS.monitoring_monthly.monthly");
+    expect(src).not.toContain("PLANS.monitoring_annual.annual");
+    expect(src).not.toMatch(/\$\d/); // no hardcoded dollar figure rendered
   });
 
   it("paid state JSON-LD row is display-only (no action) and reflects enabled state", () => {

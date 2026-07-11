@@ -12,14 +12,15 @@
  *
  *   Free state — "Fix it now — and stay protected."
  *     Upgrade prompt: free items checked, paid items locked + muted.
- *     One CTA → /app/upgrade at $49/mo or $390/yr.
+ *     One CTA → /app/upgrade. No price is rendered in-app — the live price
+ *     is shown on Shopify's hosted managed-pricing page after click-through.
  *
  * Placed at the top of the dashboard aside (above Security Status).
  * Pure component — feature lists come from app/lib/billing/plans.ts so
  * pricing-page copy and dashboard copy stay in lockstep.
  */
 
-import { PAID_FEATURES, FREE_FEATURES, PLANS } from "../lib/billing/plans";
+import { PAID_FEATURES, FREE_FEATURES } from "../lib/billing/plans";
 import { useWebComponentClick } from "../hooks/useWebComponentClick";
 
 interface PlanStatusCardProps {
@@ -136,8 +137,7 @@ function FreeUpgradeCard({ onUpgrade }: { onUpgrade: () => void }) {
         </div>
         <div style={{ marginTop: "14px" }}>
           <s-button variant="primary" ref={upgradeRef}>
-            Unlock everything — ${PLANS.monitoring_monthly.monthly}/mo or $
-            {PLANS.monitoring_annual.annual}/yr
+            Unlock everything
           </s-button>
         </div>
       </s-card>

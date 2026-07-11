@@ -33,8 +33,8 @@ export async function checkStructuredDataJsonLd(
       check_name: CHECK_NAME,
       passed: true,
       severity: "info",
-      title: "Structured Data (JSON-LD)",
-      description: "No product pages with public URLs were available to scan for structured data.",
+      title: "Google Product Listings",
+      description: "No product pages with public web addresses were available to check.",
       fix_instruction: "No action required.",
       raw_data: { pages_scanned: 0 },
     };
@@ -120,22 +120,34 @@ export async function checkStructuredDataJsonLd(
           .flatMap((r) => r.missing_required),
       ),
     ];
+    // Map internal field tokens to plain-language labels a merchant can act on
+    // (never surface raw tokens like "offers.priceCurrency" to the merchant).
+    const FRIENDLY_FIELD: Record<string, string> = {
+      name: "product name",
+      image: "product photo",
+      description: "description",
+      offers: "price",
+      "offers.price": "price",
+      "offers.priceCurrency": "currency",
+    };
+    const friendlyMissing = [
+      ...new Set(allMissing.map((f) => FRIENDLY_FIELD[f] ?? f)),
+    ];
     return {
       check_name: CHECK_NAME,
       passed: false,
       severity: "warning",
-      title: "Incomplete Product JSON-LD Schema",
+      title: "Google Product Listings — Missing Details",
       description:
-        `Product JSON-LD schema is present but missing required fields on ` +
-        `${pagesIncomplete} of ${productPageResults.length} scanned product page(s). ` +
-        `Missing: ${allMissing.join(", ")}. Google uses these fields to show your products in Shopping results.`,
+        `Your products show in Google but are missing some details Google ` +
+        `needs (${friendlyMissing.join(", ")}). These help them show with ` +
+        `full info in results.`,
       fix_instruction:
-        "1. Shopify's default themes inject Product JSON-LD automatically. If a field is missing, " +
-        "check that your theme's product template still outputs complete structured data.\n" +
-        "2. Required fields: name, image, description, and offers with a price and priceCurrency " +
-        "(offers may be a single object, an array of per-variant offers, or an AggregateOffer with lowPrice/highPrice).\n" +
-        "3. Recommended additions: sku and itemCondition improve feed quality in GMC.\n" +
-        "4. Validate with Google's Rich Results Test: https://search.google.com/test/rich-results",
+        "1. Most Shopify themes set this up automatically. If details are missing, your theme's " +
+        "product template may have been changed.\n" +
+        "2. Each product should list its name, photo, description, price, and currency.\n" +
+        "3. Check your products free with Google's Rich Results Test: https://search.google.com/test/rich-results\n" +
+        "4. If it keeps failing, your theme may need a developer to fix it.",
       raw_data,
     };
   }
@@ -146,8 +158,8 @@ export async function checkStructuredDataJsonLd(
       check_name: CHECK_NAME,
       passed: true,
       severity: "info",
-      title: "Structured Data (JSON-LD)",
-      description: `Product JSON-LD schema found and validated on ${pagesValid} of ${productPageResults.length} sampled product page(s).`,
+      title: "Google Product Listings",
+      description: `Your products are set up to show with full details in Google on ${pagesValid} of ${productPageResults.length} product page(s) we checked.`,
       fix_instruction: "No action required.",
       raw_data,
     };
@@ -159,16 +171,15 @@ export async function checkStructuredDataJsonLd(
     check_name: CHECK_NAME,
     passed: true,
     severity: "info",
-    title: "Structured Data (JSON-LD) — Not Verified",
+    title: "Google Product Listings — Couldn't Verify",
     description:
-      "No Product structured data was found in the initial HTML of the sampled product page(s). " +
-      "Many Shopify themes inject JSON-LD via JavaScript, which an automated fetch cannot see, so " +
-      "this is not necessarily a problem.",
+      "We couldn't confirm your products are set up to show with prices and photos in Google. " +
+      "Many themes do this in a way our scan can't see, so this may already be working.",
     fix_instruction:
-      "Confirm your products emit Product structured data using Google's Rich Results Test: " +
-      "https://search.google.com/test/rich-results. If it passes there, no action is needed. " +
-      "If not, ensure your theme's product template outputs Product JSON-LD (name, image, description, " +
-      "and offers with price and priceCurrency).",
+      "Check your products free with Google's Rich Results Test: " +
+      "https://search.google.com/test/rich-results. If it passes, you're all set. If not, make " +
+      "sure your theme lists each product's name, image, description, price, and currency — or " +
+      "ask your theme's developer.",
     raw_data,
   };
 }

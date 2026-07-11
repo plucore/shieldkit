@@ -97,8 +97,8 @@ export function checkBusinessIdentityConsistency(
       severity: "warning",
       title: "Business Identity Consistency",
       description:
-        `Store name "${shopInfo.name}" is consistent with the primary domain ` +
-        `(consistency score: ${(consistencyScore * 100).toFixed(0)}%).`,
+        `Your store name "${shopInfo.name}" closely matches your website ` +
+        `address.`,
       fix_instruction: "No action required.",
       raw_data,
     };
@@ -110,16 +110,15 @@ export function checkBusinessIdentityConsistency(
     severity: "info",
     title: "Potential Business Identity Mismatch",
     description:
-      `The store name "${shopInfo.name}" has a low word-overlap score with the ` +
-      `primary domain "${shopInfo.primaryDomain.host}" ` +
-      `(consistency: ${(consistencyScore * 100).toFixed(0)}%). ` +
-      "This may indicate a branding inconsistency that could prompt GMC manual review.",
+      `Your store name ("${shopInfo.name}") and your website address ` +
+      `("${shopInfo.primaryDomain.host}") don't closely match. A big mismatch ` +
+      `can prompt Google Merchant Center to review your account manually.`,
     fix_instruction:
       "1. Ensure your Shopify store name (Settings → General) matches the brand name " +
       "used on your domain, About page, and social profiles.\n" +
       "2. If you have recently rebranded, update your primary domain in Shopify to match.\n" +
-      "3. Note: this check uses word overlap and may produce false positives for stores " +
-      "with stylised or abbreviated brand names — manual review is advised.",
+      "3. This is only a heads-up — if your brand name is stylised or shortened, it may not " +
+      "match exactly, and that's usually fine.",
     raw_data,
   };
 }

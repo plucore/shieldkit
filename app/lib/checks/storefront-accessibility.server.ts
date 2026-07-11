@@ -59,7 +59,7 @@ export async function checkStorefrontAccessibility(
       title: "Storefront is Password Protected",
       description:
         "Your store is behind a password page and is not publicly accessible. " +
-        "Google Merchant Center cannot crawl or approve products from password-protected stores.",
+        "Google Merchant Center can't see or approve products from password-protected stores.",
       fix_instruction:
         "1. In Shopify Admin → Online Store → Preferences, scroll to 'Password protection'.\n" +
         "2. Uncheck 'Restrict access to visitors with the password' and save.\n" +
@@ -91,10 +91,11 @@ export async function checkStorefrontAccessibility(
       check_name: CHECK_NAME,
       passed: false,
       severity: "warning",
-      title: "Product Pages Returning Non-200 Status",
+      title: "Some Product Pages Aren't Loading",
       description:
-        `${failedPages.length} of ${productPageResults.length} sampled product page(s) did not ` +
-        `return HTTP 200: ${failedPages.map((r) => `${r.url} (${r.status ?? "timeout"})`).join(", ")}.`,
+        `${failedPages.length} of ${productPageResults.length} product page(s) we checked ` +
+        `aren't loading correctly: ${failedPages.map((r) => r.url).join(", ")}. Shoppers and ` +
+        `Google may not be able to see these products.`,
       fix_instruction:
         "1. In Shopify Admin → Products, verify the affected products are published " +
         "to the Online Store sales channel.\n" +

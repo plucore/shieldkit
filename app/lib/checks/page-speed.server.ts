@@ -110,7 +110,7 @@ export async function checkPageSpeed(storeUrl: string): Promise<CheckResult> {
       issues.push(`mobile performance score is ${performanceScore}/100 (threshold: 50)`);
     if (interstitialsFailed)
       issues.push(
-        `intrusive interstitials detected (${interstitialsAudit?.displayValue ?? "failed"})`
+        "a full-screen pop-up appears when your store loads"
       );
 
     if (issues.length === 0) {
@@ -119,7 +119,7 @@ export async function checkPageSpeed(storeUrl: string): Promise<CheckResult> {
         passed: true,
         severity: "warning",
         title: "Page Speed",
-        description: `Mobile performance score: ${performanceScore}/100. No intrusive interstitials detected.`,
+        description: `Mobile performance score: ${performanceScore}/100. No full-screen pop-ups blocking your store on load.`,
         fix_instruction: "No action required.",
         raw_data,
       };
@@ -132,13 +132,13 @@ export async function checkPageSpeed(storeUrl: string): Promise<CheckResult> {
       title: "Page Speed Issues Detected",
       description: `PageSpeed Insights flagged the following on mobile: ${issues.join("; ")}.`,
       fix_instruction:
-        "1. Run a full audit at https://pagespeed.web.dev for detailed recommendations.\n" +
-        "2. Common mobile improvements: compress images (WebP format), enable lazy loading, " +
-        "minify CSS/JS, and reduce third-party scripts.\n" +
-        "3. For intrusive interstitials: remove or delay full-screen pop-ups that appear " +
-        "immediately on page load — Google penalises these in Shopping rankings.\n" +
-        "4. In Shopify Admin → Apps, disable non-essential apps that inject scripts at load " +
-        "time (chat widgets, loyalty pop-ups, etc.).",
+        "1. Run a full check at https://pagespeed.web.dev for detailed recommendations.\n" +
+        "2. Common mobile fixes: use smaller, compressed images, load images only as they " +
+        "scroll into view, trim your theme's code, and remove extra apps that add scripts.\n" +
+        "3. Remove or delay full-screen pop-ups that appear the moment your store loads — " +
+        "Google lowers your ranking for these.\n" +
+        "4. In Shopify Admin → Apps, turn off non-essential apps that slow down loading " +
+        "(chat widgets, loyalty pop-ups, etc.).",
       raw_data,
     };
   } catch (err) {

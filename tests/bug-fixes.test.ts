@@ -247,11 +247,11 @@ describe("JSON-LD extension visibility", () => {
   );
 
   it("dashboard has a JSON-LD extension section", () => {
-    expect(dashContent).toContain("Free JSON-LD Structured Data");
+    expect(dashContent).toContain("Show up better on Google");
   });
 
   it("JSON-LD section has one-click enable button with deep link", () => {
-    expect(dashContent).toContain("Enable JSON-LD");
+    expect(dashContent).toContain("Turn on");
     // Post-Fix-7 the URL is built by the centralised helper, not inlined.
     expect(dashContent).toContain("getJsonLdThemeEditorUrl");
     // The helper itself encodes the activateAppId + product-schema block.
@@ -265,7 +265,7 @@ describe("JSON-LD extension visibility", () => {
 
   it("JSON-LD section is in the aside (visible to all tiers)", () => {
     expect(dashContent).toContain('slot="aside"');
-    expect(dashContent).toContain("Free JSON-LD Structured Data");
+    expect(dashContent).toContain("Show up better on Google");
   });
 });
 
@@ -623,8 +623,8 @@ describe("JSON-LD activation (v4 two-state model)", () => {
       path.join(APP_DIR, "routes/app._index.tsx"),
       "utf-8"
     );
-    // On state.
-    expect(src).toContain("JSON-LD Active");
+    // On state (de-jargoned copy: status label "On" + benefit-led body).
+    expect(src).toContain("Your products are set up so Google and AI search");
     // The retired states must NOT appear anywhere in the file.
     expect(src).not.toContain("Verification pending");
     expect(src).not.toContain("Verify now");
@@ -787,8 +787,8 @@ describe("ScoreBanner ongoing-value reassurance (v4 §8)", () => {
     // Paid + score >= 80 + no critical issues.
     expect(src).toMatch(/hasPaidAccess\(merchant\.tier\)[\s\S]{0,300}score >= 80/);
     expect(src).toMatch(/critical_count[\s\S]{0,80}=== 0/);
-    expect(src).toContain("Your store is clean.");
-    expect(src).toContain("re-scan instantly");
+    expect(src).toContain("Your store looks clean.");
+    expect(src).toContain("lets you re-scan");
   });
 });
 
@@ -802,7 +802,7 @@ describe("PlanStatusCard two-state value box (v4 §7)", () => {
     );
     expect(src).toContain("PaidCoverageCard");
     expect(src).toContain("FreeUpgradeCard");
-    expect(src).toContain("Your ShieldKit coverage");
+    expect(src).toContain("What your plan covers");
     expect(src).toContain("Fix it now");
   });
 

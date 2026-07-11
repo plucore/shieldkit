@@ -49,11 +49,11 @@ export default function App() {
       <NavMenu>
         <a href="/app" rel="home">Dashboard</a>
         {isPaid && <a href="/app/appeal-letter">Appeal letter</a>}
-        {isPaid && <a href="/app/pro-settings">Store schema settings</a>}
+        {isPaid && <a href="/app/pro-settings">Brand details</a>}
         {isPaid && gtinFillEnabled && (
-          <a href="/app/gtin-fill">GTIN auto-filler</a>
+          <a href="/app/gtin-fill">Fix product IDs</a>
         )}
-        {isPaid && <a href="/app/bots/toggle">AI bot access</a>}
+        {isPaid && <a href="/app/bots/toggle">AI access</a>}
         <a href="/app/plan-switcher">Manage plan</a>
       </NavMenu>
 

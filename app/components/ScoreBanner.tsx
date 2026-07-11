@@ -130,9 +130,9 @@ export default function ScoreBanner({
                   marginRight: "auto",
                 }}
               >
-                Your store is clean. ShieldKit keeps your structured data
-                live, your products readable to AI search, and lets you
-                re-scan instantly any time you change something.
+                Your store looks clean. ShieldKit keeps your Google listings
+                and AI-search visibility working, and lets you re-scan any
+                time you change something.
               </div>
             )}
 

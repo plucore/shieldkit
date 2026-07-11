@@ -170,7 +170,7 @@ export default function SecurityStatusAside({
                   tone="success"
                   size="base"
                 />
-                <span>No critical threats detected</span>
+                <span>No critical issues detected</span>
               </div>
             )}
           </div>

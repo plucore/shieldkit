@@ -269,15 +269,15 @@ export const PAID_TIERS: readonly Tier[] = [
  * prompts, anywhere a feature list per plan needs to appear.
  */
 export const PAID_FEATURES: readonly string[] = [
-  "Unlimited on-demand scans",
-  "AI-written store policies (refund, shipping, privacy, terms)",
-  "GMC re-review appeal letter generator",
-  "Product data fixes (GTIN / MPN / brand)",
-  "Auto structured data for new products",
-  "llms.txt for AI search",
-  "AI crawler allow/block controls",
-  "Store schema settings (logo, social, search)",
-  "JSON-LD product schema extension",
+  "Unlimited store scans — re-check anytime",
+  "Store policies written for you (refund, shipping, privacy, terms)",
+  "Appeal letters to help lift a Google suspension",
+  "Auto-fill the product IDs Google requires",
+  "New products auto-set-up to show well on Google",
+  "Get found in AI answers (ChatGPT, Perplexity, Google AI)",
+  "Choose which AI engines can read your store",
+  "Add your logo and links so your brand shows correctly",
+  "Show up better on Google",
 ] as const;
 
 /**
@@ -285,9 +285,9 @@ export const PAID_FEATURES: readonly string[] = [
  * theme extension; the rest is locked behind paid.
  */
 export const FREE_FEATURES: readonly string[] = [
-  "One free compliance scan",
-  "Step-by-step fix instructions",
-  "JSON-LD product schema extension",
+  "One free store scan",
+  "Step-by-step fixes for what we find",
+  "Show up better on Google",
 ] as const;
 
 export type TierGroupKey = "monitoring";

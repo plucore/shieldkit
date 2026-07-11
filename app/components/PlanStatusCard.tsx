@@ -4,7 +4,7 @@
  * Replaces the v3 UpgradeCard. Single component, two states driven by
  * hasPaidAccess(tier):
  *
- *   Paid state — "Your ShieldKit coverage"
+ *   Paid state — "What your plan covers"
  *     Reassurance card: every paid feature with a green check, no CTA,
  *     no urgency. The JSON-LD row reflects actual state (Active vs Off)
  *     as a display-only status — the enable action lives in the JSON-LD
@@ -36,13 +36,14 @@ interface PlanStatusCardProps {
   onUpgrade: () => void;
 }
 
-// Single index points at the JSON-LD entry so we know which row to mark
-// "active" vs "off" without string-matching.
+// Locates the Google-visibility row (the storefront product-listing feature)
+// so the paid card can mark it "active" vs "off". Copy-coupled: this substring
+// must match that feature's label in PAID_FEATURES / FREE_FEATURES.
 const PAID_JSON_LD_INDEX = PAID_FEATURES.findIndex((f) =>
-  f.toLowerCase().includes("json-ld product schema"),
+  f.toLowerCase().includes("show up better on google"),
 );
 const FREE_JSON_LD_INDEX = FREE_FEATURES.findIndex((f) =>
-  f.toLowerCase().includes("json-ld product schema"),
+  f.toLowerCase().includes("show up better on google"),
 );
 
 export default function PlanStatusCard({
@@ -63,7 +64,7 @@ function PaidCoverageCard({ jsonLdEnabled }: { jsonLdEnabled: boolean }) {
     <s-section slot="aside">
       <div style={{ marginBottom: "12px" }}>
         <div style={{ fontSize: "16px", fontWeight: 700, color: "#0f172a" }}>
-          Your ShieldKit coverage
+          What your plan covers
         </div>
       </div>
       <s-card>

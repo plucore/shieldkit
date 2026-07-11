@@ -26,6 +26,7 @@ import {
   detectPaymentSignals,
   evaluateStructuredDataPages,
 } from "./shared/html-detectors.server";
+import { computeHeadlineScore } from "./public-risk-score";
 
 export type Severity = "critical" | "warning" | "info" | "error";
 
@@ -779,8 +780,11 @@ export async function runPublicScan(
 
   const passed = results.filter((r) => r.passed).length;
   const errored = results.filter((r) => r.severity === "error").length;
-  const scorable = results.length - errored;
-  const score = scorable > 0 ? Math.round((passed / scorable) * 100) : 0;
+  // Headline score excludes errored AND unmeasured (scorable:false, e.g. a
+  // PageSpeed API timeout) checks from both sides — same rule as the
+  // authenticated scanner and computeRiskScore, so a transient external failure
+  // never moves it and it agrees with the RiskScoreBanner on the same page.
+  const score = computeHeadlineScore(results);
   const criticals = results.filter((r) => !r.passed && r.severity === "critical").length;
   const warnings = results.filter((r) => !r.passed && r.severity === "warning").length;
 

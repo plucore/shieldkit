@@ -67,3 +67,22 @@ export function computeRiskScore(checks: RiskScoreCheck[]): number {
   const score = availableWeight > 0 ? (earned / availableWeight) * 100 : 0;
   return Math.max(0, Math.min(100, Math.round(score)));
 }
+
+/**
+ * Simple pass-ratio headline score for the public /scan page (`result.score`).
+ * Distinct from computeRiskScore (which is weighted), but it applies the SAME
+ * exclusion rule: errored AND unmeasured (scorable:false, e.g. a PageSpeed API
+ * timeout) checks are dropped from BOTH the numerator and the denominator — as
+ * in the authenticated scanner — so a transient external failure never moves it
+ * and the two scores shown on /scan stay consistent.
+ */
+export function computeHeadlineScore(
+  results: ReadonlyArray<{ passed: boolean; severity: string; scorable?: boolean }>,
+): number {
+  const scorable = results.filter(
+    (r) => r.severity !== "error" && r.scorable !== false,
+  );
+  if (scorable.length === 0) return 0;
+  const passed = scorable.filter((r) => r.passed).length;
+  return Math.round((passed / scorable.length) * 100);
+}

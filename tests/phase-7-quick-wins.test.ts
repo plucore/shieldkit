@@ -6,7 +6,11 @@
 import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { computeRiskScore, RISK_WEIGHTS } from "../app/lib/checks/public-risk-score";
+import {
+  computeRiskScore,
+  computeHeadlineScore,
+  RISK_WEIGHTS,
+} from "../app/lib/checks/public-risk-score";
 
 interface PublicCheckResult {
   check_name: string;
@@ -214,5 +218,48 @@ describe("Phase 7 quick win 2 — computeRiskScore", () => {
       return mkCheck(n, true);
     });
     expect(computeRiskScore(failContact)).toBe(Math.round((70 / 85) * 100));
+  });
+});
+
+describe("computeHeadlineScore — public /scan headline (result.score)", () => {
+  const r = (
+    name: string,
+    passed: boolean,
+    severity = "info",
+    scorable?: boolean,
+  ) => ({ check_name: name, passed, severity, scorable });
+
+  it("excludes errored AND unmeasured (scorable:false) checks from both sides", () => {
+    // 8 checks: 6 pass, 1 fails, page_speed timed out (scorable:false).
+    const base = [
+      r("a", true),
+      r("b", true),
+      r("c", true),
+      r("d", true),
+      r("e", true),
+      r("f", true),
+      r("g", false, "critical"),
+      r("page_speed", true, "info", false),
+    ];
+    // page_speed excluded → 7 scorable, 6 passing → 86 (NOT the old free-pass
+    // 7/8 = 88 that counted the timed-out check).
+    expect(computeHeadlineScore(base)).toBe(Math.round((6 / 7) * 100));
+
+    // Errored checks are excluded too, so adding one doesn't change the score.
+    expect(computeHeadlineScore([...base, r("h", false, "error")])).toBe(
+      Math.round((6 / 7) * 100),
+    );
+  });
+
+  it("a MEASURED passing page_speed still counts", () => {
+    expect(
+      computeHeadlineScore([r("a", true), r("page_speed", true, "info")]),
+    ).toBe(100);
+  });
+
+  it("returns 0 when nothing is scorable", () => {
+    expect(
+      computeHeadlineScore([r("page_speed", true, "info", false)]),
+    ).toBe(0);
   });
 });

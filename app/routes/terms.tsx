@@ -86,8 +86,9 @@ export default function Terms() {
       </h2>
       <ul>
         <li>
-          <strong>Free</strong> — one compliance scan per 30 days, plus the
-          JSON-LD theme extension, plus fix instructions for surfaced findings.
+          <strong>Free</strong> — one compliance scan, granted at install and
+          not refilled, plus the JSON-LD theme extension, plus fix instructions
+          for surfaced findings.
         </li>
         <li>
           <strong>Monitoring</strong> — billed monthly or annually at the

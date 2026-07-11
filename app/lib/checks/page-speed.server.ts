@@ -128,7 +128,10 @@ export async function checkPageSpeed(storeUrl: string): Promise<CheckResult> {
     return {
       check_name: CHECK_NAME,
       passed: false,
-      severity: "warning",
+      // Page speed isn't a Google Merchant Center suspension criterion, so a
+      // measured-but-slow result is informational (INFO), not a WARNING. It is
+      // still scorable (passed: false) — mirrors business_identity_consistency.
+      severity: "info",
       title: "Page Speed Issues Detected",
       description: `PageSpeed Insights flagged the following on mobile: ${issues.join("; ")}.`,
       fix_instruction:

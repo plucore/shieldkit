@@ -92,14 +92,15 @@ describe("checkPageSpeed degrades gracefully when PageSpeed is unmeasurable", ()
     expect(r.scorable).toBe(false);
   });
 
-  it("successful poor-score response → normal WARNING finding, still scored", async () => {
+  it("successful poor-score response → INFO finding (not WARNING), still scored", async () => {
     globalThis.fetch = vi
       .fn()
       .mockResolvedValue(psiResponse(0.2)) as unknown as typeof fetch; // 20/100
 
     const r = await checkPageSpeed("https://store.example");
 
-    expect(r.severity).toBe("warning");
+    // Page speed isn't a GMC suspension criterion → INFO, not WARNING.
+    expect(r.severity).toBe("info");
     expect(r.passed).toBe(false);
     expect(r.scorable).not.toBe(false); // measured → participates in scoring
     expect(r.description).toContain("20/100");

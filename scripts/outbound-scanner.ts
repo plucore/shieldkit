@@ -925,7 +925,8 @@ async function checkPageSpeed(storeUrl: string): Promise<CheckResult> {
     return {
       check_name: CHECK_NAME,
       passed: false,
-      severity: "warning",
+      // Page speed isn't a GMC suspension criterion — informational, not a warning.
+      severity: "info",
       title: "Page Speed Issues Detected",
       description: `PageSpeed Insights flagged the following on mobile: ${issues.join("; ")}.`,
       fix_instruction:

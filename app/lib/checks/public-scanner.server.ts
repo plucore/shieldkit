@@ -644,7 +644,8 @@ async function checkPageSpeed(storeUrl: string): Promise<PublicCheckResult> {
     return {
       check_name: "page_speed",
       passed: false,
-      severity: "warning",
+      // Page speed isn't a GMC suspension criterion — informational, not a warning.
+      severity: "info",
       title: "Slow Mobile Page Speed",
       description: `Mobile performance score is ${score}/100. Threshold for GMC-friendly stores is 50+.`,
       fix_instruction:

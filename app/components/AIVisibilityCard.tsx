@@ -18,13 +18,45 @@ interface AIVisibilityCardProps {
   topCrawlers: string[]; // up to 3, name only
 }
 
+// Map raw AI-engine agent names (as stored in llms_txt_requests.crawler_name,
+// produced by identify-crawler) to consumer-recognizable brands. Unknown names
+// fall back to the raw string.
+const FRIENDLY_BOT: Record<string, string> = {
+  GPTBot: "ChatGPT",
+  "ChatGPT-User": "ChatGPT",
+  "OAI-SearchBot": "ChatGPT",
+  ClaudeBot: "Claude",
+  "anthropic-ai": "Claude",
+  "Google-Extended": "Google AI",
+  Googlebot: "Google",
+  Bingbot: "Bing",
+  PerplexityBot: "Perplexity",
+  CCBot: "Common Crawl",
+  Bytespider: "TikTok",
+  Applebot: "Apple",
+  Amazonbot: "Amazon",
+  FacebookBot: "Meta",
+  DuckAssistBot: "DuckDuckGo",
+  "MistralAI-User": "Mistral",
+  "cohere-ai": "Cohere",
+  YouBot: "You.com",
+};
+
+function friendlyBot(name: string): string {
+  return FRIENDLY_BOT[name] ?? name;
+}
+
 export default function AIVisibilityCard({
   thisWeekHits,
   priorWeekHits,
   topCrawlers,
 }: AIVisibilityCardProps) {
-  const isEmpty = thisWeekHits === 0 && priorWeekHits === 0;
+  // Hide the card entirely when there's nothing to show — no persistent
+  // "not yet" empty state taking up space in the aside.
+  if (thisWeekHits === 0 && priorWeekHits === 0) return null;
+
   const wow = wowDeltaPct(thisWeekHits, priorWeekHits);
+  const seenBy = [...new Set(topCrawlers.map(friendlyBot))];
 
   return (
     <s-card>
@@ -39,59 +71,43 @@ export default function AIVisibilityCard({
             marginBottom: "8px",
           }}
         >
-          AI visibility
+          AI search visibility
         </div>
-        {isEmpty ? (
-          <p
-            style={{
-              margin: 0,
-              fontSize: "14px",
-              color: "var(--p-color-text-subdued, #6d7175)",
-              lineHeight: 1.45,
-            }}
-          >
-            Your llms.txt has not been crawled yet. AI engines typically
-            discover new content within 7-30 days of publishing.
-          </p>
-        ) : (
-          <p
-            style={{
-              margin: 0,
-              fontSize: "14px",
-              color: "var(--p-color-text, #0F172A)",
-              lineHeight: 1.45,
-            }}
-          >
-            <strong>{thisWeekHits}</strong> crawler hit
-            {thisWeekHits === 1 ? "" : "s"} this week
-            {priorWeekHits > 0 ? (
-              <>
-                {" "}
-                <span
-                  style={{
-                    color:
-                      wow >= 0
-                        ? "var(--p-color-text-success, #1a9e5c)"
-                        : "var(--p-color-text-critical, #e51c00)",
-                  }}
-                >
-                  ({wow >= 0 ? "+" : ""}
-                  {wow}% WoW)
-                </span>
-              </>
-            ) : null}
-            {topCrawlers.length > 0 && (
-              <>
-                .{" "}
-                <span
-                  style={{ color: "var(--p-color-text-subdued, #6d7175)" }}
-                >
-                  Top: {topCrawlers.join(", ")}.
-                </span>
-              </>
-            )}
-          </p>
-        )}
+        <p
+          style={{
+            margin: 0,
+            fontSize: "14px",
+            color: "var(--p-color-text, #0F172A)",
+            lineHeight: 1.45,
+          }}
+        >
+          AI engines read your store <strong>{thisWeekHits}</strong> time
+          {thisWeekHits === 1 ? "" : "s"} this week
+          {priorWeekHits > 0 ? (
+            <>
+              {" "}
+              <span
+                style={{
+                  color:
+                    wow >= 0
+                      ? "var(--p-color-text-success, #1a9e5c)"
+                      : "var(--p-color-text-critical, #e51c00)",
+                }}
+              >
+                ({wow >= 0 ? "+" : ""}
+                {wow}% vs last week)
+              </span>
+            </>
+          ) : null}
+          {seenBy.length > 0 && (
+            <>
+              .{" "}
+              <span style={{ color: "var(--p-color-text-subdued, #6d7175)" }}>
+                Seen by: {seenBy.join(", ")}.
+              </span>
+            </>
+          )}
+        </p>
       </div>
     </s-card>
   );

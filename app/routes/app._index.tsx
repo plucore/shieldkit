@@ -1366,15 +1366,19 @@ export default function Index() {
 
       {/* AI visibility — a Monitoring feature. Available to monitoring,
           recovery, and grandfathered pro. */}
-      {merchant && isPaid && aiVisibility && !showOnboarding && (
-        <s-section slot="aside">
-          <AIVisibilityCard
-            thisWeekHits={aiVisibility.thisWeekHits}
-            priorWeekHits={aiVisibility.priorWeekHits}
-            topCrawlers={aiVisibility.topCrawlers}
-          />
-        </s-section>
-      )}
+      {merchant &&
+        isPaid &&
+        aiVisibility &&
+        (aiVisibility.thisWeekHits > 0 || aiVisibility.priorWeekHits > 0) &&
+        !showOnboarding && (
+          <s-section slot="aside">
+            <AIVisibilityCard
+              thisWeekHits={aiVisibility.thisWeekHits}
+              priorWeekHits={aiVisibility.priorWeekHits}
+              topCrawlers={aiVisibility.topCrawlers}
+            />
+          </s-section>
+        )}
 
       {/* Free JSON-LD Structured Data — two-state card driven solely by
           merchant.json_ld_enabled. Click flips enabled=true via the

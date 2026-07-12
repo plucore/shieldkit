@@ -244,7 +244,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (!WRITE_METAFIELDS_SCOPE_ENABLED) {
     return fail(
       501,
-      "write_products scope is pending Shopify review. The Auto-Filler will activate the moment scope approval lands — no further code changes required.",
+      "write_products scope is pending Shopify review. The Auto-Filler will activate the moment scope approval lands, no further code changes required.",
     );
   }
 
@@ -452,11 +452,11 @@ export default function GtinFillPage() {
     return (
       <s-page heading="GTIN / MPN / Brand Auto-Filler">
         <s-section>
-          <s-banner tone="info" heading="Feature pending — additional Shopify permissions required">
+          <s-banner tone="info" heading="Feature pending, additional Shopify permissions required">
             The GTIN / MPN / Brand Auto-Filler needs the <code>write_products</code>{" "}
             permission to write identifier metafields to your catalog. We've
             requested this permission from Shopify and it will activate
-            automatically once approval lands — no action required from you.
+            automatically once approval lands, no action required from you.
             <br />
             <br />
             In the meantime, your paid plan continues to deliver unlimited
@@ -474,7 +474,7 @@ export default function GtinFillPage() {
       <s-section>
         <s-paragraph>
           Google flags products missing barcodes (GTIN/MPN/brand). This fills
-          those identifiers across your catalog automatically — click Auto-Fill
+          those identifiers across your catalog automatically, click Auto-Fill
           and ShieldKit writes them in batches.
         </s-paragraph>
         <s-paragraph>
@@ -488,7 +488,7 @@ export default function GtinFillPage() {
           Identifiers added via metafields satisfy the GMC "Missing identifiers"
           warning for most categories. Some regulated categories (apparel size
           variants, grocery) may require identifiers in your Shopify product
-          feed directly — for those, also add to the variant SKU/barcode field.
+          feed directly, for those, also add to the variant SKU/barcode field.
         </s-paragraph>
       </s-section>
 
@@ -517,14 +517,14 @@ export default function GtinFillPage() {
               ShieldKit builds identifiers from data your products already have:
               GTIN comes from a variant&rsquo;s barcode, and MPN comes from its
               SKU. The products still flagged above have neither, so there&rsquo;s
-              nothing to derive an identifier from yet — that&rsquo;s why this run
+              nothing to derive an identifier from yet, that&rsquo;s why this run
               wrote nothing, not because anything is broken.
               <br />
               <br />
               Two ways forward: add at least one variant identifier (a SKU or a
-              barcode) to these products in Shopify and re-run Auto-Fill, or — for
+              barcode) to these products in Shopify and re-run Auto-Fill, or, for
               items that genuinely have no manufacturer identifier (handmade,
-              vintage, or custom-made goods) — use the
+              vintage, or custom-made goods), use the
               &quot;Mark &lsquo;no identifier exists&rsquo;&quot; button below so
               Google stops flagging them.
             </s-banner>

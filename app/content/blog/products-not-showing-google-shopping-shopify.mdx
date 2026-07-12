@@ -1,5 +1,5 @@
 export const frontmatter = {
-  title: "Shopify Products Not Showing in Google Shopping — Full Diagnostic Guide (2026)",
+  title: "Shopify Products Not Showing in Google Shopping, Full Diagnostic Guide (2026)",
   slug: "products-not-showing-google-shopping-shopify",
   description:
     "Sometimes Shopify products sync to Google Merchant Center cleanly with no diagnostic errors but still don't appear in Shopping results. Here's the systematic 2026 diagnostic for the silent failures.",
@@ -12,9 +12,9 @@ export const frontmatter = {
   ],
 };
 
-Clean GMC diagnostics doesn't mean your [products will appear in Google Shopping](/fix/products-not-showing). They're three separate steps — feed sync (Shopify → GMC), catalog matching (GMC → Google's catalog), and ranking (Google's catalog → search results) — and a product can pass the first two and silently fail the third. Most "products not showing" cases on Shopify fall into one of five buckets: feed sync delay, title matching gaps, account quality issues, crawler access problems, or AI search format gaps. This post walks the diagnostic flow that resolves each.
+Clean GMC diagnostics doesn't mean your [products will appear in Google Shopping](/fix/products-not-showing). They're three separate steps, feed sync (Shopify → GMC), catalog matching (GMC → Google's catalog), and ranking (Google's catalog → search results), and a product can pass the first two and silently fail the third. Most "products not showing" cases on Shopify fall into one of five buckets: feed sync delay, title matching gaps, account quality issues, crawler access problems, or AI search format gaps. This post walks the diagnostic flow that resolves each.
 
-If GMC Diagnostics is showing actual errors, that's a different problem and easier — start with [why "missing GTIN" shows on your Shopify Google channel](/blog/missing-gtin-shopify-fix) or work through [the 12-point compliance checklist](/blog/gmc-suspension-shopify-checklist). This post is for the harder case where diagnostics are clean.
+If GMC Diagnostics is showing actual errors, that's a different problem and easier, start with [why "missing GTIN" shows on your Shopify Google channel](/blog/missing-gtin-shopify-fix) or work through [the 12-point compliance checklist](/blog/gmc-suspension-shopify-checklist). This post is for the harder case where diagnostics are clean.
 
 ## When diagnostics are clean but products don't show
 
@@ -41,14 +41,14 @@ Force-syncing from Shopify (Google channel → Overview → Sync now) skips part
 
 Google rewards descriptive titles over brand-only titles. The Shopping algorithm treats your product title as the primary signal for what query the product matches.
 
-- **Brand-only title:** "Acme Brand Hoodie" — matches only the query "Acme brand hoodie."
-- **Descriptive title:** "Men's Black Cotton Hoodie by Acme — Slim Fit, Size M" — matches dozens of queries: "men's hoodie," "black hoodie," "cotton hoodie men," "slim fit hoodie," "Acme hoodie men's," and combinations.
+- **Brand-only title:** "Acme Brand Hoodie", matches only the query "Acme brand hoodie."
+- **Descriptive title:** "Men's Black Cotton Hoodie by Acme, Slim Fit, Size M", matches dozens of queries: "men's hoodie," "black hoodie," "cotton hoodie men," "slim fit hoodie," "Acme hoodie men's," and combinations.
 
-The descriptive version reaches 10x the addressable search volume of the brand-only one. If your products have brand-only titles, they're matching but not ranking — they're invisible for every query except the one that exactly names your brand and product type.
+The descriptive version reaches 10x the addressable search volume of the brand-only one. If your products have brand-only titles, they're matching but not ranking, they're invisible for every query except the one that exactly names your brand and product type.
 
 **How to audit titles in bulk:** export your products CSV. In a spreadsheet, calculate the word count of each title (=LEN(A1)-LEN(SUBSTITUTE(A1," ",""))+1 in Excel/Sheets). Anything under 5 words is suspect. Sort by word count, fix the bottom of the list first.
 
-A descriptive title formula that works: `[Gender/Audience] [Color] [Material] [Product Type] by [Brand] — [Key Attribute], [Size]`. Adapt to your category.
+A descriptive title formula that works: `[Gender/Audience] [Color] [Material] [Product Type] by [Brand], [Key Attribute], [Size]`. Adapt to your category.
 
 ## Bucket 3: Account quality issues (no diagnostic flag)
 
@@ -59,7 +59,7 @@ GMC and Google Shopping both use account-level quality signals that don't show u
 - **Product reviews.** Both store reviews (via Google's customer reviews program) and product reviews (via review schema or third-party review apps). Stores with reviews outrank stores without on contested queries.
 - **Return rate and customer satisfaction.** Google buys return-rate signals from various sources and feeds them into ranking. High-return-rate stores get suppressed.
 
-Fixes for account quality are slow — there's no shortcut for "build organic traffic" or "age the account" or "accumulate reviews." But they compound. A 12-month-old account with 200 reviews and a clean return rate ranks meaningfully higher than a brand-new identical store.
+Fixes for account quality are slow, there's no shortcut for "build organic traffic" or "age the account" or "accumulate reviews." But they compound. A 12-month-old account with 200 reviews and a clean return rate ranks meaningfully higher than a brand-new identical store.
 
 ## Bucket 4: Crawler access problems
 
@@ -68,11 +68,11 @@ Even when your feed is clean, Google still crawls your live product pages to ver
 - **`robots.txt` blocking Googlebot from product paths.** Audit your `robots.txt` and `theme.liquid`'s robots block. Look for `Disallow: /products` (catastrophic), `Disallow: /collections` (also bad), or any rule that blocks Googlebot specifically.
 - **Server returning 5xx errors during crawl.** Spotty hosting or aggressive rate limits can return 5xx to Googlebot specifically (Googlebot crawls in bursts). Check your server logs for Googlebot 5xx responses.
 - **Cloudflare bot challenges blocking Google.** Cloudflare's "Bot Fight Mode" sometimes challenges Googlebot if your settings are aggressive. Whitelist Googlebot's IP ranges in Cloudflare or downgrade Bot Fight Mode to "Super Bot Fight Mode" with verified bots allowed.
-- **JavaScript rendering issues.** Single-page-app themes that render product data client-side can leave Googlebot seeing empty pages. Check by viewing source on a product page (View → View Page Source, not Inspect Element) — if you don't see the product title and description in the HTML, you have a rendering problem.
+- **JavaScript rendering issues.** Single-page-app themes that render product data client-side can leave Googlebot seeing empty pages. Check by viewing source on a product page (View → View Page Source, not Inspect Element), if you don't see the product title and description in the HTML, you have a rendering problem.
 
 ## Bucket 5: AI search format gaps
 
-In 2026, Google's AI Overviews feature pulls from product data the same way traditional Shopping does — but with stricter requirements. Products that lack rich JSON-LD don't appear in AI Overviews, even when they appear in classic Shopping.
+In 2026, Google's AI Overviews feature pulls from product data the same way traditional Shopping does, but with stricter requirements. Products that lack rich JSON-LD don't appear in AI Overviews, even when they appear in classic Shopping.
 
 The required fields for AI Overview eligibility (beyond what Shopping needs):
 
@@ -83,7 +83,7 @@ The required fields for AI Overview eligibility (beyond what Shopping needs):
 
 Most Shopify themes emit basic Product JSON-LD but skip the merchant listings extensions. For the full spec on what AI engines actually read, see [how to make your Shopify store visible in ChatGPT, Gemini, and Perplexity](/blog/shopify-store-ai-search-visible).
 
-## The diagnostic flow — what to check in order
+## The diagnostic flow, what to check in order
 
 In order, fastest to slowest:
 
@@ -120,7 +120,7 @@ Heavily. Brand-only titles match only the brand query. Descriptive titles match 
 
 ### What's the difference between GMC Diagnostics and Google Shopping ranking?
 
-Diagnostics shows feed errors and catalog match failures. Ranking is invisible — Google's ranking algorithm has no diagnostic surface. Clean diagnostics means your products are eligible to rank, not that they will.
+Diagnostics shows feed errors and catalog match failures. Ranking is invisible, Google's ranking algorithm has no diagnostic surface. Clean diagnostics means your products are eligible to rank, not that they will.
 
 ### Can robots.txt blocks cause this?
 

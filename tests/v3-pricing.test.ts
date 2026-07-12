@@ -96,7 +96,7 @@ describe("v4 plan reference data", () => {
   });
 
   it("PAID_FEATURES is the single canonical paid feature list", () => {
-    expect(PAID_FEATURES).toContain("Unlimited store scans — re-check anytime");
+    expect(PAID_FEATURES).toContain("Unlimited store scans, re-check anytime");
     expect(PAID_FEATURES).toContain("Appeal letters to help lift a Google suspension");
     expect(PAID_FEATURES).toContain("Auto-fill the product IDs Google requires");
     // The v3 "Everything in Monitoring, plus:" header is gone — there's

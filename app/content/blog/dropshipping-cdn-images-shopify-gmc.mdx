@@ -2,7 +2,7 @@ export const frontmatter = {
   title: "Dropshipping CDN Images and Google Merchant Center Suspension on Shopify",
   slug: "dropshipping-cdn-images-shopify-gmc",
   description:
-    "If your Shopify product images are hot-linked from AliExpress, Oberlo, DSers, or other dropshipping CDNs, Google can flag your store for misrepresentation — even if your products are legitimate. Here's why and how to fix it.",
+    "If your Shopify product images are hot-linked from AliExpress, Oberlo, DSers, or other dropshipping CDNs, Google can flag your store for misrepresentation, even if your products are legitimate. Here's why and how to fix it.",
   publishedAt: "2026-05-05",
   keywords: [
     "dropshipping cdn images google merchant center suspension",
@@ -12,7 +12,7 @@ export const frontmatter = {
   ],
 };
 
-If your [Shopify product images are hot-linked from AliExpress, Alibaba, Oberlo, DSers, Spocket, or similar dropshipping CDNs](/fix/dropshipping-cdn-images), Google's AI crawler flags your store under the misrepresentation policy — even when the products themselves are legitimate. The trust signal Google looks for is "store owns its content." Hot-linked supplier images fail that signal. The fix is mechanical: download every image, re-upload to Shopify (which serves from `cdn.shopify.com`), and replace the URLs in your product records. For a 200-product store this takes 1-2 hours via Shopify's bulk methods or 15 minutes via Matrixify.
+If your [Shopify product images are hot-linked from AliExpress, Alibaba, Oberlo, DSers, Spocket, or similar dropshipping CDNs](/fix/dropshipping-cdn-images), Google's AI crawler flags your store under the misrepresentation policy, even when the products themselves are legitimate. The trust signal Google looks for is "store owns its content." Hot-linked supplier images fail that signal. The fix is mechanical: download every image, re-upload to Shopify (which serves from `cdn.shopify.com`), and replace the URLs in your product records. For a 200-product store this takes 1-2 hours via Shopify's bulk methods or 15 minutes via Matrixify.
 
 This post explains why Google penalizes the pattern, how to detect it on your store, and the bulk-fix path.
 
@@ -20,28 +20,28 @@ This post explains why Google penalizes the pattern, how to detect it on your st
 
 Three reasons, all under the [misrepresentation policy umbrella](/fix/account-suspension-misrepresentation):
 
-- **Trust signal.** Google's heuristic: a real merchant uploads their own product imagery. A reseller pulling images directly from supplier CDNs is signaling "I haven't differentiated this product from the supplier" — which Google treats as a misrepresentation risk because the merchant likely doesn't have direct supplier relationships, doesn't own the imagery, and may not control product quality.
-- **Image authenticity.** Hot-linked images can change. If AliExpress updates the supplier's image and you're hot-linking, your product page silently changes too. Google's crawler flags any product page where the image differs from a recent crawl as [potentially deceptive — and a missing or unreliable product image](/fix/missing-product-image) is a separate item-level violation.
-- **Content ownership.** Google's spam policies treat "thin content" — including pages that lean entirely on borrowed assets — as low-quality. Stores hot-linking supplier images often get the broader "low-value site" demotion alongside the misrepresentation flag.
+- **Trust signal.** Google's heuristic: a real merchant uploads their own product imagery. A reseller pulling images directly from supplier CDNs is signaling "I haven't differentiated this product from the supplier", which Google treats as a misrepresentation risk because the merchant likely doesn't have direct supplier relationships, doesn't own the imagery, and may not control product quality.
+- **Image authenticity.** Hot-linked images can change. If AliExpress updates the supplier's image and you're hot-linking, your product page silently changes too. Google's crawler flags any product page where the image differs from a recent crawl as [potentially deceptive, and a missing or unreliable product image](/fix/missing-product-image) is a separate item-level violation.
+- **Content ownership.** Google's spam policies treat "thin content", including pages that lean entirely on borrowed assets, as low-quality. Stores hot-linking supplier images often get the broader "low-value site" demotion alongside the misrepresentation flag.
 
-Important nuance: **dropshipping itself isn't banned.** What Google penalizes is the pattern of using stock supplier images and supplier descriptions verbatim, which signals you haven't built a real merchant operation around the products. Drop ship all you want — just own your imagery.
+Important nuance: **dropshipping itself isn't banned.** What Google penalizes is the pattern of using stock supplier images and supplier descriptions verbatim, which signals you haven't built a real merchant operation around the products. Drop ship all you want, just own your imagery.
 
 ## Common dropshipping CDN domains Google flags
 
 Audit your product images against these hosts (Google's crawler flags any of them):
 
-- `alicdn.com`, `ae01.alicdn.com` — AliExpress
-- `cbu01.alicdn.com` — Alibaba
-- `oberlo.com`, `oberlocdn.com` — Oberlo
-- `cdn.dsers.com` — DSers
-- `assets.spocket.co` — Spocket
-- `*.shopstyle.com` — Shopstyle
-- `cf.shopee.com` — Shopee
+- `alicdn.com`, `ae01.alicdn.com`, AliExpress
+- `cbu01.alicdn.com`, Alibaba
+- `oberlo.com`, `oberlocdn.com`, Oberlo
+- `cdn.dsers.com`, DSers
+- `assets.spocket.co`, Spocket
+- `*.shopstyle.com`, Shopstyle
+- `cf.shopee.com`, Shopee
 - Various CodePen, Imgur, and free-image hosts when used for product imagery
 
 If your product image `src` URLs include any of these domains, you have the issue.
 
-ShieldKit's free [compliance scan](/scan) includes an "image hosting audit" check that flags these specifically. Most Shopify merchants don't realize they have the problem until they run the audit — supplier CDN URLs often get baked in by import apps without the merchant noticing.
+ShieldKit's free [compliance scan](/scan) includes an "image hosting audit" check that flags these specifically. Most Shopify merchants don't realize they have the problem until they run the audit, supplier CDN URLs often get baked in by import apps without the merchant noticing.
 
 ## How to detect this on your store
 
@@ -53,7 +53,7 @@ Three methods:
 
 **Method 3: Automated scan.** ShieldKit's compliance scan flags every product with a non-Shopify-CDN image URL and tells you which CDN host. Quickest way to get a list of affected products without manual auditing.
 
-If you're seeing hundreds of affected products, the cause is almost always a dropshipping import app (Oberlo, DSers, etc.) that pulled images by reference rather than uploading. New imports keep the problem alive — fix the import settings before bulk-cleaning the existing catalog.
+If you're seeing hundreds of affected products, the cause is almost always a dropshipping import app (Oberlo, DSers, etc.) that pulled images by reference rather than uploading. New imports keep the problem alive, fix the import settings before bulk-cleaning the existing catalog.
 
 ## How to fix it
 
@@ -84,11 +84,11 @@ For large catalogs:
 1. Install Matrixify.
 2. Export products with `Image Src` and `Variant Image` fields.
 3. In the export, replace any non-`cdn.shopify.com` URLs with placeholders.
-4. Re-import — Matrixify handles the image re-host automatically.
+4. Re-import, Matrixify handles the image re-host automatically.
 
 ## What about variant images
 
-Variant-level image hot-links are the same problem and trigger the same flag. The fix is the same: replace the variant's image reference with a Shopify-hosted equivalent. Audit variants separately from product images — Shopify's product CSV has both `Image Src` (product-level) and `Variant Image` (variant-level) columns.
+Variant-level image hot-links are the same problem and trigger the same flag. The fix is the same: replace the variant's image reference with a Shopify-hosted equivalent. Audit variants separately from product images, Shopify's product CSV has both `Image Src` (product-level) and `Variant Image` (variant-level) columns.
 
 Common bug: stores fix product-level images but miss variant images, then wonder why GMC still flags some products. Always audit both.
 
@@ -102,7 +102,7 @@ For the broader pattern of GMC suspension causes, see [why GMC suspends accounts
 
 ### Is dropshipping banned on Google Merchant Center?
 
-No. The pattern Google penalizes is using stock supplier images and supplier descriptions verbatim — which signals you haven't built a differentiated merchant operation. Drop ship all you want, but own your imagery and rewrite descriptions.
+No. The pattern Google penalizes is using stock supplier images and supplier descriptions verbatim, which signals you haven't built a differentiated merchant operation. Drop ship all you want, but own your imagery and rewrite descriptions.
 
 ### What CDN domains does Google flag?
 
@@ -122,6 +122,6 @@ Yes, if you have authorization. Manufacturer-supplied press images (when you're 
 
 ### How long does the bulk image fix take?
 
-For 200 products with Matrixify: 30-60 minutes. For 200 products manually: 4-6 hours. For 1,000+ products manually: don't — use Matrixify.
+For 200 products with Matrixify: 30-60 minutes. For 200 products manually: 4-6 hours. For 1,000+ products manually: don't, use Matrixify.
 
 For Google's official misrepresentation policy text, see [Google's Merchant Center misrepresentation policy](https://support.google.com/merchants/answer/6150127). For Shopify's product image documentation, see [Shopify's product media help](https://help.shopify.com/en/manual/products/product-media).

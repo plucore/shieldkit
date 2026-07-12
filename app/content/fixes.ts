@@ -1,7 +1,7 @@
 /**
  * app/content/fixes.ts
  *
- * Programmatic SEO content for /fix/<slug> pages — one entry per
+ * Programmatic SEO content for /fix/<slug> pages, one entry per
  * specific Google Merchant Center error or suspension reason.
  *
  * Each entry produces a 600-900 word page when rendered by
@@ -79,7 +79,7 @@ export const FIXES: Fix[] = [
       {
         question: "What is a GTIN?",
         answer:
-          "GTIN stands for Global Trade Item Number — an 8-14 digit barcode standard that includes UPC, EAN, JAN, and ISBN. Most branded retail products have one assigned at the manufacturer level.",
+          "GTIN stands for Global Trade Item Number, an 8-14 digit barcode standard that includes UPC, EAN, JAN, and ISBN. Most branded retail products have one assigned at the manufacturer level.",
       },
       {
         question: "Where is GTIN stored in Shopify?",
@@ -115,7 +115,7 @@ export const FIXES: Fix[] = [
       "Step-by-step fix for the \"Missing identifier [mpn]\" error in Google Merchant Center. Add MPN as a Shopify metafield or set identifier_exists to false.",
     publishedAt: "2025-11-17",
     cause:
-      "When GTIN is unavailable, Google requires MPN (manufacturer part number) plus brand as the substitute identifier pair. Shopify doesn't ship a built-in MPN field, so most stores have it missing across the catalog by default — the error fires on every product Google decides should have an MPN.",
+      "When GTIN is unavailable, Google requires MPN (manufacturer part number) plus brand as the substitute identifier pair. Shopify doesn't ship a built-in MPN field, so most stores have it missing across the catalog by default, the error fires on every product Google decides should have an MPN.",
     steps: [
       {
         title: "Create a custom.mpn metafield definition",
@@ -131,7 +131,7 @@ export const FIXES: Fix[] = [
       },
       {
         title: "If MPN doesn't exist, set custom.identifier_exists to false",
-        body: "Don't fabricate MPNs. For products that have no manufacturer part number — handmade, custom, private-label — set `custom.identifier_exists` to `false` and leave MPN, GTIN, and brand empty.",
+        body: "Don't fabricate MPNs. For products that have no manufacturer part number, handmade, custom, private-label, set `custom.identifier_exists` to `false` and leave MPN, GTIN, and brand empty.",
       },
       {
         title: "Verify after 24-72 hours",
@@ -150,7 +150,7 @@ export const FIXES: Fix[] = [
       {
         question: "What is an MPN?",
         answer:
-          "MPN stands for Manufacturer Part Number — the manufacturer's internal SKU for a product. Different from your store's SKU unless you're the manufacturer.",
+          "MPN stands for Manufacturer Part Number, the manufacturer's internal SKU for a product. Different from your store's SKU unless you're the manufacturer.",
       },
       {
         question: "Do I need MPN if I already have GTIN?",
@@ -165,7 +165,7 @@ export const FIXES: Fix[] = [
       {
         question: "Why does Google want both MPN and brand?",
         answer:
-          "MPN alone is ambiguous — different manufacturers reuse part numbers. Brand plus MPN together uniquely identifies a product when GTIN doesn't exist.",
+          "MPN alone is ambiguous, different manufacturers reuse part numbers. Brand plus MPN together uniquely identifies a product when GTIN doesn't exist.",
       },
       {
         question: "Where does the Google channel app look for MPN?",
@@ -186,7 +186,7 @@ export const FIXES: Fix[] = [
       "Fix the \"Missing required attribute [brand]\" error in Google Merchant Center on Shopify. Populate the Vendor field or override with a brand metafield.",
     publishedAt: "2025-11-22",
     cause:
-      "Google requires a brand attribute on almost every product. Shopify's built-in Vendor field maps to brand by default in the Google channel feed, but many stores leave Vendor empty during product import — especially when products come in from dropshipping apps that don't fill it.",
+      "Google requires a brand attribute on almost every product. Shopify's built-in Vendor field maps to brand by default in the Google channel feed, but many stores leave Vendor empty during product import, especially when products come in from dropshipping apps that don't fill it.",
     steps: [
       {
         title: "Populate the Vendor field on each product",
@@ -226,7 +226,7 @@ export const FIXES: Fix[] = [
       {
         question: "Can I use my store name as the brand for private-label products?",
         answer:
-          "Yes. That's the standard pattern for private label — sell under your own brand name, populate Vendor and `custom.brand` with that name.",
+          "Yes. That's the standard pattern for private label, sell under your own brand name, populate Vendor and `custom.brand` with that name.",
       },
       {
         question: "Why does Google require brand?",
@@ -292,7 +292,7 @@ export const FIXES: Fix[] = [
       {
         question: "When should I set identifier_exists to false?",
         answer:
-          "When your products genuinely have no GTIN, MPN, or brand — typically handmade, custom-order, or private-label items below the GTIN registration threshold.",
+          "When your products genuinely have no GTIN, MPN, or brand, typically handmade, custom-order, or private-label items below the GTIN registration threshold.",
       },
       {
         question: "Will this hurt my Google Shopping rankings?",
@@ -302,7 +302,7 @@ export const FIXES: Fix[] = [
       {
         question: "Can I set identifier_exists=false on branded resale?",
         answer:
-          "No. That's misrepresentation — branded products have GTINs by definition. Setting `identifier_exists=false` on branded items can trigger account-level suspension.",
+          "No. That's misrepresentation, branded products have GTINs by definition. Setting `identifier_exists=false` on branded items can trigger account-level suspension.",
       },
       {
         question: "Does Shopify set identifier_exists automatically?",
@@ -328,7 +328,7 @@ export const FIXES: Fix[] = [
       "Fix the \"Missing required attribute [condition]\" error on Shopify by declaring product condition (new, used, or refurbished) in your Google channel feed.",
     publishedAt: "2025-12-02",
     cause:
-      "Google requires every product to declare condition — `new`, `used`, or `refurbished`. Shopify's default product schema doesn't include the field, so the Google channel app sends nothing unless you configure a default value or populate a metafield. The error fires on every product where the field is missing.",
+      "Google requires every product to declare condition, `new`, `used`, or `refurbished`. Shopify's default product schema doesn't include the field, so the Google channel app sends nothing unless you configure a default value or populate a metafield. The error fires on every product where the field is missing.",
     steps: [
       {
         title: "Set a default condition in Google channel settings",
@@ -383,7 +383,7 @@ export const FIXES: Fix[] = [
       {
         question: "Will my products be suspended if condition is missing?",
         answer:
-          "Not suspended — disapproved. Affected products are blocked from Shopping until condition is declared, but the rest of your catalog continues running.",
+          "Not suspended, disapproved. Affected products are blocked from Shopping until condition is declared, but the rest of your catalog continues running.",
       },
     ],
     outboundHelp: {
@@ -407,7 +407,7 @@ export const FIXES: Fix[] = [
       },
       {
         title: "Audit currency conversion app behavior",
-        body: "If using a third-party currency converter, verify the rates it shows match what your feed sends. Aggressive rounding or hidden margins are common culprits — switch to Shopify's native multi-currency or audit the app for transparent rates.",
+        body: "If using a third-party currency converter, verify the rates it shows match what your feed sends. Aggressive rounding or hidden margins are common culprits, switch to Shopify's native multi-currency or audit the app for transparent rates.",
       },
       {
         title: "Check scheduled discounts and price-modifying apps",
@@ -419,7 +419,7 @@ export const FIXES: Fix[] = [
       },
       {
         title: "Verify after 24-72 hours",
-        body: "GMC Diagnostics should show the price-mismatch errors cleared. If they persist, the issue is structural (app behavior) — revisit step 2 or 3.",
+        body: "GMC Diagnostics should show the price-mismatch errors cleared. If they persist, the issue is structural (app behavior), revisit step 2 or 3.",
       },
     ],
     relatedFixes: ["availability-mismatch", "hidden-fees", "untrustworthy-promotions"],
@@ -434,7 +434,7 @@ export const FIXES: Fix[] = [
       {
         question: "Why does my Shopify feed have different prices than my product pages?",
         answer:
-          "Most often a third-party app — currency converter, member-pricing app, or bulk-discount script — modifies storefront prices without updating the feed. Less often: scheduled discounts that took effect before the feed re-synced.",
+          "Most often a third-party app, currency converter, member-pricing app, or bulk-discount script, modifies storefront prices without updating the feed. Less often: scheduled discounts that took effect before the feed re-synced.",
       },
       {
         question: "How tolerant is Google of price differences?",
@@ -482,7 +482,7 @@ export const FIXES: Fix[] = [
       },
       {
         title: "Hide buy buttons on out-of-stock variants",
-        body: "As of April 2026 an active buy button on an out-of-stock product is an account-level violation. Fix in your theme's `product.liquid` or via theme settings — depends on theme version.",
+        body: "As of April 2026 an active buy button on an out-of-stock product is an account-level violation. Fix in your theme's `product.liquid` or via theme settings, depends on theme version.",
       },
       {
         title: "Force a feed re-sync via the Google channel",
@@ -596,7 +596,7 @@ export const FIXES: Fix[] = [
       {
         question: "Should I use the manufacturer's product images?",
         answer:
-          "Only if you have authorization. Manufacturer press-kit images used without authorization can trigger counterfeit-policy issues — re-shoot or upload your own where possible.",
+          "Only if you have authorization. Manufacturer press-kit images used without authorization can trigger counterfeit-policy issues, re-shoot or upload your own where possible.",
       },
     ],
     outboundHelp: {
@@ -612,7 +612,7 @@ export const FIXES: Fix[] = [
       "Fix \"Generic image\" disapprovals on Shopify by replacing hot-linked dropshipping CDN images (AliExpress, Oberlo, DSers) with self-hosted Shopify images.",
     publishedAt: "2025-12-23",
     cause:
-      "Google's AI crawler detects when product images are served from known dropshipping CDNs — alicdn.com, oberlo.com, dsers, spocket — and flags the store under misrepresentation policy. The reason: hot-linked supplier images signal a reseller hasn't built a differentiated merchant operation, and the images can change without the merchant's knowledge.",
+      "Google's AI crawler detects when product images are served from known dropshipping CDNs, alicdn.com, oberlo.com, dsers, spocket, and flags the store under misrepresentation policy. The reason: hot-linked supplier images signal a reseller hasn't built a differentiated merchant operation, and the images can change without the merchant's knowledge.",
     steps: [
       {
         title: "View source on a sample product page",
@@ -620,7 +620,7 @@ export const FIXES: Fix[] = [
       },
       {
         title: "Identify all non-Shopify CDN image URLs",
-        body: "Bulk audit via products CSV — search the Image Src column for any URL not on `cdn.shopify.com`. Count occurrences to estimate cleanup scope.",
+        body: "Bulk audit via products CSV, search the Image Src column for any URL not on `cdn.shopify.com`. Count occurrences to estimate cleanup scope.",
       },
       {
         title: "Download and re-upload images to Shopify",
@@ -647,7 +647,7 @@ export const FIXES: Fix[] = [
       {
         question: "Is dropshipping itself banned by Google?",
         answer:
-          "No. Google penalizes the pattern of using stock supplier images and supplier descriptions verbatim. Drop ship as much as you want — just own your imagery.",
+          "No. Google penalizes the pattern of using stock supplier images and supplier descriptions verbatim. Drop ship as much as you want, just own your imagery.",
       },
       {
         question: "Which CDNs does Google flag?",
@@ -695,11 +695,11 @@ export const FIXES: Fix[] = [
       },
       {
         title: "Keep marketing imagery for ads only, not the product feed",
-        body: "Promotional images belong in Google Ads creatives, not in your product feed. Maintain two image sets — clean for the catalog, marketing for ad campaigns.",
+        body: "Promotional images belong in Google Ads creatives, not in your product feed. Maintain two image sets, clean for the catalog, marketing for ad campaigns.",
       },
       {
         title: "Verify after re-sync",
-        body: "Wait 24-72h. GMC Diagnostics should clear the overlay errors. Re-flagged products usually have subtle issues — small badges or text near corners; review carefully.",
+        body: "Wait 24-72h. GMC Diagnostics should clear the overlay errors. Re-flagged products usually have subtle issues, small badges or text near corners; review carefully.",
       },
     ],
     relatedFixes: ["missing-product-image", "dropshipping-cdn-images"],
@@ -714,7 +714,7 @@ export const FIXES: Fix[] = [
       {
         question: "What counts as a promotional overlay?",
         answer:
-          "Any text, badge, price, percentage-off graphic, or marketing element added on top of the product photo. Clean product photography only — overlays belong in ad creatives, not the feed.",
+          "Any text, badge, price, percentage-off graphic, or marketing element added on top of the product photo. Clean product photography only, overlays belong in ad creatives, not the feed.",
       },
       {
         question: "Are subtle copyright watermarks allowed?",
@@ -814,10 +814,10 @@ export const FIXES: Fix[] = [
     errorCode: "Hidden fees",
     title: "How to Fix \"Hidden Fees\" Disapproval on Google Shopping",
     description:
-      "Fix the \"Hidden fees\" disapproval on Shopify by exposing every checkout charge — handling, surcharges, fees — before the customer reaches checkout.",
+      "Fix the \"Hidden fees\" disapproval on Shopify by exposing every checkout charge, handling, surcharges, fees, before the customer reaches checkout.",
     publishedAt: "2026-01-08",
     cause:
-      "Google considers any fee a customer pays at checkout that wasn't visible on the product page or in the feed a hidden fee. Standard shipping shown as a separate line is the explicit exception. Everything else — handling fees, currency conversion margins, app-injected protection fees, restocking fees buried in fine print — must be disclosed pre-checkout or removed.",
+      "Google considers any fee a customer pays at checkout that wasn't visible on the product page or in the feed a hidden fee. Standard shipping shown as a separate line is the explicit exception. Everything else, handling fees, currency conversion margins, app-injected protection fees, restocking fees buried in fine print, must be disclosed pre-checkout or removed.",
     steps: [
       {
         title: "Walk through your own checkout as a real customer",
@@ -857,7 +857,7 @@ export const FIXES: Fix[] = [
       {
         question: "Can I disclose fees only in my refund policy?",
         answer:
-          "No. Hidden-fee disclosure must happen before checkout — visibly, on the product page or in a pre-checkout banner. Policy pages alone don't satisfy the rule.",
+          "No. Hidden-fee disclosure must happen before checkout, visibly, on the product page or in a pre-checkout banner. Policy pages alone don't satisfy the rule.",
       },
       {
         question: "What about US sales tax?",
@@ -923,7 +923,7 @@ export const FIXES: Fix[] = [
       {
         question: "What does Google mean by untrustworthy promotions?",
         answer:
-          "Promotions Google considers deceptive — hidden eligibility rules, expired codes still in feeds, pricing mismatches, vague discount claims, or out-of-stock products in active offers.",
+          "Promotions Google considers deceptive, hidden eligibility rules, expired codes still in feeds, pricing mismatches, vague discount claims, or out-of-stock products in active offers.",
       },
       {
         question: "Can I run flash sales?",
@@ -933,7 +933,7 @@ export const FIXES: Fix[] = [
       {
         question: "Are countdown timers allowed?",
         answer:
-          "Real timers tied to genuine end dates: yes. Timers that reset every visit (\"Sale ends in 4:59:32!\"): no — the urgency is fabricated.",
+          "Real timers tied to genuine end dates: yes. Timers that reset every visit (\"Sale ends in 4:59:32!\"): no, the urgency is fabricated.",
       },
       {
         question: "What about \"members-only\" pricing?",
@@ -975,11 +975,11 @@ export const FIXES: Fix[] = [
       },
       {
         title: "Pull supplier invoices proving authentic sourcing",
-        body: "For branded resale, gather invoices, distributor agreements, or authorization letters. Provide them in your appeal — supplier documentation is the most-weighted appeal evidence.",
+        body: "For branded resale, gather invoices, distributor agreements, or authorization letters. Provide them in your appeal, supplier documentation is the most-weighted appeal evidence.",
       },
       {
         title: "Submit a detailed appeal",
-        body: "Use the appeal letter template — name the policy, document each fix with dates, attach supplier invoices. Wait 7 days for recrawl before appealing.",
+        body: "Use the appeal letter template, name the policy, document each fix with dates, attach supplier invoices. Wait 7 days for recrawl before appealing.",
       },
     ],
     relatedFixes: ["account-suspension-counterfeit", "business-information-mismatch"],
@@ -1034,7 +1034,7 @@ export const FIXES: Fix[] = [
     steps: [
       {
         title: "Review the specific category violation in GMC",
-        body: "GMC → Diagnostics → Item issues. The error usually names the category — \"Restricted product: weapons,\" \"Restricted product: healthcare.\" Identify the exact policy hit.",
+        body: "GMC → Diagnostics → Item issues. The error usually names the category, \"Restricted product: weapons,\" \"Restricted product: healthcare.\" Identify the exact policy hit.",
       },
       {
         title: "Remove fully banned products from the feed",
@@ -1071,12 +1071,12 @@ export const FIXES: Fix[] = [
       {
         question: "What if Google misclassified my product?",
         answer:
-          "Submit an appeal with documentation — product specs, ingredient lists, regulatory approvals — showing the product is in an allowed category. Misclassification is appeal-able.",
+          "Submit an appeal with documentation, product specs, ingredient lists, regulatory approvals, showing the product is in an allowed category. Misclassification is appeal-able.",
       },
       {
         question: "Can I sell restricted products in some regions?",
         answer:
-          "Yes — configure region-specific feeds to include restricted products only in regions where they're allowed. The Google channel app supports per-region targeting.",
+          "Yes, configure region-specific feeds to include restricted products only in regions where they're allowed. The Google channel app supports per-region targeting.",
       },
       {
         question: "Will restricted product errors suspend my account?",
@@ -1161,7 +1161,7 @@ export const FIXES: Fix[] = [
     errorCode: "Missing refund policy",
     title: "How to Fix \"Missing Refund Policy\" on Shopify",
     description:
-      "Fix the \"Missing refund policy\" error on Shopify by creating a complete return policy page with window, conditions, and process — accessible from the footer.",
+      "Fix the \"Missing refund policy\" error on Shopify by creating a complete return policy page with window, conditions, and process, accessible from the footer.",
     publishedAt: "2026-02-02",
     cause:
       "Google requires a publicly accessible refund/return policy that names a specific return window, item-condition requirements, and refund process. The error fires when the page is missing, behind a login, or so vague that the required signals can't be parsed.",
@@ -1205,7 +1205,7 @@ export const FIXES: Fix[] = [
       {
         question: "Can I require customers to pay return shipping?",
         answer:
-          "Yes if disclosed in the policy. Free returns are not required by Google's policy — disclosure of who pays is what matters.",
+          "Yes if disclosed in the policy. Free returns are not required by Google's policy, disclosure of who pays is what matters.",
       },
       {
         question: "What about restocking fees?",
@@ -1231,11 +1231,11 @@ export const FIXES: Fix[] = [
       "Fix the \"Missing contact information\" error on Shopify by adding email, phone, or address to your footer and contact page so Google's crawler can find them.",
     publishedAt: "2026-02-07",
     cause:
-      "Google requires at least two of three contact methods to be publicly visible: domain email, phone number, and physical street address. The error fires when none are findable — typically because the footer doesn't include them and the contact page only has a contact form (which doesn't count).",
+      "Google requires at least two of three contact methods to be publicly visible: domain email, phone number, and physical street address. The error fires when none are findable, typically because the footer doesn't include them and the contact page only has a contact form (which doesn't count).",
     steps: [
       {
         title: "Add a contact email to your footer",
-        body: "Edit `footer.liquid` or theme settings to display a `mailto:` link. Use a real domain email (`support@yourstore.com`) — Gmail or Outlook addresses don't count toward Google's threshold.",
+        body: "Edit `footer.liquid` or theme settings to display a `mailto:` link. Use a real domain email (`support@yourstore.com`), Gmail or Outlook addresses don't count toward Google's threshold.",
       },
       {
         title: "Create a /pages/contact page with multiple methods",
@@ -1306,11 +1306,11 @@ export const FIXES: Fix[] = [
       },
       {
         title: "Expose shipping costs on product or cart page",
-        body: "Add a shipping calculator widget on the cart page, or a static \"$5.99 flat US shipping, free over $50\" notice on the product page. Footer-only disclosure isn't enough — costs must connect to the specific item being purchased.",
+        body: "Add a shipping calculator widget on the cart page, or a static \"$5.99 flat US shipping, free over $50\" notice on the product page. Footer-only disclosure isn't enough, costs must connect to the specific item being purchased.",
       },
       {
         title: "Show return window pre-checkout",
-        body: "Add a \"30-day returns\" badge near the price, in an announcement bar, or in the cart page summary. Specific number of days is required — \"we accept returns\" without a number fails.",
+        body: "Add a \"30-day returns\" badge near the price, in an announcement bar, or in the cart page summary. Specific number of days is required, \"we accept returns\" without a number fails.",
       },
       {
         title: "Ensure contact info is visible",
@@ -1338,7 +1338,7 @@ export const FIXES: Fix[] = [
       {
         question: "Is footer-only disclosure enough?",
         answer:
-          "For payment methods and contact info, yes. For shipping costs and return windows, no — those need to appear on the product page or cart page where they connect to the specific purchase.",
+          "For payment methods and contact info, yes. For shipping costs and return windows, no, those need to appear on the product page or cart page where they connect to the specific purchase.",
       },
       {
         question: "Can I disclose shipping costs only on the cart page?",
@@ -1348,7 +1348,7 @@ export const FIXES: Fix[] = [
       {
         question: "What about EU/UK statutory rights?",
         answer:
-          "Statutory return rights satisfy the disclosure if you cite the specific window. Don't rely on customer knowledge — name the 14-day window in your policy and pre-checkout.",
+          "Statutory return rights satisfy the disclosure if you cite the specific window. Don't rely on customer knowledge, name the 14-day window in your policy and pre-checkout.",
       },
       {
         question: "How long until disapprovals clear?",
@@ -1369,7 +1369,7 @@ export const FIXES: Fix[] = [
       "Fix the \"Business information mismatch\" error by aligning your business name, address, and contact info across Shopify, Google Merchant Center, and Google Business Profile.",
     publishedAt: "2026-02-17",
     cause:
-      "Google cross-references business identity across surfaces — Shopify settings, Merchant Center business information, Google Business Profile, and your storefront's About page. When the name, address, or contact info differs across these surfaces, Google treats the inconsistency as a misrepresentation signal.",
+      "Google cross-references business identity across surfaces, Shopify settings, Merchant Center business information, Google Business Profile, and your storefront's About page. When the name, address, or contact info differs across these surfaces, Google treats the inconsistency as a misrepresentation signal.",
     steps: [
       {
         title: "Audit GMC settings vs Shopify settings",
@@ -1440,7 +1440,7 @@ export const FIXES: Fix[] = [
     steps: [
       {
         title: "Read the suspension email carefully",
-        body: "The email cites a policy bucket but rarely names the specific issue. Note any URLs, products, or sub-policies referenced — those are your starting points.",
+        body: "The email cites a policy bucket but rarely names the specific issue. Note any URLs, products, or sub-policies referenced, those are your starting points.",
       },
       {
         title: "Identify which sub-policy applies",
@@ -1456,7 +1456,7 @@ export const FIXES: Fix[] = [
       },
       {
         title: "Wait 7 days for recrawl",
-        body: "Google's crawler needs time to re-index. Submitting before 7 days wastes the appeal — the reviewer sees your pre-fix state.",
+        body: "Google's crawler needs time to re-index. Submitting before 7 days wastes the appeal, the reviewer sees your pre-fix state.",
       },
       {
         title: "Submit a detailed appeal",
@@ -1490,7 +1490,7 @@ export const FIXES: Fix[] = [
       {
         question: "What if Google rejects my appeal?",
         answer:
-          "Read the rejection — it usually contains specific information the original suspension email omitted. Wait the cooldown period (7-14 days). Submit a revised appeal addressing the new specifics.",
+          "Read the rejection, it usually contains specific information the original suspension email omitted. Wait the cooldown period (7-14 days). Submit a revised appeal addressing the new specifics.",
       },
       {
         question: "Can I run Google Ads while suspended?",
@@ -1515,7 +1515,7 @@ export const FIXES: Fix[] = [
     steps: [
       {
         title: "Review the suspension reason",
-        body: "The email cites \"counterfeit goods\" but rarely names the specific products. Note any sub-categories (fragrance, fashion, etc.) — those narrow the audit.",
+        body: "The email cites \"counterfeit goods\" but rarely names the specific products. Note any sub-categories (fragrance, fashion, etc.), those narrow the audit.",
       },
       {
         title: "Audit titles for unauthorized brand names",
@@ -1531,11 +1531,11 @@ export const FIXES: Fix[] = [
       },
       {
         title: "Remove products you can't verify",
-        body: "If a SKU has no supplier documentation and contains brand language, remove it. Don't appeal with unverifiable products in the catalog — it weakens the entire appeal.",
+        body: "If a SKU has no supplier documentation and contains brand language, remove it. Don't appeal with unverifiable products in the catalog, it weakens the entire appeal.",
       },
       {
         title: "Submit appeal with documentation",
-        body: "Use the appeal template. Attach supplier invoices and authorization letters. Submit through Google Ads or Merchant Center support — counterfeit appeals can take 7-14 days.",
+        body: "Use the appeal template. Attach supplier invoices and authorization letters. Submit through Google Ads or Merchant Center support, counterfeit appeals can take 7-14 days.",
       },
     ],
     relatedFixes: ["counterfeit-goods", "account-suspension-misrepresentation"],
@@ -1586,7 +1586,7 @@ export const FIXES: Fix[] = [
       "Fix \"Limited performance\" warnings on Shopify by completing identifier fields, improving title quality, and expanding product attributes.",
     publishedAt: "2026-03-04",
     cause:
-      "Limited performance is a warning, not a suspension — products keep running but at reduced visibility. Common causes: missing identifiers (GTIN, brand, MPN), short or branded-only titles, sparse descriptions, and missing optional attributes (material, color, size, age group).",
+      "Limited performance is a warning, not a suspension, products keep running but at reduced visibility. Common causes: missing identifiers (GTIN, brand, MPN), short or branded-only titles, sparse descriptions, and missing optional attributes (material, color, size, age group).",
     steps: [
       {
         title: "Populate all identifier fields",
@@ -1594,7 +1594,7 @@ export const FIXES: Fix[] = [
       },
       {
         title: "Improve title quality",
-        body: "Replace branded-only titles (\"Acme Hoodie\") with descriptive titles (\"Men's Black Cotton Hoodie by Acme — Slim Fit, Size M\"). Descriptive titles match more queries.",
+        body: "Replace branded-only titles (\"Acme Hoodie\") with descriptive titles (\"Men's Black Cotton Hoodie by Acme, Slim Fit, Size M\"). Descriptive titles match more queries.",
       },
       {
         title: "Add complete product attributes",
@@ -1657,7 +1657,7 @@ export const FIXES: Fix[] = [
       "Fix \"Landing page not working\" errors on Shopify by checking robots.txt, server uptime, mobile rendering, and JavaScript-heavy themes that block Googlebot.",
     publishedAt: "2026-03-09",
     cause:
-      "The error fires when Google's crawler can't successfully fetch your product page — 404 errors, slow timeouts, robots.txt blocks, Cloudflare bot challenges, broken redirects, or themes that render content client-side after Googlebot has given up. The crawler retries before flagging, so persistent issues are usually structural.",
+      "The error fires when Google's crawler can't successfully fetch your product page, 404 errors, slow timeouts, robots.txt blocks, Cloudflare bot challenges, broken redirects, or themes that render content client-side after Googlebot has given up. The crawler retries before flagging, so persistent issues are usually structural.",
     steps: [
       {
         title: "Verify URLs load in incognito",
@@ -1728,7 +1728,7 @@ export const FIXES: Fix[] = [
       "Fix \"Feed data does not match website\" errors on Shopify by identifying the mismatching field, forcing feed re-sync, and verifying channel app version.",
     publishedAt: "2026-03-14",
     cause:
-      "A catch-all error for any discrepancy between what your Google feed sends and what Google's crawler sees on your live storefront — price, availability, title, description, or image. Cause is usually one of: feed sync delay, third-party app modifying live storefront, theme rendering differently for Googlebot, or stale Google channel app version.",
+      "A catch-all error for any discrepancy between what your Google feed sends and what Google's crawler sees on your live storefront, price, availability, title, description, or image. Cause is usually one of: feed sync delay, third-party app modifying live storefront, theme rendering differently for Googlebot, or stale Google channel app version.",
     steps: [
       {
         title: "Identify the specific mismatching field",
@@ -1803,7 +1803,7 @@ export const FIXES: Fix[] = [
     steps: [
       {
         title: "Audit variant-level identifier coverage",
-        body: "Open affected products → Variants → check Barcode (GTIN) for each. Product-level identifiers don't fall through to variants — populate per variant.",
+        body: "Open affected products → Variants → check Barcode (GTIN) for each. Product-level identifiers don't fall through to variants, populate per variant.",
       },
       {
         title: "Standardize size and color values",
@@ -1867,10 +1867,10 @@ export const FIXES: Fix[] = [
     errorCode: "Products not showing in search",
     title: "How to Fix Shopify Products Not Showing in Google Shopping",
     description:
-      "Fix Shopify products that pass GMC diagnostics but don't appear in Google Shopping — sync delays, weak titles, account quality, crawler access, schema gaps.",
+      "Fix Shopify products that pass GMC diagnostics but don't appear in Google Shopping, sync delays, weak titles, account quality, crawler access, schema gaps.",
     publishedAt: "2026-03-24",
     cause:
-      "Products can pass feed sync and catalog matching but silently fail the third stage — ranking — which has no GMC diagnostic surface. Five common buckets: feed sync delay, branded-only titles that don't match many queries, low account quality (new store, sparse reviews), crawler access blocks (robots.txt, Cloudflare), and missing product schema.",
+      "Products can pass feed sync and catalog matching but silently fail the third stage, ranking, which has no GMC diagnostic surface. Five common buckets: feed sync delay, branded-only titles that don't match many queries, low account quality (new store, sparse reviews), crawler access blocks (robots.txt, Cloudflare), and missing product schema.",
     steps: [
       {
         title: "Wait minimum 72h for new products to appear",
@@ -1878,7 +1878,7 @@ export const FIXES: Fix[] = [
       },
       {
         title: "Rewrite titles for descriptive language",
-        body: "\"Acme Hoodie\" matches one query. \"Men's Black Cotton Hoodie by Acme — Slim Fit, Size M\" matches dozens. Bulk rewrite the top 50 products by traffic first.",
+        body: "\"Acme Hoodie\" matches one query. \"Men's Black Cotton Hoodie by Acme, Slim Fit, Size M\" matches dozens. Bulk rewrite the top 50 products by traffic first.",
       },
       {
         title: "Verify robots.txt allows Googlebot",
@@ -1910,7 +1910,7 @@ export const FIXES: Fix[] = [
       {
         question: "How long should I wait before troubleshooting?",
         answer:
-          "4+ weeks for new products. Below that, just wait — feed sync and Google indexing both take time.",
+          "4+ weeks for new products. Below that, just wait, feed sync and Google indexing both take time.",
       },
       {
         question: "Does title quality really matter that much?",
@@ -1941,7 +1941,7 @@ export const FIXES: Fix[] = [
       "Fix Google Ads suspension on Shopify when Merchant Center is unaffected. Audit titles, descriptions, images for trademark and counterfeit policy violations.",
     publishedAt: "2026-03-29",
     cause:
-      "Google Ads enforces a wider policy than GMC — counterfeit, trademark, restricted services. A clean GMC review doesn't mean a clean Ads review. Common pattern: the same store passes Merchant Center product review but fails Ads policy review on titles, descriptions, blog content, or alt text containing brand names.",
+      "Google Ads enforces a wider policy than GMC, counterfeit, trademark, restricted services. A clean GMC review doesn't mean a clean Ads review. Common pattern: the same store passes Merchant Center product review but fails Ads policy review on titles, descriptions, blog content, or alt text containing brand names.",
     steps: [
       {
         title: "Read the Ads suspension email separately from any GMC notice",
@@ -2083,14 +2083,14 @@ export const FIXES: Fix[] = [
       "Fix the \"Insufficient product data\" error on Shopify by populating GTIN, brand, condition, and category attributes simultaneously across affected products.",
     publishedAt: "2026-04-08",
     cause:
-      "Insufficient product data fires when multiple required attributes are missing simultaneously — usually GTIN, brand, condition, and clear product category. The error is account-impactful: products are disapproved and the broader account quality signal drops.",
+      "Insufficient product data fires when multiple required attributes are missing simultaneously, usually GTIN, brand, condition, and clear product category. The error is account-impactful: products are disapproved and the broader account quality signal drops.",
     steps: [
       {
         title: "Identify all missing attributes per product",
         body: "Export products CSV. Audit each row for empty Vendor (brand), empty Variant Barcode (GTIN), missing condition metafield, and unclear product category.",
       },
       {
-        title: "Populate in priority order — identifiers first",
+        title: "Populate in priority order, identifiers first",
         body: "Start with GTIN (most-weighted), then brand (second-most), then MPN as fallback. Condition third. Each populated identifier improves catalog match confidence.",
       },
       {
@@ -2123,7 +2123,7 @@ export const FIXES: Fix[] = [
       {
         question: "Should I prioritize one attribute over another?",
         answer:
-          "Identifiers first (GTIN, MPN, brand) — they're highest-weighted. Condition second. Category third.",
+          "Identifiers first (GTIN, MPN, brand), they're highest-weighted. Condition second. Category third.",
       },
       {
         question: "What if my product genuinely lacks some attributes?",

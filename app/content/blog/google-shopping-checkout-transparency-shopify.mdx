@@ -1,5 +1,5 @@
 export const frontmatter = {
-  title: "Google Shopping Checkout Transparency on Shopify — Payment Methods, Returns, and Account Suspensions",
+  title: "Google Shopping Checkout Transparency on Shopify, Payment Methods, Returns, and Account Suspensions",
   slug: "google-shopping-checkout-transparency-shopify",
   description:
     "Google's checkout transparency policy gets Shopify stores suspended for missing payment method disclosure, unclear refund windows, or contact info gaps. Here's the full policy and the fixes per trigger.",
@@ -12,13 +12,13 @@ export const frontmatter = {
   ],
 };
 
-Google's [checkout transparency policy](/fix/missing-checkout-transparency) requires merchants to disclose four things before a customer reaches checkout: accepted payment methods, [return/refund windows](/fix/missing-refund-policy), [contact methods](/fix/missing-contact-information), and [shipping costs](/fix/missing-shipping-policy). Most Shopify themes meet two of the four out of the box (payment logos in the footer, basic shipping info on the cart page) but miss the others. The gaps cause silent disapprovals — products keep running but with reduced visibility, and the issues only surface in GMC Diagnostics under vague categories like "missing information." The fix is theme-level edits plus policy-page additions; an hour of work clears most stores.
+Google's [checkout transparency policy](/fix/missing-checkout-transparency) requires merchants to disclose four things before a customer reaches checkout: accepted payment methods, [return/refund windows](/fix/missing-refund-policy), [contact methods](/fix/missing-contact-information), and [shipping costs](/fix/missing-shipping-policy). Most Shopify themes meet two of the four out of the box (payment logos in the footer, basic shipping info on the cart page) but miss the others. The gaps cause silent disapprovals, products keep running but with reduced visibility, and the issues only surface in GMC Diagnostics under vague categories like "missing information." The fix is theme-level edits plus policy-page additions; an hour of work clears most stores.
 
 This post is the full disclosure list, where each disclosure has to live, and what Shopify themes typically get right and wrong.
 
 ## What "checkout transparency" means
 
-Google's policy: the customer must be able to find out, before entering checkout, **what they're paying, how they pay it, what happens if they want to return it, and how to reach you if they have questions.** The "before checkout" requirement is the part most stores miss — disclosure on the policy pages alone doesn't satisfy the rule. Each disclosure has to be visible in the standard purchase flow before the customer commits to checkout.
+Google's policy: the customer must be able to find out, before entering checkout, **what they're paying, how they pay it, what happens if they want to return it, and how to reach you if they have questions.** The "before checkout" requirement is the part most stores miss, disclosure on the policy pages alone doesn't satisfy the rule. Each disclosure has to be visible in the standard purchase flow before the customer commits to checkout.
 
 The penalty for failing the policy lands in [misrepresentation](/fix/account-suspension-misrepresentation). It's usually a soft suppression (Shopping impressions drop) rather than a hard suspension, but repeat or severe failures escalate to account-level. See [why GMC suspends accounts in 2026](/blog/gmc-suspension-reasons-shopify) for where this lands in the broader reason map.
 
@@ -36,11 +36,11 @@ Google wants visible payment-method logos somewhere visible before checkout. Mos
 
 ### Disclosure 2: Return/refund window (specific number of days)
 
-Vague return language ("we accept returns" without a number) fails the disclosure. Google requires a specific window — "30 days," "14 days," "free returns within 60 days."
+Vague return language ("we accept returns" without a number) fails the disclosure. Google requires a specific window, "30 days," "14 days," "free returns within 60 days."
 
 **Where to display:** ideally on the product page (next to the price or shipping info), and on the cart page. At minimum, in the footer with a link to the full refund policy. Disclosure on the policy page alone doesn't satisfy the rule.
 
-**Fix if missing:** add a "30-day returns" badge or text near the product price. Most themes support this via a Section settings or a custom announcement bar. For policy page completeness, see [the 12-point compliance checklist](/blog/gmc-suspension-shopify-checklist) — refund policy depth is one of the 12 checks.
+**Fix if missing:** add a "30-day returns" badge or text near the product price. Most themes support this via a Section settings or a custom announcement bar. For policy page completeness, see [the 12-point compliance checklist](/blog/gmc-suspension-shopify-checklist), refund policy depth is one of the 12 checks.
 
 ### Disclosure 3: Contact methods (email, phone, or physical address)
 
@@ -48,7 +48,7 @@ At least two of three: email, phone number, physical address. Visible publicly, 
 
 **Where to display:** footer (every page) is the cleanest. Contact page linked from main navigation is required even when footer has the info.
 
-**Fix if missing:** add to the footer. For email, use a real domain email (`support@yourstore.com`) — Gmail addresses don't count toward the threshold. For phone, use a real phone number. For address, a real street address; PO boxes are accepted in some categories but flagged in others.
+**Fix if missing:** add to the footer. For email, use a real domain email (`support@yourstore.com`), Gmail addresses don't count toward the threshold. For phone, use a real phone number. For address, a real street address; PO boxes are accepted in some categories but flagged in others.
 
 ### Disclosure 4: Shipping costs (or pre-checkout shipping calculator)
 
@@ -111,7 +111,7 @@ ShieldKit's [free compliance scan](/scan) automates the verification of all four
 
 ## How long after fixes until GMC re-reviews
 
-Standard 7-day recrawl window. Then if products were disapproved, submit an appeal — see [how to write a GMC re-review appeal](/blog/gmc-appeal-letter-template-shopify) for the template.
+Standard 7-day recrawl window. Then if products were disapproved, submit an appeal, see [how to write a GMC re-review appeal](/blog/gmc-appeal-letter-template-shopify) for the template.
 
 For the closely related hidden-fees policy that often surfaces alongside checkout-transparency violations, see [hidden fees and Google Shopping disapprovals on Shopify](/blog/hidden-fees-google-shopping-shopify). For the broader pattern of subtle GMC issues, see [the hidden GMC triggers most Shopify stores miss](/blog/hidden-gmc-triggers-shopify).
 
@@ -127,11 +127,11 @@ No. Google's checkout transparency rule requires the specific window (e.g., "30 
 
 ### Is a contact form enough for the contact-method disclosure?
 
-No. Google requires actual contact information — email, phone, or physical address. A contact form alone is treated as no contact disclosure because the customer can't reach you outside the form.
+No. Google requires actual contact information, email, phone, or physical address. A contact form alone is treated as no contact disclosure because the customer can't reach you outside the form.
 
 ### What about EU/UK stores with statutory return rights?
 
-Statutory return rights (14 days under EU consumer law) satisfy the disclosure as long as you cite the specific window in your policy and pre-checkout. Don't rely on customers knowing their statutory rights — name the window.
+Statutory return rights (14 days under EU consumer law) satisfy the disclosure as long as you cite the specific window in your policy and pre-checkout. Don't rely on customers knowing their statutory rights, name the window.
 
 ### Do I need a shipping calculator if I offer free shipping?
 
@@ -139,6 +139,6 @@ If shipping is genuinely free on every product, "Free shipping on all orders" di
 
 ### Can ShieldKit detect checkout transparency issues?
 
-The compliance scan checks contact info presence and policy page depth, which are two of the four disclosures. The other two (returns window pre-checkout, shipping cost connected to specific item) require theme-level audit that's mostly visual — manual review of your product page and cart page.
+The compliance scan checks contact info presence and policy page depth, which are two of the four disclosures. The other two (returns window pre-checkout, shipping cost connected to specific item) require theme-level audit that's mostly visual, manual review of your product page and cart page.
 
 For Google's official misrepresentation policy text, see [Google's Merchant Center misrepresentation policy](https://support.google.com/merchants/answer/6150127). For Shopify's checkout customization documentation, see [Shopify's checkout settings help](https://help.shopify.com/en/manual/checkout-settings).

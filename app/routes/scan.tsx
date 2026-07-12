@@ -395,7 +395,7 @@ function ResultsView({ data }: { data: ScanActionData }) {
             </h3>
             <p className="mt-2 text-brand-gray-text max-w-md mx-auto">
               Enter your email to see what's failing on your store and exactly
-              how to fix it. We never send spam — just the fix list.
+              how to fix it. We never send spam, just the fix list.
             </p>
             <unlockFetcher.Form method="post" className="mt-5 max-w-md mx-auto">
               <input type="hidden" name="intent" value="unlock" />
@@ -533,7 +533,7 @@ function FindingCard({
             </div>
           ) : (
             <div className="rounded-lg bg-[#f5f8fc] border border-dashed border-brand-card-border p-4 text-sm text-brand-gray-text italic">
-              Fix instructions are gated — unlock with your email below.
+              Fix instructions are gated, unlock with your email below.
             </div>
           )}
         </div>
@@ -553,19 +553,19 @@ function RiskScoreBanner({ checks }: { checks: PublicCheckResult[] }) {
     band = {
       bg: "bg-brand-green/10 border-brand-green/40",
       text: "text-brand-green",
-      label: "Low risk — your store is in good shape.",
+      label: "Low risk, your store is in good shape.",
     };
   } else if (score >= 50) {
     band = {
       bg: "bg-brand-amber/15 border-brand-amber/40",
       text: "text-brand-amber",
-      label: "Moderate risk — fix the issues below.",
+      label: "Moderate risk, fix the issues below.",
     };
   } else {
     band = {
       bg: "bg-brand-red/10 border-brand-red/40",
       text: "text-brand-red",
-      label: "High risk — multiple issues that commonly trigger GMC suspension.",
+      label: "High risk, multiple issues that commonly trigger GMC suspension.",
     };
   }
   return (
@@ -591,7 +591,7 @@ function SocialProof() {
           {
             n: "8",
             label: "compliance checks",
-            desc: "From contact info to payment icons to JSON-LD — the same checks GMC runs.",
+            desc: "From contact info to payment icons to JSON-LD, the same checks GMC runs.",
           },
           {
             n: "60s",

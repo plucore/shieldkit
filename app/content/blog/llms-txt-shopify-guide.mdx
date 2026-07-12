@@ -2,7 +2,7 @@ export const frontmatter = {
   title: "What Is llms.txt and How to Add It to Your Shopify Store in 2026",
   slug: "llms-txt-shopify-guide",
   description:
-    "llms.txt is the \"robots.txt for AI\" — a semantic map that helps ChatGPT, Claude, Perplexity, and Google AI Overviews surface your Shopify products accurately. Here's what it is, why it matters, and how to add it to a Shopify store in 2026.",
+    "llms.txt is the \"robots.txt for AI\", a semantic map that helps ChatGPT, Claude, Perplexity, and Google AI Overviews surface your Shopify products accurately. Here's what it is, why it matters, and how to add it to a Shopify store in 2026.",
   publishedAt: "2026-04-05",
   keywords: [
     "what is llms.txt shopify how to add",
@@ -12,7 +12,7 @@ export const frontmatter = {
   ],
 };
 
-`llms.txt` is a markdown file at your site root that tells AI engines — ChatGPT, Claude, Perplexity, Google AI Overviews — which content to prioritize and how to read it. It's not robots.txt (which is about crawl permissions) and it's not a sitemap (which is about indexing every URL). It's a curated content map: site overview, primary tools or products, documentation, knowledge content, contact. Yoast SEO for Shopify added native support on March 31, 2026 — that's the moment AI-readiness crossed from "experimental" to "mainstream SEO" for ecommerce. By 2026 standards, Shopify stores without llms.txt are missing from a meaningful share of AI-assisted search results.
+`llms.txt` is a markdown file at your site root that tells AI engines, ChatGPT, Claude, Perplexity, Google AI Overviews, which content to prioritize and how to read it. It's not robots.txt (which is about crawl permissions) and it's not a sitemap (which is about indexing every URL). It's a curated content map: site overview, primary tools or products, documentation, knowledge content, contact. Yoast SEO for Shopify added native support on March 31, 2026, that's the moment AI-readiness crossed from "experimental" to "mainstream SEO" for ecommerce. By 2026 standards, Shopify stores without llms.txt are missing from a meaningful share of AI-assisted search results.
 
 This post walks through what llms.txt is, why it matters now, what to put in it, and the three ways to add it to a Shopify store.
 
@@ -33,9 +33,9 @@ Three things converged in early 2026:
 
 - **AI-assisted shopping crossed into the mainstream.** Adobe's Q1 2026 commerce report puts AI-driven referrals at over 8% of US apparel pre-purchase research sessions, growing every quarter. The conversion rate on those sessions is higher than organic search.
 - **Yoast added llms.txt support in March 2026.** When the dominant Shopify SEO app makes a feature one-click, that feature stops being optional.
-- **AI engines now penalize stores they can't parse cleanly.** A product page with sparse JSON-LD and no llms.txt isn't just unranked — it's effectively invisible. The AI doesn't see your products at all.
+- **AI engines now penalize stores they can't parse cleanly.** A product page with sparse JSON-LD and no llms.txt isn't just unranked, it's effectively invisible. The AI doesn't see your products at all.
 
-If you've already worked through [making your Shopify store visible in ChatGPT, Gemini, and Perplexity](/blog/shopify-store-ai-search-visible), llms.txt is the third leg of the stool — alongside Product JSON-LD and Merchant Listings schema enrichment.
+If you've already worked through [making your Shopify store visible in ChatGPT, Gemini, and Perplexity](/blog/shopify-store-ai-search-visible), llms.txt is the third leg of the stool, alongside Product JSON-LD and Merchant Listings schema enrichment.
 
 ## What llms.txt should contain for a Shopify store
 
@@ -46,12 +46,12 @@ The format is plain markdown. AI engines parse it as text. Five sections cover w
 > [One-sentence summary of what you sell and to whom.]
 
 ## Tools
-- [Free compliance scan](https://yourstore.com/scan) — what it does
-- [Newsletter signup](https://yourstore.com/subscribe) — what they get
+- [Free compliance scan](https://yourstore.com/scan), what it does
+- [Newsletter signup](https://yourstore.com/subscribe), what they get
 
 ## Products
-- [Top collection](https://yourstore.com/collections/all) — short description
-- [Featured products](https://yourstore.com/products.json) — feed link
+- [Top collection](https://yourstore.com/collections/all), short description
+- [Featured products](https://yourstore.com/products.json), feed link
 
 ## Documentation
 - [Refund policy](https://yourstore.com/policies/refund-policy)
@@ -60,8 +60,8 @@ The format is plain markdown. AI engines parse it as text. Five sections cover w
 - [Terms of service](https://yourstore.com/policies/terms-of-service)
 
 ## Knowledge
-- [Sizing guide](https://yourstore.com/pages/sizing) — how to pick your fit
-- [Care instructions](https://yourstore.com/pages/care) — washing/storage
+- [Sizing guide](https://yourstore.com/pages/sizing), how to pick your fit
+- [Care instructions](https://yourstore.com/pages/care), washing/storage
 
 ## Contact
 - Email: hello@yourstore.com
@@ -73,13 +73,13 @@ The structure isn't rigid. The principle is: factual density, no marketing prose
 
 ## Three ways to add llms.txt to Shopify
 
-**Method 1: Manual upload as a static asset.** You create the markdown file locally and upload it via your theme's `assets/` directory. Shopify serves theme assets at predictable URLs but **not** at the site root — so this method requires either a redirect rule (via your CDN if you have one) or a custom Liquid page that serves the content with the right Content-Type. Limited because the file doesn't update as your catalog changes; you have to re-upload manually after every product launch.
+**Method 1: Manual upload as a static asset.** You create the markdown file locally and upload it via your theme's `assets/` directory. Shopify serves theme assets at predictable URLs but **not** at the site root, so this method requires either a redirect rule (via your CDN if you have one) or a custom Liquid page that serves the content with the right Content-Type. Limited because the file doesn't update as your catalog changes; you have to re-upload manually after every product launch.
 
-**Method 2: Yoast SEO for Shopify.** As of March 31, 2026, Yoast generates and serves `llms.txt` automatically based on your product list, policy pages, and configured site sections. Updates weekly. Easiest path for stores already on Yoast — flip the switch, done. The auto-generated file isn't as curated as a hand-written one, but it's complete and current.
+**Method 2: Yoast SEO for Shopify.** As of March 31, 2026, Yoast generates and serves `llms.txt` automatically based on your product list, policy pages, and configured site sections. Updates weekly. Easiest path for stores already on Yoast, flip the switch, done. The auto-generated file isn't as curated as a hand-written one, but it's complete and current.
 
 **Method 3: Custom App Proxy or marketing-site route.** For stores with a separate marketing site (or developers comfortable with a Shopify App Proxy), the most control. Build a route that pulls product and policy data dynamically and emits markdown with `text/plain` Content-Type. Updates in real time. Requires development effort.
 
-ShieldKit serves a dynamic `llms.txt` for installed merchants via App Proxy at `/apps/llms-txt`, included in the Shield Max tier. The marketing site itself uses the same approach — a route that templates from the blog and product registry.
+ShieldKit serves a dynamic `llms.txt` for installed merchants via App Proxy at `/apps/llms-txt`, included in the Shield Max tier. The marketing site itself uses the same approach, a route that templates from the blog and product registry.
 
 ## What good content inside llms.txt looks like
 
@@ -97,7 +97,7 @@ Four patterns to avoid:
 
 - **Treating llms.txt as a duplicate sitemap.** They serve different layers. Sitemap covers every URL; llms.txt covers the *important* URLs.
 - **Including marketing copy.** AI engines parse this and lower your trust score. Stick to facts.
-- **Not updating after seasonal launches.** A llms.txt that lists last year's collection is worse than no llms.txt — it tells AI engines your site is stale.
+- **Not updating after seasonal launches.** A llms.txt that lists last year's collection is worse than no llms.txt, it tells AI engines your site is stale.
 - **Forgetting llms-full.txt for content-heavy sites.** If you have extensive documentation, blog posts, or product knowledge, the long form is worth maintaining. For most Shopify stores it's optional.
 
 ## How to verify it works
@@ -105,12 +105,12 @@ Four patterns to avoid:
 Three checks:
 
 1. **`/llms.txt` loads.** Visit `https://yourstore.com/llms.txt` in incognito. It should return the markdown content with `Content-Type: text/plain; charset=utf-8`.
-2. **Manual AI check.** Ask ChatGPT or Perplexity "what does [your store name] sell?" and see if the answer reflects your llms.txt content. Lag is real — give it 1-2 weeks for AI engines to ingest.
+2. **Manual AI check.** Ask ChatGPT or Perplexity "what does [your store name] sell?" and see if the answer reflects your llms.txt content. Lag is real, give it 1-2 weeks for AI engines to ingest.
 3. **Crawler logs.** Track GPTBot, ClaudeBot, PerplexityBot visits via server logs. See [how to track AI crawler visits on your Shopify store](/blog/track-ai-crawlers-shopify) for the full setup.
 
 For the deeper question of which AI search format matters most, see [JSON-LD vs llms.txt for Shopify](/blog/json-ld-vs-llms-txt-shopify). For optimizing the product pages themselves for AI Overviews, see [how to optimize Shopify product pages for Google AI Overviews](/blog/ai-overviews-shopify-product-pages).
 
-Want to confirm your store is actually serving an llms.txt and that the rest of your AI-search basics are in place? Run a free scan at [shieldkit.app/scan](/scan) — it checks llms.txt presence, Product schema completeness, and crawler accessibility in under a minute.
+Want to confirm your store is actually serving an llms.txt and that the rest of your AI-search basics are in place? Run a free scan at [shieldkit.app/scan](/scan), it checks llms.txt presence, Product schema completeness, and crawler accessibility in under a minute.
 
 ## FAQ
 
@@ -132,7 +132,7 @@ Weekly if your catalog changes weekly. Monthly otherwise. After every major laun
 
 ### What's the difference between llms.txt and llms-full.txt?
 
-`llms.txt` is the curated short index — the homepage equivalent for AI. `llms-full.txt` is the full long-form content dump. Most Shopify stores need only the short version.
+`llms.txt` is the curated short index, the homepage equivalent for AI. `llms-full.txt` is the full long-form content dump. Most Shopify stores need only the short version.
 
 ### Do I need llms.txt if I already have JSON-LD?
 

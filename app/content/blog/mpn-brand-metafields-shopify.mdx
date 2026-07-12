@@ -12,17 +12,17 @@ export const frontmatter = {
   ],
 };
 
-When your products genuinely have no GTIN, Google's fallback identifier path is **[MPN](/fix/missing-mpn) + [brand](/fix/missing-brand) together**. Both fields are required as a pair — populating only one is treated the same as populating neither. On Shopify, you add them as product-scoped metafields under the `custom` namespace (`custom.mpn` and `custom.brand`), define them once in Settings → Custom data, and bulk-populate via the Bulk Editor or a CSV importer like Matrixify. The whole setup takes about 20 minutes for the first product and minutes per hundred after that.
+When your products genuinely have no GTIN, Google's fallback identifier path is **[MPN](/fix/missing-mpn) + [brand](/fix/missing-brand) together**. Both fields are required as a pair, populating only one is treated the same as populating neither. On Shopify, you add them as product-scoped metafields under the `custom` namespace (`custom.mpn` and `custom.brand`), define them once in Settings → Custom data, and bulk-populate via the Bulk Editor or a CSV importer like Matrixify. The whole setup takes about 20 minutes for the first product and minutes per hundred after that.
 
-This post is the step-by-step. It assumes you've already decided MPN+brand is the right path — if you haven't, read [why "missing GTIN" shows on your Shopify Google channel](/blog/missing-gtin-shopify-fix) first to confirm.
+This post is the step-by-step. It assumes you've already decided MPN+brand is the right path, if you haven't, read [why "missing GTIN" shows on your Shopify Google channel](/blog/missing-gtin-shopify-fix) first to confirm.
 
 ## Why MPN + brand instead of GTIN
 
 GTIN is the global standard. MPN+brand is the fallback when no global entry exists. Google's identifier hierarchy:
 
-1. **[GTIN](/fix/missing-gtin)** — preferred. Required for branded resale.
-2. **MPN + brand together** — accepted substitute when GTIN doesn't exist. Both must be populated.
-3. **[`identifier_exists=false`](/fix/missing-identifier-exists)** — last resort, only for genuinely unidentified products (handmade, custom).
+1. **[GTIN](/fix/missing-gtin)**, preferred. Required for branded resale.
+2. **MPN + brand together**, accepted substitute when GTIN doesn't exist. Both must be populated.
+3. **[`identifier_exists=false`](/fix/missing-identifier-exists)**, last resort, only for genuinely unidentified products (handmade, custom).
 
 The MPN+brand path applies to private-label products, manufacturer-direct sales of items that pre-date global catalog entries, and small-run products with manufacturer codes but no GS1-assigned GTINs. If you're selling Acme-brand sneakers you bought wholesale from Acme's distributor, you're in the GTIN path (Path A in [the missing GTIN post](/blog/missing-gtin-shopify-fix)). If you make your own products under your own brand and assign your own SKUs, you're in this MPN+brand path.
 
@@ -30,9 +30,9 @@ The MPN+brand path applies to private-label products, manufacturer-direct sales 
 
 Three definitions, all product-scoped, all single-line text:
 
-- `custom.mpn` — the manufacturer part number (your own SKU works if you're the manufacturer)
-- `custom.brand` — the brand name (your store name if you're the brand)
-- `custom.identifier_exists` — accepts "true" or "false". For MPN+brand path, leave unset or set to "true" (the default).
+- `custom.mpn`, the manufacturer part number (your own SKU works if you're the manufacturer)
+- `custom.brand`, the brand name (your store name if you're the brand)
+- `custom.identifier_exists`, accepts "true" or "false". For MPN+brand path, leave unset or set to "true" (the default).
 
 A note on namespaces: `custom` is Shopify's default and what most current Google channel app versions look for. Older versions and a handful of third-party feed apps look for `mc_google_offer.mpn` and `mc_google_offer.brand` instead. **Check which your version uses by populating one product, waiting 24-72 hours for sync, and inspecting the feed in GMC.** If the values didn't propagate, switch namespaces.
 
@@ -81,14 +81,14 @@ This scales to tens of thousands of SKUs in one pass and gives you better error 
 
 **Method C: Automation app.**
 
-ShieldKit's Shield Max tier (currently scope-pending for write access) includes a bulk identifier auto-filler that detects products lacking GTINs and writes MPN+brand from your catalog metadata where it can determine them. The preview UI works today; writes activate when the `write_products` scope clears App Store re-review. For now, it's a useful diagnostic — even if you bulk-write via Matrixify, running the [free compliance scan](/scan) surfaces the products that need attention.
+ShieldKit's Shield Max tier (currently scope-pending for write access) includes a bulk identifier auto-filler that detects products lacking GTINs and writes MPN+brand from your catalog metadata where it can determine them. The preview UI works today; writes activate when the `write_products` scope clears App Store re-review. For now, it's a useful diagnostic, even if you bulk-write via Matrixify, running the [free compliance scan](/scan) surfaces the products that need attention.
 
 ## Common mistakes
 
 Four patterns to avoid:
 
 - **Confusing `product.vendor` with `custom.brand`.** Shopify has a built-in **Vendor** field on every product. Some Google channel apps use Vendor as the brand source; others use `custom.brand`. **Populate both** if you're unsure. They should match.
-- **Setting brand on the product but MPN on the variant.** They're both product-scoped metafields in the standard setup. Don't accidentally create `custom.mpn` as variant-scoped — you'll have to delete and recreate.
+- **Setting brand on the product but MPN on the variant.** They're both product-scoped metafields in the standard setup. Don't accidentally create `custom.mpn` as variant-scoped, you'll have to delete and recreate.
 - **Empty MPN strings instead of omitting the metafield.** Empty string `""` is treated as "value provided" but invalid. Leave the metafield unset (don't create the entry) for products that don't apply.
 - **Brand without MPN, or MPN without brand.** Google requires both as a pair. Half-populated rows fail catalog match the same as fully empty rows.
 
@@ -100,9 +100,9 @@ After your bulk pass:
 - **GMC Diagnostics → Item issues.** Missing identifier errors should clear for affected products.
 - **GMC Products → All products.** Spot-check 10-20 products. Brand and MPN columns should populate.
 
-If errors persist after 72 hours, the most common cause is the namespace mismatch — see Step 3 above. The second most common is missing GTIN entries you forgot to also populate (the MPN+brand path is for products without GTIN; products with GTIN still need that field). For the related "products clean in diagnostics but not showing in Shopping" problem, see [Shopify products not showing in Google Shopping](/blog/products-not-showing-google-shopping-shopify).
+If errors persist after 72 hours, the most common cause is the namespace mismatch, see Step 3 above. The second most common is missing GTIN entries you forgot to also populate (the MPN+brand path is for products without GTIN; products with GTIN still need that field). For the related "products clean in diagnostics but not showing in Shopping" problem, see [Shopify products not showing in Google Shopping](/blog/products-not-showing-google-shopping-shopify).
 
-For products that legitimately have neither GTIN nor MPN (truly handmade or custom), don't use this path. Set `identifier_exists=false` instead — see [how to bulk add identifier_exists on Shopify](/blog/identifier-exists-bulk-shopify).
+For products that legitimately have neither GTIN nor MPN (truly handmade or custom), don't use this path. Set `identifier_exists=false` instead, see [how to bulk add identifier_exists on Shopify](/blog/identifier-exists-bulk-shopify).
 
 For the broader pattern of subtle Google Shopping issues that don't show up cleanly in diagnostics, see [the hidden GMC triggers most Shopify stores miss](/blog/hidden-gmc-triggers-shopify) and [the 12-point GMC compliance checklist](/blog/gmc-suspension-shopify-checklist).
 
@@ -118,7 +118,7 @@ Both, ideally with the same value. Some Google channel app versions read Vendor;
 
 ### Can I use my store name as the brand for private-label products?
 
-Yes — that's the standard pattern for private label. If you sell under "Acme Goods," set `custom.brand` to "Acme Goods" on every private-label product.
+Yes, that's the standard pattern for private label. If you sell under "Acme Goods," set `custom.brand` to "Acme Goods" on every private-label product.
 
 ### How long until GMC reflects the new metafields?
 
@@ -130,6 +130,6 @@ Don't use this path. Either find an MPN (your own SKU works if you're the manufa
 
 ### Does the metafield approach work for variants?
 
-The default setup is product-scoped. If your variants have different MPNs (different sizes have different manufacturer codes), create variant-scoped versions of the metafields and populate per variant. Most stores don't need this — variant-level MPNs only matter for genuinely different manufacturer SKUs.
+The default setup is product-scoped. If your variants have different MPNs (different sizes have different manufacturer codes), create variant-scoped versions of the metafields and populate per variant. Most stores don't need this, variant-level MPNs only matter for genuinely different manufacturer SKUs.
 
 For Google's official identifier specification, see [Google's product data specification](https://support.google.com/merchants/answer/6324461). For Shopify's metafield setup documentation, see [Shopify's metafield definitions help](https://help.shopify.com/en/manual/custom-data/metafields/metafield-definitions).

@@ -124,7 +124,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         ok: false,
         error:
           (error.message ?? "").includes("pro_settings")
-            ? "The pro_settings column hasn't been added yet — apply the pending SQL ALTER first."
+            ? "The pro_settings column hasn't been added yet, apply the pending SQL ALTER first."
             : error.message,
       },
       { status: 500 },
@@ -168,7 +168,7 @@ export default function ProSettingsPage() {
         <s-section>
           <s-banner tone="warning" heading="Database column not yet applied">
             The merchants.pro_settings JSONB column is pending. Form values
-            will not persist until the SQL ALTER ships — see the v2.8 commit
+            will not persist until the SQL ALTER ships, see the v2.8 commit
             notes for the statement.
           </s-banner>
         </s-section>

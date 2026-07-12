@@ -12,7 +12,7 @@ export const frontmatter = {
   ],
 };
 
-"[Condition not declared](/fix/condition-not-declared)" in your Shopify Google channel feed means Google can't tell whether your product is new, used, or refurbished — and without that signal, [products are blocked from Shopping](/fix/products-not-showing) until resolved. The trap is that most merchants assume Shopify is sending "new" automatically because everything they sell is new. It isn't. Shopify's default product schema doesn't include the `condition` attribute at all, so Google sees the field as missing rather than defaulting to new. The fix is either a single setting in your Google channel app (for stores selling only new products) or a metafield (for mixed catalogs that include refurbished or used items).
+"[Condition not declared](/fix/condition-not-declared)" in your Shopify Google channel feed means Google can't tell whether your product is new, used, or refurbished, and without that signal, [products are blocked from Shopping](/fix/products-not-showing) until resolved. The trap is that most merchants assume Shopify is sending "new" automatically because everything they sell is new. It isn't. Shopify's default product schema doesn't include the `condition` attribute at all, so Google sees the field as missing rather than defaulting to new. The fix is either a single setting in your Google channel app (for stores selling only new products) or a metafield (for mixed catalogs that include refurbished or used items).
 
 This post walks both paths and the verification steps.
 
@@ -20,15 +20,15 @@ This post walks both paths and the verification steps.
 
 Google accepts exactly three condition values:
 
-- **`new`** — never used, in original packaging, no signs of wear.
-- **`used`** — secondhand, including reconditioned-by-you items.
-- **`refurbished`** — restored to working condition by the manufacturer or an authorized refurbisher.
+- **`new`**, never used, in original packaging, no signs of wear.
+- **`used`**, secondhand, including reconditioned-by-you items.
+- **`refurbished`**, restored to working condition by the manufacturer or an authorized refurbisher.
 
-The `condition` attribute is required for every product in the feed. When it's missing, Google flags the product with the "condition not declared" error and suppresses it from Shopping results. This is a feed-level error, not an account-level suspension — your other products still show normally, but the affected SKUs are invisible until the condition is set.
+The `condition` attribute is required for every product in the feed. When it's missing, Google flags the product with the "condition not declared" error and suppresses it from Shopping results. This is a feed-level error, not an account-level suspension, your other products still show normally, but the affected SKUs are invisible until the condition is set.
 
-Why Shopify doesn't auto-send it: Shopify's default product schema doesn't include the field. The Google channel app added it as a configurable attribute later, but it's opt-in — you set it via the channel app's settings or via a metafield, not as part of the base product record.
+Why Shopify doesn't auto-send it: Shopify's default product schema doesn't include the field. The Google channel app added it as a configurable attribute later, but it's opt-in, you set it via the channel app's settings or via a metafield, not as part of the base product record.
 
-The error blocks ranking even though it's not classified as a policy violation. The product is treated as ineligible until condition is declared. No appeal needed — fix the metafield, wait the sync window, error clears.
+The error blocks ranking even though it's not classified as a policy violation. The product is treated as ineligible until condition is declared. No appeal needed, fix the metafield, wait the sync window, error clears.
 
 ## Three ways to set product condition
 
@@ -40,7 +40,7 @@ Pick the method based on catalog homogeneity.
 
 **Method 3: Default rule in Google channel settings.** Apply "new" (or any value) to all products that don't have an explicit per-product setting. Quickest fix for stores selling only new items.
 
-## Step-by-step — set default to "new" for all products
+## Step-by-step, set default to "new" for all products
 
 The fastest fix for the common case (you sell only new products):
 
@@ -50,21 +50,21 @@ The fastest fix for the common case (you sell only new products):
 4. Set to "new."
 5. Save.
 
-The Google channel app applies this default to every product in the feed that doesn't have an explicit per-product condition set. Wait 24-72 hours for the feed to re-sync, then check GMC Diagnostics — the "condition not declared" errors should clear.
+The Google channel app applies this default to every product in the feed that doesn't have an explicit per-product condition set. Wait 24-72 hours for the feed to re-sync, then check GMC Diagnostics, the "condition not declared" errors should clear.
 
 Caveat: this default applies to **all products**, including any future additions. If you ever add refurbished or used items, you'll need to override per-product or via metafield. For pure-new stores it's the simplest setup; for mixed catalogs it's a footgun.
 
-## Step-by-step — metafield approach for mixed catalogs
+## Step-by-step, metafield approach for mixed catalogs
 
 If you sell a mix of new, used, and refurbished items, set condition explicitly per product via metafield.
 
-**Step 1: Create the metafield definition.** Settings → Custom data → Products → Add definition. Namespace and key: `google.condition` (or `mc_google_offer.condition` if your channel app uses the legacy namespace — verify by populating one test product). Type: Single line text. Validation: restrict to "new", "used", "refurbished" if your metafield definition supports option lists.
+**Step 1: Create the metafield definition.** Settings → Custom data → Products → Add definition. Namespace and key: `google.condition` (or `mc_google_offer.condition` if your channel app uses the legacy namespace, verify by populating one test product). Type: Single line text. Validation: restrict to "new", "used", "refurbished" if your metafield definition supports option lists.
 
 **Step 2: Populate per product.** For each product, set the metafield to one of the three values.
 
-**Step 3: Bulk via Matrixify or CSV.** Same approach as for [bulk identifier_exists](/blog/identifier-exists-bulk-shopify) — export, edit the metafield column, re-import.
+**Step 3: Bulk via Matrixify or CSV.** Same approach as for [bulk identifier_exists](/blog/identifier-exists-bulk-shopify), export, edit the metafield column, re-import.
 
-**Step 4: Verify.** Wait 24-72 hours. GMC Diagnostics → Item issues — "condition not declared" should clear.
+**Step 4: Verify.** Wait 24-72 hours. GMC Diagnostics → Item issues, "condition not declared" should clear.
 
 The metafield approach is more durable than the default-rule approach because it's explicit per product. Future product additions still need their own condition value, but you won't accidentally ship a "new" condition on a refurbished product.
 
@@ -72,9 +72,9 @@ The metafield approach is more durable than the default-rule approach because it
 
 The three values aren't interchangeable. Google's reviewers spot-check randomly, and miscategorized condition is a [misrepresentation trigger](/fix/account-suspension-misrepresentation).
 
-- **`new`** — never used. In original packaging or equivalent. No signs of wear or repair. Excludes open-box items even if functionally new.
-- **`used`** — secondhand. Includes anything with prior ownership, light use, or reconditioning by you (the seller). Open-box items go here unless explicitly authorized as refurbished.
-- **`refurbished`** — restored to working condition by the **manufacturer** or an **authorized refurbisher**. The key word is *authorized*. Reconditioning a used product yourself doesn't make it refurbished — it makes it used. Apple Certified Refurbished is refurbished; eBay seller "lightly used, fully tested" is used.
+- **`new`**, never used. In original packaging or equivalent. No signs of wear or repair. Excludes open-box items even if functionally new.
+- **`used`**, secondhand. Includes anything with prior ownership, light use, or reconditioning by you (the seller). Open-box items go here unless explicitly authorized as refurbished.
+- **`refurbished`**, restored to working condition by the **manufacturer** or an **authorized refurbisher**. The key word is *authorized*. Reconditioning a used product yourself doesn't make it refurbished, it makes it used. Apple Certified Refurbished is refurbished; eBay seller "lightly used, fully tested" is used.
 
 When in doubt, use `used`. False-positive on `used` is mild; false-positive on `new` (selling something with wear as new) or `refurbished` (selling unauthorized refurb) is a misrepresentation suspension.
 
@@ -99,7 +99,7 @@ The same SKUs that trigger "condition not declared" usually also trigger other i
 - **Missing brand or MPN.** When neither is set and `identifier_exists` isn't explicitly false. See [how to add MPN and brand metafields to Shopify products](/blog/mpn-brand-metafields-shopify).
 - **Identifier_exists undeclared.** For genuinely unidentified products. See [how to bulk add identifier_exists to Shopify products](/blog/identifier-exists-bulk-shopify).
 
-These cluster on the same products because they all trace back to incomplete product records — typically dropshipped or imported catalogs where the source data was sparse. Fix them as a single pass: pull the affected SKUs from GMC, write all four metafields (condition, GTIN or identifier_exists, MPN, brand) in one Matrixify pass, and verify with a [free compliance scan](/scan).
+These cluster on the same products because they all trace back to incomplete product records, typically dropshipped or imported catalogs where the source data was sparse. Fix them as a single pass: pull the affected SKUs from GMC, write all four metafields (condition, GTIN or identifier_exists, MPN, brand) in one Matrixify pass, and verify with a [free compliance scan](/scan).
 
 For the subtle GMC issues that don't show up in diagnostics at all, see [the hidden GMC triggers most Shopify stores miss](/blog/hidden-gmc-triggers-shopify).
 
@@ -111,7 +111,7 @@ Three places: per-product in the Google channel app, via a `google.condition` (o
 
 ### What's the default condition Shopify sends to Google?
 
-There isn't one in the base product schema. The Google channel app sends whatever you've configured — either a global default or per-product values. Without configuration, the field is missing and Google flags it.
+There isn't one in the base product schema. The Google channel app sends whatever you've configured, either a global default or per-product values. Without configuration, the field is missing and Google flags it.
 
 ### Can I set condition at the variant level?
 
@@ -129,4 +129,4 @@ Just Shopping. Products with the error are suppressed from Shopping results but 
 
 Use `used`. Refurbished is reserved for authorized refurbishment by manufacturers or certified refurbishers. Open-box (returned but unused) is technically used by Google's classification.
 
-For Google's official condition specification, see [Google's product data specification — condition](https://support.google.com/merchants/answer/6324469). For Shopify's Google channel attribute documentation, see [Shopify's Google channel product setup help](https://help.shopify.com/en/manual/online-sales-channels/google/products).
+For Google's official condition specification, see [Google's product data specification, condition](https://support.google.com/merchants/answer/6324469). For Shopify's Google channel attribute documentation, see [Shopify's Google channel product setup help](https://help.shopify.com/en/manual/online-sales-channels/google/products).

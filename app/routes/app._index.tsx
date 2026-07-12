@@ -489,7 +489,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       // warning so the merchant knows to review it before saving.
       const warning = validation.valid
         ? null
-        : `Review this policy — it may be missing: ${validation.missing.join(", ")}.`;
+        : `Review this policy, it may be missing: ${validation.missing.join(", ")}.`;
 
       return new Response(
         JSON.stringify({
@@ -591,7 +591,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
       if (sub.status === "unknown") {
         console.warn(
-          `[self-heal] partner-api status=unknown for ${shopDomain} reason=${sub.reason ?? ""} — leaving DB untouched`,
+          `[self-heal] partner-api status=unknown for ${shopDomain} reason=${sub.reason ?? ""}, leaving DB untouched`,
         );
         return new Response(
           JSON.stringify({ success: true, healed: false, reason: "unknown" }),
@@ -668,7 +668,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       JSON.stringify({
         success: false,
         message: merchant
-          ? "Database error — please try again."
+          ? "Database error, please try again."
           : "Merchant not found. Please reinstall the app.",
       }),
       { status: merchantError ? 500 : 404, headers: { "Content-Type": "application/json" } }
@@ -740,7 +740,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       JSON.stringify({
         success: false,
         message:
-          "We hit an error running your scan. Your scan quota has been restored — please try again. If this keeps happening, contact support.",
+          "We hit an error running your scan. Your scan quota has been restored, please try again. If this keeps happening, contact support.",
       }),
       { status: 500, headers: { "Content-Type": "application/json" } }
     );
@@ -918,7 +918,7 @@ export default function Index() {
 
   const scanError =
     fetcher.state === "idle" && fetcher.data && !fetcher.data.success
-      ? (fetcher.data.message ?? "Scan failed — please try again.")
+      ? (fetcher.data.message ?? "Scan failed, please try again.")
       : null;
 
   const scanLimitReached =
@@ -1076,9 +1076,10 @@ export default function Index() {
   const upgradeRef4      = useWebComponentClick<HTMLElement>(guardedUpgradeInline, isNavigating);
   const manageJsonLdRef  = useWebComponentClick<HTMLElement>(openJsonLdManager);
   const onboardingScanRef = useWebComponentClick<HTMLElement>(guardedRunScan, isScanning);
+  const onboardingUpgradeRef = useWebComponentClick<HTMLElement>(guardedUpgrade, isNavigating);
 
   return (
-    <s-page heading="ShieldKit — Compliance Command Center">
+    <s-page heading="ShieldKit, Compliance Command Center">
 
       {/* ── Primary action (dashboard state only) ────────────────────────── */}
       {!showOnboarding && merchant && (
@@ -1127,7 +1128,7 @@ export default function Index() {
           tone="warning"
         >
           You're on the Free plan. Upgrade for unlimited scans and AI search
-          visibility — catch issues before Google does.
+          visibility, catch issues before Google does.
           <s-button slot="actions" ref={upgradeRef3}>
             View upgrade options
           </s-button>
@@ -1203,7 +1204,7 @@ export default function Index() {
           >
             {/* 3-step onboarding. Single-purpose flow: welcome → why this
                 matters → run the scan. JSON-LD enablement was previously
-                step 2 (v3) but has been removed from onboarding — it lives
+                step 2 (v3) but has been removed from onboarding, it lives
                 only on the home dashboard aside card now, so first-time
                 users hit one primary CTA instead of two competing ones. */}
             {[
@@ -1211,7 +1212,7 @@ export default function Index() {
                 num: 1,
                 bg: "var(--p-color-bg-surface-info, #e8f6fe)",
                 title: "Welcome to ShieldKit",
-                text: "ShieldKit runs a full 12-point audit of your Shopify store against every requirement that causes Google Merchant Center account suspensions — and shows you exactly how to fix each one.",
+                text: "ShieldKit runs a full 12-point audit of your Shopify store against every requirement that causes Google Merchant Center account suspensions, and shows you exactly how to fix each one.",
               },
               {
                 num: 2,
@@ -1288,16 +1289,36 @@ export default function Index() {
               the scan solely through the single-flight-guarded ref fires
               exactly one. */}
           <div style={{ textAlign: "center", padding: "8px 0 16px" }}>
-            {/* @ts-ignore — s-button supports `loading`/`disabled` at runtime */}
-            <s-button
-              variant="primary"
-              ref={onboardingScanRef}
-              {...(isScanning ? { loading: "", disabled: "" } : {})}
-            >
-              {isScanning
-                ? "Scanning your store…"
-                : "Run My Free Compliance Scan →"}
-            </s-button>
+            {freeUserUsedScan ? (
+              // No quota left (e.g. a reinstall preserving a used-up counter):
+              // route to upgrade instead of firing a scan that 402s silently.
+              <>
+                <p
+                  style={{
+                    margin: "0 0 12px",
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    color: "#e8820c",
+                  }}
+                >
+                  No scans remaining on the Free plan.
+                </p>
+                <s-button variant="primary" ref={onboardingUpgradeRef}>
+                  Upgrade for unlimited scans
+                </s-button>
+              </>
+            ) : (
+              // @ts-ignore — s-button supports `loading`/`disabled` at runtime
+              <s-button
+                variant="primary"
+                ref={onboardingScanRef}
+                {...(isScanning ? { loading: "", disabled: "" } : {})}
+              >
+                {isScanning
+                  ? "Scanning your store…"
+                  : "Run My Free Compliance Scan →"}
+              </s-button>
+            )}
           </div>
 
         </s-section>
@@ -1382,14 +1403,14 @@ export default function Index() {
           )}
 
           {/* ── Inline upgrade banner (free only) ─────────────────────────
-             v4 removed the Monitoring→Recovery upsell banner — there's
+             v4 removed the Monitoring→Recovery upsell banner, there's
              only one paid tier now, so a paid merchant has nothing to
              upsell to. */}
           {tier === "free" && sortedChecks.length > 0 && (
             <s-section>
               <s-banner tone="info">
                 Upgrade for unlimited on-demand scans and AI-written policies
-                — fix issues before Google flags them.
+, fix issues before Google flags them.
                 <s-button slot="actions" ref={upgradeRef4}>
                   See plans
                 </s-button>
@@ -1465,7 +1486,7 @@ export default function Index() {
           merchant.json_ld_enabled. Click flips enabled=true via the
           enableJsonLd action (no verifier, no pending state). The compliance
           scan's `structured_data_json_ld` check is the authoritative source
-          for whether the block is actually rendering on the storefront —
+          for whether the block is actually rendering on the storefront, 
           a fetch-based verifier here can't reach password-protected or
           pre-launch stores and produced false negatives for legitimate
           merchants. This card is the SINGLE control surface for JSON-LD on
@@ -1501,7 +1522,7 @@ export default function Index() {
             <>
               <s-paragraph>
                 Turn this on to help Google show your products with their price
-                and photos in search results. It opens your theme editor — add
+                and photos in search results. It opens your theme editor, add
                 the ShieldKit product block and click Save.
               </s-paragraph>
               <button
@@ -1573,7 +1594,7 @@ export default function Index() {
         </div>
         <s-paragraph>
           ShieldKit finds what could get your store suspended by Google
-          Merchant Center — and shows you how to fix it.
+          Merchant Center, and shows you how to fix it.
         </s-paragraph>
       </s-section>
 

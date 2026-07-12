@@ -52,7 +52,7 @@ export default function ScanProgressIndicator() {
               color: "var(--p-color-text-subdued, #6d7175)",
             }}
           >
-            Running 12 compliance checks against your store. This takes 15–30 seconds.
+            Running 12 compliance checks against your store. This takes 15-30 seconds.
           </div>
         </div>
       </s-card>

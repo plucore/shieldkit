@@ -12,7 +12,7 @@ export const frontmatter = {
   ],
 };
 
-"[Untrustworthy promotions](/fix/untrustworthy-promotions)" is a misrepresentation sub-policy that flags deceptive marketing, hidden conditions, mismatched pricing, and unrealistic offers. The triggers are very specific — there are exactly five common patterns that flag Shopify stores — and almost all of them are fixable in under an hour once you know what to look for. The frustrating part is that Google's suspension email rarely names which of the five you tripped, so you end up auditing all of them.
+"[Untrustworthy promotions](/fix/untrustworthy-promotions)" is a misrepresentation sub-policy that flags deceptive marketing, hidden conditions, mismatched pricing, and unrealistic offers. The triggers are very specific, there are exactly five common patterns that flag Shopify stores, and almost all of them are fixable in under an hour once you know what to look for. The frustrating part is that Google's suspension email rarely names which of the five you tripped, so you end up auditing all of them.
 
 This post is the audit list, in plain English, with the fix for each.
 
@@ -28,7 +28,7 @@ The reviewer test: would a shopper feel deceived if they clicked through and bou
 
 A discount that only applies to some customers, but the ad or feed presents it as if it applies to everyone.
 
-**Example:** Your homepage banner says "20% off site-wide." When a returning customer adds to cart, the discount applies. When a first-time visitor adds to cart, no discount — because the promo is wired up via a "loyalty members only" rule that isn't disclosed in the banner.
+**Example:** Your homepage banner says "20% off site-wide." When a returning customer adds to cart, the discount applies. When a first-time visitor adds to cart, no discount, because the promo is wired up via a "loyalty members only" rule that isn't disclosed in the banner.
 
 **Fix:** Either remove the gating (apply to everyone) or make the eligibility transparent in the banner copy: "20% off site-wide for loyalty members." Then make sure the loyalty signup is one click away from the banner.
 
@@ -38,17 +38,17 @@ Your feed shows a product as "in stock" and includes a promotional price. The pr
 
 **Example:** A bestselling sweater is on a 30% off promo in your feed. It's sold out in size M. The product page shows the M variant as out of stock but still shows the promotional price. Google's crawler treats this as advertising an offer that can't be fulfilled.
 
-**Fix:** Sync inventory between Shopify and your GMC feed (the Google channel app does this automatically if installed correctly). Hide buy buttons on out-of-stock variants — don't just gray them out. As of April 2026, an active buy button on an out-of-stock product is now an account-level violation; see [why GMC suspends accounts in 2026](/blog/gmc-suspension-reasons-shopify) for the full list.
+**Fix:** Sync inventory between Shopify and your GMC feed (the Google channel app does this automatically if installed correctly). Hide buy buttons on out-of-stock variants, don't just gray them out. As of April 2026, an active buy button on an out-of-stock product is now an account-level violation; see [why GMC suspends accounts in 2026](/blog/gmc-suspension-reasons-shopify) for the full list.
 
 ### Trigger 3: Pricing mismatches between feed and site
 
-The most common trigger. Your feed lists the [price as $29.99](/fix/price-mismatch). The product page shows $29.99 but adds $4.99 at checkout as a mandatory "[handling fee](/fix/hidden-fees)" — making the actual price $34.98.
+The most common trigger. Your feed lists the [price as $29.99](/fix/price-mismatch). The product page shows $29.99 but adds $4.99 at checkout as a mandatory "[handling fee](/fix/hidden-fees)", making the actual price $34.98.
 
-**Example:** A jewelry store's feed prices include the product cost only. At checkout, a mandatory $5.99 "insurance fee" is added before shipping. Google reads the landing-page price as $29.99 and the cart price as $35.98 — mismatch, suspension.
+**Example:** A jewelry store's feed prices include the product cost only. At checkout, a mandatory $5.99 "insurance fee" is added before shipping. Google reads the landing-page price as $29.99 and the cart price as $35.98, mismatch, suspension.
 
 **Fix:** Feed prices must include all mandatory fees that appear before the shipping line at checkout. If you have a handling fee, fold it into the product price or remove the surcharge entirely. The same applies to taxes in regions where the price-with-tax shown on the product page differs from the price in the feed.
 
-If you have a handling fee or surcharge that you genuinely can't fold into the product price, you may also be tripping the [hidden fee detection check](/blog/hidden-gmc-triggers-shopify) — that's a separate suspension trigger.
+If you have a handling fee or surcharge that you genuinely can't fold into the product price, you may also be tripping the [hidden fee detection check](/blog/hidden-gmc-triggers-shopify), that's a separate suspension trigger.
 
 ### Trigger 4: Vague discount language
 
@@ -64,7 +64,7 @@ Your feed or ad shows a promo code that no longer works. The crawler tries the c
 
 **Example:** "Use code SUMMER25 for 25% off" is still in your homepage banner, your feed promotional metafield, and a Google Ads asset. The code expired three weeks ago. Every customer who tries it gets an "invalid code" error at checkout. Google's crawler does the same.
 
-**Fix:** Audit every place a promo code can appear: homepage banners, theme code, app-injected popups, the Google channel app's promotional fields, Google Ads assets, email signatures. Remove expired codes everywhere — not just the obvious places.
+**Fix:** Audit every place a promo code can appear: homepage banners, theme code, app-injected popups, the Google channel app's promotional fields, Google Ads assets, email signatures. Remove expired codes everywhere, not just the obvious places.
 
 ## How to audit your store for these
 
@@ -76,18 +76,18 @@ A 30-minute manual checklist:
 - [ ] Open the Google & YouTube channel app → Promotions tab. Verify every active promotion is currently working at checkout.
 - [ ] Audit installed apps for "promotion injectors" (popup apps, urgency-bar apps, countdown timers). Each may be adding promotional copy you don't see in the theme.
 
-If this list feels long, ShieldKit's [compliance scan](/scan) automates most of it — five minutes for a catalog audit that catches the trickiest cases.
+If this list feels long, ShieldKit's [compliance scan](/scan) automates most of it, five minutes for a catalog audit that catches the trickiest cases.
 
 ## How long to wait after fixing before appealing
 
-Seven days for the recrawl, no less. Submitting earlier wastes your appeal. See [the appeal timeline](/blog/gmc-suspension-appeal-timeline) for the full clock. Then write your appeal using the [appeal letter template](/blog/gmc-appeal-letter-template-shopify) — name the trigger, name the fix, name the date.
+Seven days for the recrawl, no less. Submitting earlier wastes your appeal. See [the appeal timeline](/blog/gmc-suspension-appeal-timeline) for the full clock. Then write your appeal using the [appeal letter template](/blog/gmc-appeal-letter-template-shopify), name the trigger, name the fix, name the date.
 
 ## What if you don't think you have any of these?
 
 This is where most "I have no idea what I did wrong" cases land. The "ghost trigger" pattern:
 
 - **Old discount apps still showing legacy promo code references.** You uninstalled the app months ago but it left snippets in your theme that still render expired codes.
-- **Hardcoded promotion banners in older themes.** A theme migration left a hero section with "Spring 2024 — 30% off" still rendering.
+- **Hardcoded promotion banners in older themes.** A theme migration left a hero section with "Spring 2024, 30% off" still rendering.
 - **Apps that inject promo content.** Urgency bars, exit-intent popups, abandoned-cart recovery apps. Each may inject promo copy that contradicts your current pricing.
 
 Audit every installed app. Remove anything that's promotional and not currently active.
@@ -98,15 +98,15 @@ For triggers that aren't obviously promotion-related but show up in the same sus
 
 ### What does "untrustworthy promotions" mean in Google Merchant Center?
 
-It's a misrepresentation sub-policy that flags promotions Google considers deceptive — hidden eligibility rules, expired codes still in feeds, pricing mismatches between feed and landing page, vague discount claims, or out-of-stock products in active offers.
+It's a misrepresentation sub-policy that flags promotions Google considers deceptive, hidden eligibility rules, expired codes still in feeds, pricing mismatches between feed and landing page, vague discount claims, or out-of-stock products in active offers.
 
 ### Can I appeal an untrustworthy promotions suspension?
 
-Yes. The appeal process is the same as any other GMC suspension — fix the specific trigger, wait 7 days for recrawl, submit using a clear [appeal letter](/blog/gmc-appeal-letter-template-shopify). Most untrustworthy-promotion appeals approve on the first try because the fixes are usually unambiguous.
+Yes. The appeal process is the same as any other GMC suspension, fix the specific trigger, wait 7 days for recrawl, submit using a clear [appeal letter](/blog/gmc-appeal-letter-template-shopify). Most untrustworthy-promotion appeals approve on the first try because the fixes are usually unambiguous.
 
 ### Are countdown timers and urgency popups a violation?
 
-Not by themselves — they're allowed if the urgency claim is true. A countdown timer that resets every visit ("Sale ends in 4:59:32!") is a violation because the urgency is fabricated. A timer tied to a real end date is fine.
+Not by themselves, they're allowed if the urgency claim is true. A countdown timer that resets every visit ("Sale ends in 4:59:32!") is a violation because the urgency is fabricated. A timer tied to a real end date is fine.
 
 ### What about flash sales?
 

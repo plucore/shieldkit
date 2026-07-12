@@ -20,9 +20,8 @@
 import { useCallback, useRef, useState } from "react";
 import {
   data,
-  useActionData,
+  useFetcher,
   useLoaderData,
-  useNavigation,
   useRouteError,
   redirect,
 } from "react-router";
@@ -49,6 +48,7 @@ import {
   finalizeAppealSlot,
   releaseAppealSlot,
 } from "../lib/appeal-letters.server";
+import { buildHistoryTitles, type SavedLetter } from "../lib/appeal-history";
 
 const APPEAL_LIMIT_PER_SCAN = 3;
 
@@ -191,7 +191,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return data(
       {
         ok: false,
-        error: "Run a compliance scan first — the appeal letter references your scan results.",
+        error: "Run a compliance scan first. The appeal letter references your scan results.",
         letter: null,
       },
       { status: 400 },
@@ -253,7 +253,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (!shopInfo) {
     await releaseAppealSlot(reservedLetterId);
     return data(
-      { ok: false, error: "Could not load store info — please try again.", letter: null },
+      { ok: false, error: "Could not load store info, please try again.", letter: null },
       { status: 500 },
     );
   }
@@ -285,7 +285,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (!letter || letter.length < 50) {
     await releaseAppealSlot(reservedLetterId);
     return data(
-      { ok: false, error: "Empty or too-short response — please retry.", letter: null },
+      { ok: false, error: "Empty or too-short response, please retry.", letter: null },
       { status: 502 },
     );
   }
@@ -296,66 +296,73 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   return data({ ok: true, error: null, letter });
 };
 
-// ─── Saved-letter card ──────────────────────────────────────────────────────────
+// ─── Copy button ────────────────────────────────────────────────────────────
 
-interface SavedLetter {
-  id: string;
-  suspensionReason: string | null;
-  letter: string;
-  createdAt: string;
-}
-
-// One card per persisted letter. Lives in its own component so the
-// useWebComponentClick hook is called exactly once per render (calling it
-// inside the parent's .map() would violate the rules of hooks).
-function SavedLetterCard({ entry }: { entry: SavedLetter }) {
+// Reused by the just-generated letter and every history entry. Its own
+// component so useWebComponentClick is called once per instance (calling it
+// inside a parent .map() would break the rules of hooks).
+function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
   const copy = useCallback(() => {
-    if (!entry.letter || !navigator.clipboard) return;
-    navigator.clipboard.writeText(entry.letter).then(
+    if (!text || !navigator.clipboard) return;
+    navigator.clipboard.writeText(text).then(
       () => {
         setCopied(true);
         window.setTimeout(() => setCopied(false), 2000);
       },
       () => {
-        /* clipboard denied — the text stays on screen for manual copy */
+        /* clipboard denied, text stays on screen for manual copy */
       },
     );
-  }, [entry.letter]);
+  }, [text]);
   const copyRef = useWebComponentClick<HTMLElement>(copy);
-
-  const date = new Date(entry.createdAt).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-
   return (
-    <div
+    // @ts-ignore — s-button ref via useWebComponentClick (Polaris web-component type gap)
+    <s-button variant="secondary" ref={copyRef}>
+      {copied ? "Copied" : label}
+    </s-button>
+  );
+}
+
+const preStyle: React.CSSProperties = {
+  whiteSpace: "pre-wrap",
+  wordBreak: "break-word",
+  background: "#f6f6f7",
+  padding: "16px",
+  borderRadius: "8px",
+  fontFamily: "inherit",
+  fontSize: "14px",
+  lineHeight: 1.6,
+  margin: "12px 0 0",
+};
+
+// ─── History (collapsed, dated) ──────────────────────────────────────────────
+
+// Native <details> gives a zero-JS accordion, collapsed by default.
+function HistoryItem({ entry, title }: { entry: SavedLetter; title: string }) {
+  return (
+    <details
       style={{
         border: "1px solid #e1e3e5",
         borderRadius: "8px",
-        padding: "16px",
+        padding: "12px 16px",
         margin: "12px 0 0",
       }}
     >
-      <div
+      <summary
         style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: "8px",
-          marginBottom: "8px",
+          cursor: "pointer",
+          fontWeight: 600,
+          fontSize: "14px",
+          color: "#0f172a",
         }}
       >
-        <strong style={{ fontSize: "13px" }}>Generated {date}</strong>
-        {/* @ts-ignore — s-button ref via useWebComponentClick (Polaris web-component type gap) */}
-        <s-button variant="secondary" ref={copyRef}>{copied ? "Copied" : "Copy"}</s-button>
-      </div>
+        {title}
+      </summary>
       {entry.suspensionReason && (
         <p
           style={{
-            margin: "0 0 8px",
+            margin: "12px 0 0",
             fontSize: "13px",
             color: "var(--p-color-text-subdued, #6d7175)",
           }}
@@ -363,22 +370,11 @@ function SavedLetterCard({ entry }: { entry: SavedLetter }) {
           <strong>Suspension reason:</strong> {entry.suspensionReason}
         </p>
       )}
-      <pre
-        style={{
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-word",
-          background: "#f6f6f7",
-          padding: "16px",
-          borderRadius: "8px",
-          fontFamily: "inherit",
-          fontSize: "14px",
-          lineHeight: 1.6,
-          margin: 0,
-        }}
-      >
-        {entry.letter}
-      </pre>
-    </div>
+      <pre style={preStyle}>{entry.letter}</pre>
+      <div style={{ marginTop: "12px" }}>
+        <CopyButton text={entry.letter} />
+      </div>
+    </details>
   );
 }
 
@@ -387,22 +383,28 @@ function SavedLetterCard({ entry }: { entry: SavedLetter }) {
 export default function AppealLetterPage() {
   const { hasScan, usedCount, limit, shopName, savedLetters } =
     useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
-  const nav = useNavigation();
-  const isGenerating = nav.state === "submitting" || nav.state === "loading";
+  // useFetcher (not a raw <form> submit): the busy state actually updates on
+  // submit, so the single-flight guard + disabled/loading gate engage (a raw
+  // <form> did a native browser POST that useNavigation never tracked, so the
+  // button never locked and a fast second click fired a second POST). fetcher
+  // also surfaces the result immediately (no manual refresh) and auto-
+  // revalidates the loader so the history + remaining count refresh.
+  const fetcher = useFetcher<typeof action>();
+  const result = fetcher.data;
+  const isGenerating = fetcher.state !== "idle";
 
   const remaining = Math.max(0, limit - usedCount);
+  const atCap = remaining === 0;
 
   const formRef = useRef<HTMLFormElement>(null);
   const submitForm = useCallback(() => {
-    formRef.current?.requestSubmit();
-  }, []);
-  // Single-flight + disabled so mashing "Generate" can't fire concurrent POSTs.
-  // The atomic per-scan cap RPC is the real backstop; this stops the extra
-  // submits at the source. Also hard-blocked once no generations remain.
-  const submitDisabled = isGenerating || remaining === 0;
+    if (formRef.current) fetcher.submit(formRef.current, { method: "POST" });
+  }, [fetcher]);
+  const submitDisabled = isGenerating || atCap;
   const submitOnce = useSingleFlight(submitForm, isGenerating);
   const submitRef = useWebComponentClick<HTMLElement>(submitOnce, submitDisabled);
+
+  const historyTitles = buildHistoryTitles(savedLetters);
 
   if (!hasScan) {
     return (
@@ -410,7 +412,7 @@ export default function AppealLetterPage() {
         <s-section>
           <s-banner tone="warning">
             Run a compliance scan first. The appeal letter references your scan
-            results so we need at least one scan on file.
+            results, so we need at least one scan on file.
           </s-banner>
           <s-link href="/app">Return to dashboard</s-link>
         </s-section>
@@ -432,8 +434,21 @@ export default function AppealLetterPage() {
         </s-paragraph>
       </s-section>
 
+      {atCap && (
+        <s-section>
+          <s-banner tone="warning" heading="Appeal letter limit reached">
+            You've reached the limit of {limit} appeal letters for this scan. Run
+            a new compliance scan to generate more.
+          </s-banner>
+        </s-section>
+      )}
+
       <s-section heading="Tell us what happened">
-        <form method="post" ref={formRef}>
+        {/* preventDefault: if the <s-button> default-submits this form, cancel
+            the native (untracked) browser POST so ONLY the guarded
+            fetcher.submit below fires. fetcher.submit reads the form data
+            directly and does not dispatch a submit event, so it's unaffected. */}
+        <form ref={formRef} onSubmit={(e) => e.preventDefault()}>
           <div style={{ marginBottom: "16px" }}>
             <label
               htmlFor="suspension_reason"
@@ -481,7 +496,8 @@ export default function AppealLetterPage() {
                 color: "var(--p-color-text-subdued, #6d7175)",
               }}
             >
-              Be specific — "updated refund policy with 30-day window", "added phone number to contact page", etc.
+              Be specific, e.g. "updated refund policy with 30-day window",
+              "added phone number to contact page".
             </p>
             <textarea
               id="fixes_made"
@@ -512,35 +528,24 @@ export default function AppealLetterPage() {
         </form>
       </s-section>
 
-      {actionData?.error && (
+      {result?.error && (
         <s-section>
           <s-banner tone="critical" heading="Generation failed">
-            {actionData.error}
+            {result.error}
           </s-banner>
         </s-section>
       )}
 
-      {actionData?.ok && actionData.letter && (
+      {result?.ok && result.letter && (
         <s-section heading="Your appeal letter">
           <s-paragraph>
             Copy and paste this into the GMC appeal form. Review it before
-            submitting — it's a starting point, not a finished legal document.
+            submitting, it's a starting point, not a finished legal document.
           </s-paragraph>
-          <pre
-            style={{
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-              background: "#f6f6f7",
-              padding: "16px",
-              borderRadius: "8px",
-              fontFamily: "inherit",
-              fontSize: "14px",
-              lineHeight: 1.6,
-              margin: "12px 0 0",
-            }}
-          >
-            {actionData.letter}
-          </pre>
+          <pre style={preStyle}>{result.letter}</pre>
+          <div style={{ marginTop: "12px" }}>
+            <CopyButton text={result.letter} label="Copy letter" />
+          </div>
         </s-section>
       )}
 
@@ -548,10 +553,14 @@ export default function AppealLetterPage() {
         <s-section heading="Your saved appeal letters">
           <s-paragraph>
             Every letter you generate is saved here so you can return to it
-            later — these stay available when you reload or leave the page.
+            later. Open one to read it and copy it again.
           </s-paragraph>
           {savedLetters.map((entry) => (
-            <SavedLetterCard key={entry.id} entry={entry} />
+            <HistoryItem
+              key={entry.id}
+              entry={entry}
+              title={historyTitles[entry.id]}
+            />
           ))}
         </s-section>
       )}

@@ -12,23 +12,23 @@ export const frontmatter = {
   ],
 };
 
-If your products genuinely have no [GTIN](/fix/missing-gtin), [MPN](/fix/missing-mpn), or [brand](/fix/missing-brand) — handmade goods, custom-order products, private-label below the GTIN threshold — you have to [tell Google explicitly with `identifier_exists=false`](/fix/missing-identifier-exists). Skipping this step doesn't make Google ignore the missing identifier; it surfaces "missing GTIN" errors against your account and, in 2026, can [escalate to suspension under the misrepresentation policy](/fix/account-suspension-misrepresentation). The fix is a one-time metafield definition plus a bulk pass via CSV import. Most Shopify stores can clear hundreds of products in 30 minutes once the setup is right.
+If your products genuinely have no [GTIN](/fix/missing-gtin), [MPN](/fix/missing-mpn), or [brand](/fix/missing-brand), handmade goods, custom-order products, private-label below the GTIN threshold, you have to [tell Google explicitly with `identifier_exists=false`](/fix/missing-identifier-exists). Skipping this step doesn't make Google ignore the missing identifier; it surfaces "missing GTIN" errors against your account and, in 2026, can [escalate to suspension under the misrepresentation policy](/fix/account-suspension-misrepresentation). The fix is a one-time metafield definition plus a bulk pass via CSV import. Most Shopify stores can clear hundreds of products in 30 minutes once the setup is right.
 
-This post is the bulk-edit playbook. It assumes you've already determined `identifier_exists=false` is the right answer for these products — if not, [why "missing GTIN" shows on your Shopify Google channel](/blog/missing-gtin-shopify-fix) walks the decision tree.
+This post is the bulk-edit playbook. It assumes you've already determined `identifier_exists=false` is the right answer for these products, if not, [why "missing GTIN" shows on your Shopify Google channel](/blog/missing-gtin-shopify-fix) walks the decision tree.
 
 ## When `identifier_exists=false` is the right answer
 
 Four product categories where this is correct:
 
-- **Truly unbranded products** that you sell under no brand at all (rare but it happens — generic accessories, plain commodity items).
+- **Truly unbranded products** that you sell under no brand at all (rare but it happens, generic accessories, plain commodity items).
 - **Custom or made-to-order products** where each unit is unique (custom embroidery, made-to-measure, personalized goods).
 - **Handmade products** without manufacturer-assigned identifiers (artisan jewelry, small-batch crafts).
-- **Private-label products below the GTIN registration threshold** — your own brand, your own SKUs, no GS1 registration.
+- **Private-label products below the GTIN registration threshold**, your own brand, your own SKUs, no GS1 registration.
 
 Where it's **not** right:
 
 - Branded resale (Nike, Apple, anything you didn't make). Use GTIN. See [the missing GTIN post](/blog/missing-gtin-shopify-fix).
-- Dropshipped name brands. Same — use GTIN, even if the supplier won't share it (set `identifier_exists=false` only as a last resort here).
+- Dropshipped name brands. Same, use GTIN, even if the supplier won't share it (set `identifier_exists=false` only as a last resort here).
 - Products under your own brand where you DO have manufacturer codes. Use the MPN+brand path. See [how to add MPN and brand metafields to Shopify products](/blog/mpn-brand-metafields-shopify).
 
 ## The risk of setting it wrong
@@ -40,7 +40,7 @@ Two failure modes, very different in severity:
 
 Err on the side of setting `identifier_exists=false` for genuinely unidentified products. The penalty for false-positive is much smaller than the penalty for false-negative.
 
-## Step-by-step bulk method 1 — CSV import
+## Step-by-step bulk method 1, CSV import
 
 Works for 100-2,000 products. Above that, the CSV gets unwieldy and method 2 (Matrixify) is better.
 
@@ -48,7 +48,7 @@ Works for 100-2,000 products. Above that, the CSV gets unwieldy and method 2 (Ma
 
 **Step 2: Export products CSV.** Products list → Export → All products. Wait for the email with the download link.
 
-**Step 3: Add the `custom.identifier_exists` column.** Open the CSV in your spreadsheet of choice. Shopify's native export does **not** include all metafield columns by default — you may need to add the column manually with header `Custom: identifier_exists [single_line_text_field]` (the exact format depends on Shopify's current CSV schema; verify by exporting a single product after Step 1 and inspecting the column header).
+**Step 3: Add the `custom.identifier_exists` column.** Open the CSV in your spreadsheet of choice. Shopify's native export does **not** include all metafield columns by default, you may need to add the column manually with header `Custom: identifier_exists [single_line_text_field]` (the exact format depends on Shopify's current CSV schema; verify by exporting a single product after Step 1 and inspecting the column header).
 
 **Step 4: Set value to `false` for affected rows.** Filter or sort the CSV to identify the products that need `identifier_exists=false`. For each, set the new column to `false`. Leave it blank for products that should retain identifiers.
 
@@ -56,28 +56,28 @@ Works for 100-2,000 products. Above that, the CSV gets unwieldy and method 2 (Ma
 
 **Caveat:** Shopify's native CSV import is fragile around metafields. If you have errors, fall back to method 2.
 
-## Step-by-step bulk method 2 — Matrixify
+## Step-by-step bulk method 2, Matrixify
 
 For large catalogs (2,000+ products) and complex metafield setups, Matrixify is the standard tool. Quick walkthrough:
 
 1. Install Matrixify from the Shopify App Store.
 2. Export → Products → include metafields. Choose Excel format for easier editing.
 3. Edit the `Metafield: custom.identifier_exists [single_line_text_field]` column. Set to `false` on affected rows.
-4. Import the file back. Matrixify shows a preview of every change before commit. Review carefully — bulk metafield writes are hard to reverse.
+4. Import the file back. Matrixify shows a preview of every change before commit. Review carefully, bulk metafield writes are hard to reverse.
 
 Matrixify scales to 50,000+ products in a single import and gives detailed error reporting if any rows fail. The monthly fee pays for itself the first time a native CSV import silently corrupts your data.
 
-## Step-by-step bulk method 3 — automation app
+## Step-by-step bulk method 3, automation app
 
 ShieldKit's Shield Max tier includes a bulk identifier auto-filler. The tool scans your catalog, detects products without GTINs/MPNs/brand, and groups them into "should set `identifier_exists=false`" vs "should populate brand+MPN" buckets based on category and vendor heuristics. For the first bucket, it writes the metafield in bulk; for the second, it surfaces the products for manual review.
 
-Caveat: write access for this tool is gated on the `write_products` Shopify scope, which is currently in App Store re-review. The detection and preview UI work today — it's a useful diagnostic even if you do the actual writes via Matrixify. Run a [free compliance scan](/scan) to see what the auto-filler would target.
+Caveat: write access for this tool is gated on the `write_products` Shopify scope, which is currently in App Store re-review. The detection and preview UI work today, it's a useful diagnostic even if you do the actual writes via Matrixify. Run a [free compliance scan](/scan) to see what the auto-filler would target.
 
 ## What to do for products that have brand but no MPN/GTIN
 
-Different path. Don't set `identifier_exists=false` — instead populate `custom.brand` and explicitly leave MPN and GTIN unset. Google's spec accepts brand-only as long as you also signal that the brand is the only available identifier (typically by setting `identifier_exists` to true and providing brand only).
+Different path. Don't set `identifier_exists=false`, instead populate `custom.brand` and explicitly leave MPN and GTIN unset. Google's spec accepts brand-only as long as you also signal that the brand is the only available identifier (typically by setting `identifier_exists` to true and providing brand only).
 
-In practice, brand-only is a weak identifier and Google will flag it for catalog match issues. If your products genuinely have brand and nothing else, the cleanest fix is to set `identifier_exists=false` and accept the small ranking penalty — even though brand exists, the product may not be matchable in Google's catalog without MPN or GTIN.
+In practice, brand-only is a weak identifier and Google will flag it for catalog match issues. If your products genuinely have brand and nothing else, the cleanest fix is to set `identifier_exists=false` and accept the small ranking penalty, even though brand exists, the product may not be matchable in Google's catalog without MPN or GTIN.
 
 For mixed cases (some products have brand+MPN, others don't), use a combination: brand+MPN where you can, `identifier_exists=false` otherwise. Don't try to apply one rule to the entire catalog.
 
@@ -87,7 +87,7 @@ For mixed cases (some products have brand+MPN, others don't), use a combination:
 - **GMC Diagnostics → Item issues.** "Missing identifier" entries should clear for the products you updated.
 - **Spot-check 10 products** in GMC → Products → All products. The "Identifier exists" column should show "No" for affected products.
 
-If errors persist after 72 hours, the most common cause is namespace mismatch — your channel app may be looking for `mc_google_offer.identifier_exists` instead of `custom.identifier_exists`. Repopulate one product under the alternate namespace and verify which sticks.
+If errors persist after 72 hours, the most common cause is namespace mismatch, your channel app may be looking for `mc_google_offer.identifier_exists` instead of `custom.identifier_exists`. Repopulate one product under the alternate namespace and verify which sticks.
 
 For the broader pattern of product feed errors that don't surface cleanly in diagnostics, see [Shopify products not showing in Google Shopping](/blog/products-not-showing-google-shopping-shopify) and the [12-point GMC compliance checklist](/blog/gmc-suspension-shopify-checklist).
 
@@ -99,13 +99,13 @@ Five patterns we see when auditing stores:
 - **Setting `identifier_exists=true` while leaving GTIN/MPN/brand all empty.** Contradictory. The default is "true," so omitting the metafield is the same as setting `true`. If you set true explicitly, populate at least one of GTIN, MPN, or brand+MPN.
 - **Forgetting variant-level identifier requirements.** If your product has variants and they have different identifiers (sizes with different barcodes), apply the rule per variant, not per product.
 - **Bulk-writing without testing on one product first.** A namespace error on a 10,000-product import is a multi-hour mess to clean up. Always test on one product, wait 24-72 hours, verify, then bulk.
-- **Not running a compliance scan after.** A quick [scan](/scan) confirms the bulk write actually propagated. Don't trust the import success message — verify on the GMC side.
+- **Not running a compliance scan after.** A quick [scan](/scan) confirms the bulk write actually propagated. Don't trust the import success message, verify on the GMC side.
 
 ## FAQ
 
 ### Where do I set identifier_exists on Shopify?
 
-Create a product metafield under namespace `custom`, key `identifier_exists`, type single-line text. Then set value to `false` for products that need it. Some Google channel app versions use the `mc_google_offer` namespace instead — check yours by populating one product and inspecting the GMC feed.
+Create a product metafield under namespace `custom`, key `identifier_exists`, type single-line text. Then set value to `false` for products that need it. Some Google channel app versions use the `mc_google_offer` namespace instead, check yours by populating one product and inspecting the GMC feed.
 
 ### Can I bulk set identifier_exists via Shopify's native CSV?
 
@@ -113,11 +113,11 @@ Yes, but it's fragile. Shopify's CSV import sometimes silently drops metafield c
 
 ### What's the difference between identifier_exists=false and just leaving GTIN empty?
 
-Leaving GTIN empty triggers "missing GTIN" errors. Setting `identifier_exists=false` tells Google explicitly that no identifier exists for this product — it's a different signal that clears the error.
+Leaving GTIN empty triggers "missing GTIN" errors. Setting `identifier_exists=false` tells Google explicitly that no identifier exists for this product, it's a different signal that clears the error.
 
 ### Will identifier_exists=false hurt my Google Shopping rankings?
 
-Slightly. Products without verified identifiers rank below otherwise-equivalent products with GTINs on contested queries. The penalty is small — 5-15% impression reduction in our experience — and far better than a suspension.
+Slightly. Products without verified identifiers rank below otherwise-equivalent products with GTINs on contested queries. The penalty is small, 5-15% impression reduction in our experience, and far better than a suspension.
 
 ### How long until GMC reflects the change?
 
@@ -125,6 +125,6 @@ Slightly. Products without verified identifiers rank below otherwise-equivalent 
 
 ### Can I undo a bulk identifier_exists write?
 
-Yes — re-export, clear or change the metafield values, re-import. There's no version history on metafields, so make a backup of the original CSV before any bulk write.
+Yes, re-export, clear or change the metafield values, re-import. There's no version history on metafields, so make a backup of the original CSV before any bulk write.
 
 For Google's official identifier requirements, see [Google's product data specification on identifiers](https://support.google.com/merchants/answer/6324461). For Shopify's metafield import documentation, see [Shopify's product CSV import help](https://help.shopify.com/en/manual/products/import-export).

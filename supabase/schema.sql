@@ -272,6 +272,92 @@ RETURNS TABLE(new_used INT, reset_at TIMESTAMPTZ) AS $$
             ai_generations_reset_at AS reset_at;
 $$ LANGUAGE sql;
 
+-- ============================================================
+-- FUNCTION: insert_appeal_letter_if_under_cap (SHIELDKIT-2)
+-- Atomic per-scan appeal-letter cap. Serializes concurrent
+-- callers for the same scan on a per-scan advisory lock, then
+-- reserves a slot (placeholder row, generated_letter NULL) only
+-- when the scan is under the cap. The caller finalizes the row
+-- with the generated letter, or deletes it on failure. Counting
+-- the in-flight reservation is what makes the cap correct under
+-- concurrency (the previous count-then-insert let 5 letters
+-- through for one scan). Abandoned reservations >10 min old are
+-- reclaimed so a leaked NULL row can't permanently hold a slot.
+-- ============================================================
+CREATE OR REPLACE FUNCTION insert_appeal_letter_if_under_cap(
+  p_merchant_id UUID,
+  p_scan_id     UUID,
+  p_cap         INT
+)
+RETURNS TABLE(accepted BOOLEAN, letter_id UUID, used_count INT) AS $$
+DECLARE
+  v_count INT;
+  v_id    UUID;
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtext(p_scan_id::text));
+
+  DELETE FROM appeal_letters
+  WHERE scan_id = p_scan_id
+    AND generated_letter IS NULL
+    AND created_at < now() - INTERVAL '10 minutes';
+
+  SELECT count(*) INTO v_count
+  FROM appeal_letters
+  WHERE scan_id = p_scan_id;
+
+  IF v_count >= p_cap THEN
+    accepted := false;
+    letter_id := NULL;
+    used_count := v_count;
+    RETURN NEXT;
+    RETURN;
+  END IF;
+
+  INSERT INTO appeal_letters (merchant_id, scan_id)
+  VALUES (p_merchant_id, p_scan_id)
+  RETURNING id INTO v_id;
+
+  accepted := true;
+  letter_id := v_id;
+  used_count := v_count + 1;
+  RETURN NEXT;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ============================================================
+-- FUNCTION: finalize_policy_regen (SHIELDKIT-2)
+-- Atomic per-type policy regeneration cap. Claims the single
+-- allowed regen AND writes the new body in one conditional UPDATE
+-- (row lock), only when a base policy exists and the regen has not
+-- been used. Returns one row on a successful claim, zero otherwise
+-- (already regenerated — caller discards the loser's output).
+-- Called AFTER generation, so both writes commit together: a crash
+-- before it leaves the regen unspent, and two concurrent regens
+-- can't both win.
+-- ============================================================
+CREATE OR REPLACE FUNCTION finalize_policy_regen(
+  p_merchant_id UUID,
+  p_type        TEXT,
+  p_body        TEXT
+)
+RETURNS TABLE(claimed BOOLEAN) AS $$
+  UPDATE merchants
+  SET generated_policies = jsonb_set(
+        COALESCE(generated_policies, '{}'::jsonb),
+        ARRAY[p_type],
+        to_jsonb(p_body),
+        true),
+      policy_regen_used = jsonb_set(
+        COALESCE(policy_regen_used, '{}'::jsonb),
+        ARRAY[p_type],
+        'true'::jsonb,
+        true)
+  WHERE id = p_merchant_id
+    AND COALESCE((policy_regen_used ->> p_type)::boolean, false) = false
+    AND COALESCE(generated_policies ->> p_type, '') <> ''
+  RETURNING true AS claimed;
+$$ LANGUAGE sql;
+
 -- scans_remaining NULL = unlimited (paid).
 -- Original schema had NOT NULL which broke paid upgrades; left here as a
 -- defensive no-op for bootstrap correctness.
@@ -299,8 +385,11 @@ CREATE INDEX IF NOT EXISTS idx_digest_merchant_time
 
 -- ============================================================
 -- TABLE: appeal_letters
--- GMC re-review appeal letter generations (Recovery feature).
--- Capped at 3 per scan_id via row counting in the route handler.
+-- GMC re-review appeal letter generations (paid feature).
+-- Capped at 3 per scan_id, enforced atomically via the
+-- insert_appeal_letter_if_under_cap RPC (SHIELDKIT-2). A row is
+-- reserved (generated_letter NULL) then finalized with the letter,
+-- or deleted on failure.
 -- ============================================================
 CREATE TABLE IF NOT EXISTS appeal_letters (
   id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),

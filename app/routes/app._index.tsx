@@ -26,6 +26,7 @@ import {
   useFetcher,
   useLoaderData,
   useNavigate,
+  useNavigation,
   useRevalidator,
   useRouteError,
   useSearchParams,
@@ -38,6 +39,7 @@ import { supabase } from "../supabase.server";
 import { runComplianceScan } from "../lib/compliance-scanner.server";
 import {
   generatePolicy,
+  resolvePolicyContact,
   type PolicyType,
 } from "../lib/policy-generator.server";
 import { validateGeneratedPolicy } from "../lib/policy-validator.server";
@@ -57,6 +59,7 @@ import type { Merchant, Scan, CheckResult, ApiScanResponse } from "../lib/types"
 import { BEACON_LISTING_URL } from "../lib/constants";
 import { sortChecks } from "../lib/scan-helpers";
 import { useWebComponentClick } from "../hooks/useWebComponentClick";
+import { useSingleFlight } from "../hooks/useSingleFlight";
 
 import ScoreBanner from "../components/ScoreBanner";
 import KpiCards from "../components/KpiCards";
@@ -325,7 +328,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (actionType === "generatePolicy") {
     const { data: merchant } = await supabase
       .from("merchants")
-      .select("id, tier, generated_policies, policy_regen_used")
+      .select(
+        "id, tier, generated_policies, policy_regen_used, pro_settings, contact_email",
+      )
       .eq("shopify_domain", shopDomain)
       .maybeSingle();
 
@@ -353,7 +358,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const alreadyGenerated = !!generatedPolicies[policyType];
     const alreadyRegenerated = !!regenUsed[policyType];
 
-    // Per-type regen cap (UX nudge — 2/type total).
+    // Per-type regen cap (2/type total). Fast-path reject when clearly
+    // exhausted from the loaded row.
     if (alreadyGenerated && alreadyRegenerated) {
       return new Response(
         JSON.stringify({
@@ -366,9 +372,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     }
 
     // Monthly AI cap (12/window, shared across policies + appeal letters).
-    // Consumed BEFORE we hit Anthropic so a cap-reached request never
-    // costs a model call. The internal validator retry below does NOT
-    // consume a second credit — see comment by the retry.
+    // Consumed BEFORE Anthropic so a cap-reached request never costs a model
+    // call. The common over-cap case (regen already used) is rejected by the
+    // fast-path above without a credit. The internal validator retry below does
+    // NOT consume a second credit — see the comment by the retry.
     const credit = await checkAndConsumeAiCredit(merchant.id);
     if (!credit.allowed) {
       const resetIso = windowResetIso(credit.resetAt);
@@ -401,8 +408,23 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         );
       }
 
+      // Resolve a REAL contact email server-side so the model can't fabricate
+      // one (a dead support address is itself a GMC misrepresentation risk):
+      // pro_settings.support_email -> merchants.contact_email -> shop email.
+      const proSettings =
+        (merchant.pro_settings ?? {}) as { support_email?: string | null };
+      const contactEmail = resolvePolicyContact(
+        proSettings.support_email,
+        typeof merchant.contact_email === "string" ? merchant.contact_email : null,
+        shopInfo.contactEmail,
+      );
+      // Today's date, computed server-side, injected so the policy is dated
+      // correctly instead of with a training-era date.
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const policyContext = { todayIso, contactEmail };
+
       // First-pass generation.
-      let policy = await generatePolicy(policyType, shopInfo);
+      let policy = await generatePolicy(policyType, shopInfo, policyContext);
       let validation = validateGeneratedPolicy(policyType, policy.body);
 
       // If the model missed required content signals, retry ONCE with an
@@ -412,7 +434,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       if (!validation.valid) {
         const extra = `Your previous output was missing or violated these signals: ${validation.missing.join(", ")}. Re-generate the policy and make sure each is present and unambiguous.`;
         try {
-          const retryPolicy = await generatePolicy(policyType, shopInfo, extra);
+          const retryPolicy = await generatePolicy(policyType, shopInfo, policyContext, extra);
           const retryValidation = validateGeneratedPolicy(policyType, retryPolicy.body);
           if (retryValidation.valid || retryValidation.missing.length < validation.missing.length) {
             policy = retryPolicy;
@@ -424,18 +446,44 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         }
       }
 
-      // Save the (best-of-two) policy text.
+      // Persist the (best-of-two) policy. A regeneration claims its one slot AND
+      // writes the body in a single atomic UPDATE (finalize_policy_regen),
+      // AFTER generation — so a crash before this can't burn the regen, and two
+      // concurrent regens can't both win. Zero rows back = another regen already
+      // claimed it; reject and discard this output (the winner's body stays).
+      // First generations just write the body.
       const updatedPolicies = { ...generatedPolicies, [policyType]: policy.body };
-      const updatePayload: Record<string, unknown> = {
-        generated_policies: updatedPolicies,
-      };
       if (alreadyGenerated) {
-        updatePayload.policy_regen_used = { ...regenUsed, [policyType]: true };
+        const { data: fin, error: finErr } = await supabase.rpc(
+          "finalize_policy_regen",
+          { p_merchant_id: merchant.id, p_type: policyType, p_body: policy.body },
+        );
+        if (finErr) {
+          // RPC missing — degrade to a non-atomic write of both columns.
+          await supabase
+            .from("merchants")
+            .update({
+              generated_policies: updatedPolicies,
+              policy_regen_used: { ...regenUsed, [policyType]: true },
+            })
+            .eq("id", merchant.id);
+        } else if (!fin || (Array.isArray(fin) && fin.length === 0)) {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: "regen_exhausted",
+              message: "You've already used your one regeneration for this policy type.",
+            }),
+            { status: 429, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        // else: claimed — both columns already written by the RPC.
+      } else {
+        await supabase
+          .from("merchants")
+          .update({ generated_policies: updatedPolicies })
+          .eq("id", merchant.id);
       }
-      await supabase
-        .from("merchants")
-        .update(updatePayload)
-        .eq("id", merchant.id);
 
       // If still invalid after the retry, return the policy with a soft
       // warning so the merchant knows to review it before saving.
@@ -457,6 +505,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         { status: 200, headers: { "Content-Type": "application/json" } }
       );
     } catch (err) {
+      // No regen slot to release: finalize_policy_regen claims AFTER generation,
+      // so a throw here means nothing was claimed and the regen stays available.
       const message = err instanceof Error ? err.message : String(err);
       return new Response(
         JSON.stringify({ success: false, message }),
@@ -793,7 +843,15 @@ export default function Index() {
   const reviewFetcher  = useFetcher();
   const revalidator    = useRevalidator();
   const navigate      = useNavigate();
+  const nav           = useNavigation();
   const shopify       = useAppBridge();
+
+  // Navigation in flight (Link/navigate()/<Form>) — used to disable the
+  // upgrade / plan-switcher buttons so a mash can't fire multiple navigations.
+  // Fetcher-driven work (scans, policies) does NOT set this, so it never
+  // spuriously disables those buttons.
+  const isNavigating = nav.state !== "idle";
+  const isEnablingJsonLd = jsonLdFetcher.state !== "idle";
 
   const navigateToUpgrade = useCallback(
     () => navigate("/app/upgrade"),
@@ -988,14 +1046,36 @@ export default function Index() {
     window.open(manageJsonLdHref, "_top");
   }, [manageJsonLdHref]);
 
+  // Enable-JSON-LD click: flip the flag AND open the theme editor. Extracted
+  // from inline JSX so it can be single-flight guarded (double-submit would
+  // just re-flip an idempotent boolean, but the aside card is on the fix list).
+  const enableJsonLd = useCallback(() => {
+    jsonLdFetcher.submit({ action: "enableJsonLd" }, { method: "POST" });
+    window.open(
+      getJsonLdThemeEditorUrl(shopDomain, "product-schema", shopifyApiKey),
+      "_top",
+    );
+  }, [jsonLdFetcher, shopDomain, shopifyApiKey]);
+
+  // ── Single-flight guards ──────────────────────────────────────────────────
+  // Synchronous re-entrancy guards so mashing a mutating/navigation button
+  // can't fire concurrent submits. The atomic server-side caps are the real
+  // backstop; this is the UX layer that stops the extra POSTs at the source.
+  const guardedRunScan             = useSingleFlight(runScan, isScanning);
+  const guardedUpgrade             = useSingleFlight(navigateToUpgrade, isNavigating);
+  const guardedPlanSwitcher        = useSingleFlight(navigateToPlanSwitcher, isNavigating);
+  const guardedUpgradeInline       = useSingleFlight(onUpgradeFromInlineBanner, isNavigating);
+  const guardedUpgradeFromPlanCard = useSingleFlight(onUpgradeFromPlanCard, isNavigating);
+  const guardedEnableJsonLd        = useSingleFlight(enableJsonLd, isEnablingJsonLd);
+
   // ── Web component click refs (native DOM events for <s-button>) ───────────
-  const rescanRef        = useWebComponentClick<HTMLElement>(runScan);
-  const managePlanRef    = useWebComponentClick<HTMLElement>(navigateToPlanSwitcher);
-  const upgradeRef2      = useWebComponentClick<HTMLElement>(navigateToUpgrade);
-  const upgradeRef3      = useWebComponentClick<HTMLElement>(navigateToUpgrade);
-  const upgradeRef4      = useWebComponentClick<HTMLElement>(onUpgradeFromInlineBanner);
+  const rescanRef        = useWebComponentClick<HTMLElement>(guardedRunScan, isScanning);
+  const managePlanRef    = useWebComponentClick<HTMLElement>(guardedPlanSwitcher, isNavigating);
+  const upgradeRef2      = useWebComponentClick<HTMLElement>(guardedUpgrade, isNavigating);
+  const upgradeRef3      = useWebComponentClick<HTMLElement>(guardedUpgrade, isNavigating);
+  const upgradeRef4      = useWebComponentClick<HTMLElement>(guardedUpgradeInline, isNavigating);
   const manageJsonLdRef  = useWebComponentClick<HTMLElement>(openJsonLdManager);
-  const onboardingScanRef = useWebComponentClick<HTMLElement>(runScan);
+  const onboardingScanRef = useWebComponentClick<HTMLElement>(guardedRunScan, isScanning);
 
   return (
     <s-page heading="ShieldKit — Compliance Command Center">
@@ -1007,7 +1087,7 @@ export default function Index() {
             slot="primary-action"
             variant="primary"
             ref={rescanRef}
-            {...(isScanning ? { loading: "" } : {})}
+            {...(isScanning ? { loading: "", disabled: "" } : {})}
           >
             {isScanning ? "Scanning…" : "Re-Scan My Store"}
           </s-button>
@@ -1202,21 +1282,22 @@ export default function Index() {
           </div>
 
           {/* ── Big primary CTA ── */}
+          {/* Ref-only (no wrapping fetcher.Form + form-submit button): the CTA
+              previously had BOTH a declarative form submit AND the
+              onboardingScanRef handler, so one click fired two POSTs. Driving
+              the scan solely through the single-flight-guarded ref fires
+              exactly one. */}
           <div style={{ textAlign: "center", padding: "8px 0 16px" }}>
-            <fetcher.Form method="post">
-              <input type="hidden" name="action" value="runScan" />
-              {/* @ts-ignore — s-button supports `submit` at runtime */}
-              <s-button
-                variant="primary"
-                submit=""
-                ref={onboardingScanRef}
-                {...(isScanning ? { loading: "" } : {})}
-              >
-                {isScanning
-                  ? "Scanning your store…"
-                  : "Run My Free Compliance Scan →"}
-              </s-button>
-            </fetcher.Form>
+            {/* @ts-ignore — s-button supports `loading`/`disabled` at runtime */}
+            <s-button
+              variant="primary"
+              ref={onboardingScanRef}
+              {...(isScanning ? { loading: "", disabled: "" } : {})}
+            >
+              {isScanning
+                ? "Scanning your store…"
+                : "Run My Free Compliance Scan →"}
+            </s-button>
           </div>
 
         </s-section>
@@ -1338,7 +1419,7 @@ export default function Index() {
         <PlanStatusCard
           isPaid={isPaid}
           jsonLdEnabled={merchant.json_ld_enabled}
-          onUpgrade={onUpgradeFromPlanCard}
+          onUpgrade={guardedUpgradeFromPlanCard}
         />
       )}
 
@@ -1425,16 +1506,8 @@ export default function Index() {
               </s-paragraph>
               <button
                 type="button"
-                onClick={() => {
-                  jsonLdFetcher.submit(
-                    { action: "enableJsonLd" },
-                    { method: "POST" },
-                  );
-                  window.open(
-                    getJsonLdThemeEditorUrl(shopDomain, "product-schema", shopifyApiKey),
-                    "_top",
-                  );
-                }}
+                disabled={isEnablingJsonLd}
+                onClick={guardedEnableJsonLd}
                 style={{
                   fontSize: "14px",
                   fontWeight: 600,
@@ -1443,7 +1516,8 @@ export default function Index() {
                   border: "none",
                   borderRadius: "8px",
                   padding: "8px 16px",
-                  cursor: "pointer",
+                  cursor: isEnablingJsonLd ? "wait" : "pointer",
+                  opacity: isEnablingJsonLd ? 0.7 : 1,
                 }}
               >
                 Turn on

@@ -34,6 +34,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
 import { useWebComponentClick } from "../hooks/useWebComponentClick";
+import { useSingleFlight } from "../hooks/useSingleFlight";
 import { wrapAdminClient, getProducts } from "../lib/shopify-api.server";
 import { hasPaidAccess } from "../lib/billing/plans";
 
@@ -412,6 +413,7 @@ export default function GtinFillPage() {
   const actionData = useActionData<typeof action>();
   const nav = useNavigation();
   const isWorking = nav.state !== "idle";
+  const total = loaderData.missingIdentifiers.length;
 
   const formRef = useRef<HTMLFormElement>(null);
   const submitForm = useCallback((intent: string) => {
@@ -424,10 +426,13 @@ export default function GtinFillPage() {
       formRef.current.requestSubmit();
     };
   }, []);
-  const enrichRef = useWebComponentClick<HTMLElement>(submitForm("enrich"));
-  const noIdRef = useWebComponentClick<HTMLElement>(
-    submitForm("mark_no_identifier"),
-  );
+  // Single-flight + disabled so mashing Auto-Fill can't fire concurrent
+  // metafield-write POSTs. Also disabled when there's nothing to do.
+  const actionsDisabled = isWorking || !loaderData.scopeReady || total === 0;
+  const enrichOnce = useSingleFlight(submitForm("enrich"), isWorking);
+  const noIdOnce = useSingleFlight(submitForm("mark_no_identifier"), isWorking);
+  const enrichRef = useWebComponentClick<HTMLElement>(enrichOnce, actionsDisabled);
+  const noIdRef = useWebComponentClick<HTMLElement>(noIdOnce, actionsDisabled);
 
   if (loaderData.gated) {
     return (
@@ -462,8 +467,6 @@ export default function GtinFillPage() {
       </s-page>
     );
   }
-
-  const total = loaderData.missingIdentifiers.length;
 
   return (
     <s-page heading="GTIN / MPN / Brand Auto-Filler">
@@ -558,7 +561,7 @@ export default function GtinFillPage() {
               variant="primary"
               ref={enrichRef}
               {...(isWorking ? { loading: "" } : {})}
-              {...(!loaderData.scopeReady || total === 0 ? { disabled: "" } : {})}
+              {...(actionsDisabled ? { disabled: "" } : {})}
             >
               Auto-Fill identifiers
             </s-button>
@@ -567,7 +570,7 @@ export default function GtinFillPage() {
               variant="secondary"
               ref={noIdRef}
               {...(isWorking ? { loading: "" } : {})}
-              {...(!loaderData.scopeReady || total === 0 ? { disabled: "" } : {})}
+              {...(actionsDisabled ? { disabled: "" } : {})}
             >
               Mark "no identifier exists" (handmade / vintage)
             </s-button>

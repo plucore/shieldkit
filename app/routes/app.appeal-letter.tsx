@@ -35,6 +35,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
 import { useWebComponentClick } from "../hooks/useWebComponentClick";
+import { useSingleFlight } from "../hooks/useSingleFlight";
 import { wrapAdminClient, getShopInfo } from "../lib/shopify-api.server";
 import { generateAppealLetter } from "../lib/llm/appeal-letter.server";
 import { hasPaidAccess } from "../lib/billing/plans";
@@ -43,6 +44,11 @@ import {
   checkAndConsumeAiCredit,
   windowResetIso,
 } from "../lib/ai-usage.server";
+import {
+  reserveAppealSlot,
+  finalizeAppealSlot,
+  releaseAppealSlot,
+} from "../lib/appeal-letters.server";
 
 const APPEAL_LIMIT_PER_SCAN = 3;
 
@@ -78,11 +84,18 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   let usedCount = 0;
   if (latestScan) {
+    // Count only FINALIZED letters — exclude NULL-letter reservations (in-flight
+    // or abandoned). Counting reservations here would let a leaked row (a crash
+    // between reserve and finalize) inflate the count, disable the Generate
+    // button (remaining===0), and thereby block the reserve RPC that reclaims
+    // stale reservations — a self-lock. The RPC remains the authoritative cap
+    // and counts reservations for enforcement; this is display-only.
     const { count } = await supabase
       .from("appeal_letters")
       .select("id", { count: "exact", head: true })
       .eq("merchant_id", merchant.id)
-      .eq("scan_id", latestScan.id);
+      .eq("scan_id", latestScan.id)
+      .not("generated_letter", "is", null);
     usedCount = count ?? 0;
   }
 
@@ -94,6 +107,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     .from("appeal_letters")
     .select("id, suspension_reason, generated_letter, created_at")
     .eq("merchant_id", merchant.id)
+    // Exclude in-flight reservations (generated_letter NULL) so a slot that's
+    // mid-generation never renders as an empty saved-letter card.
+    .not("generated_letter", "is", null)
     .order("created_at", { ascending: false })
     .limit(10);
 
@@ -182,13 +198,18 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     );
   }
 
-  // Per-scan cap (UX nudge — 3 letters per scan).
-  const { count } = await supabase
-    .from("appeal_letters")
-    .select("id", { count: "exact", head: true })
-    .eq("merchant_id", merchant.id)
-    .eq("scan_id", latestScan.id);
-  if ((count ?? 0) >= APPEAL_LIMIT_PER_SCAN) {
+  // Per-scan cap (3 letters per scan) — enforced FIRST and atomically so
+  // concurrent submits can't each slip under the cap (the TOCTOU that let 5
+  // letters through for one scan). reserveAppealSlot serializes callers for
+  // this scan on a per-scan advisory lock and inserts a placeholder row only
+  // when under the cap. An over-cap attempt is rejected here, before any AI
+  // credit or Anthropic call is spent.
+  const reservation = await reserveAppealSlot(
+    merchant.id,
+    latestScan.id,
+    APPEAL_LIMIT_PER_SCAN,
+  );
+  if (!reservation.accepted || !reservation.letterId) {
     return data(
       {
         ok: false,
@@ -198,12 +219,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       { status: 429 },
     );
   }
+  const reservedLetterId = reservation.letterId;
 
   // Monthly AI cap (12/window, shared across policies + appeal letters).
-  // Consumed BEFORE we hit Anthropic so a cap-reached request never
-  // costs a model call.
+  // Consumed AFTER the cap reservation (so an over-cap attempt never burns a
+  // credit) but BEFORE Anthropic (so a cap-reached request never costs a model
+  // call). Release the reserved slot on any failure below so a failed
+  // generation doesn't consume one of the 3 per-scan slots.
   const credit = await checkAndConsumeAiCredit(merchant.id);
   if (!credit.allowed) {
+    await releaseAppealSlot(reservedLetterId);
     const resetIso = windowResetIso(credit.resetAt);
     const resetDate = resetIso
       ? new Date(resetIso).toLocaleDateString("en-US", {
@@ -226,17 +251,27 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const executor = wrapAdminClient(admin.graphql);
   const shopInfo = await getShopInfo(executor);
   if (!shopInfo) {
+    await releaseAppealSlot(reservedLetterId);
     return data(
       { ok: false, error: "Could not load store info — please try again.", letter: null },
       { status: 500 },
     );
   }
 
+  // Today's date, computed server-side, so the letter is dated correctly.
+  const todayIso = new Date().toISOString().slice(0, 10);
+
   let letter: string;
   try {
-    letter = await generateAppealLetter({ shopInfo, suspensionReason, fixesMade });
+    letter = await generateAppealLetter({
+      shopInfo,
+      suspensionReason,
+      fixesMade,
+      todayIso,
+    });
   } catch (err) {
     console.error("[appeal-letter] generation failed:", err);
+    await releaseAppealSlot(reservedLetterId);
     return data(
       {
         ok: false,
@@ -248,18 +283,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   if (!letter || letter.length < 50) {
+    await releaseAppealSlot(reservedLetterId);
     return data(
       { ok: false, error: "Empty or too-short response — please retry.", letter: null },
       { status: 502 },
     );
   }
 
-  await supabase.from("appeal_letters").insert({
-    merchant_id: merchant.id,
-    scan_id: latestScan.id,
-    suspension_reason: suspensionReason,
-    generated_letter: letter,
-  });
+  // Fill the reserved row with the generated letter.
+  await finalizeAppealSlot(reservedLetterId, suspensionReason, letter);
 
   return data({ ok: true, error: null, letter });
 };
@@ -359,13 +391,18 @@ export default function AppealLetterPage() {
   const nav = useNavigation();
   const isGenerating = nav.state === "submitting" || nav.state === "loading";
 
+  const remaining = Math.max(0, limit - usedCount);
+
   const formRef = useRef<HTMLFormElement>(null);
   const submitForm = useCallback(() => {
     formRef.current?.requestSubmit();
   }, []);
-  const submitRef = useWebComponentClick<HTMLElement>(submitForm);
-
-  const remaining = Math.max(0, limit - usedCount);
+  // Single-flight + disabled so mashing "Generate" can't fire concurrent POSTs.
+  // The atomic per-scan cap RPC is the real backstop; this stops the extra
+  // submits at the source. Also hard-blocked once no generations remain.
+  const submitDisabled = isGenerating || remaining === 0;
+  const submitOnce = useSingleFlight(submitForm, isGenerating);
+  const submitRef = useWebComponentClick<HTMLElement>(submitOnce, submitDisabled);
 
   if (!hasScan) {
     return (
@@ -468,7 +505,7 @@ export default function AppealLetterPage() {
             variant="primary"
             ref={submitRef}
             {...(isGenerating ? { loading: "" } : {})}
-            {...(remaining === 0 ? { disabled: "" } : {})}
+            {...(submitDisabled ? { disabled: "" } : {})}
           >
             {isGenerating ? "Generating…" : "Generate appeal letter"}
           </s-button>

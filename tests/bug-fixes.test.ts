@@ -925,8 +925,9 @@ describe("AI usage cap + policy validator (v4 §5)", () => {
     expect(src).toContain("validateGeneratedPolicy");
     expect(src).toContain('"ai_cap_reached"');
     // Retry path appends an extra instruction to the second generatePolicy
-    // call — the second call does NOT consume a second AI credit.
-    expect(src).toMatch(/generatePolicy\(policyType, shopInfo, extra\)/);
+    // call — the second call does NOT consume a second AI credit. The
+    // signature now threads the date/contact PolicyContext (SHIELDKIT-2).
+    expect(src).toMatch(/generatePolicy\(policyType, shopInfo, policyContext, extra\)/);
   });
 
   it("appeal-letter action consumes a credit before hitting Anthropic", () => {
@@ -949,9 +950,11 @@ describe("AI usage cap + policy validator (v4 §5)", () => {
       path.join(APP_DIR, "routes/app.appeal-letter.tsx"),
       "utf-8"
     );
-    // Persistence: the action INSERTs the generated body into appeal_letters.
-    expect(src).toMatch(/\.from\("appeal_letters"\)\s*\.insert\(/);
-    expect(src).toContain("generated_letter: letter");
+    // Persistence: the action reserves a cap slot atomically, then finalizes
+    // that row with the generated letter (SHIELDKIT-2 — replaces the racy
+    // count-then-insert with reserve/finalize).
+    expect(src).toContain("reserveAppealSlot(");
+    expect(src).toContain("finalizeAppealSlot(");
     // Display fix: the loader fetches this merchant's saved letters (most
     // recent first) so they survive reload/navigation instead of vanishing
     // once the action response clears.

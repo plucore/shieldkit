@@ -25,12 +25,19 @@ export interface AppealLetterInput {
   shopInfo: ShopInfo;
   suspensionReason: string;
   fixesMade: string;
+  /**
+   * Today's date, computed server-side (e.g. "2026-07-12"). Passed in so the
+   * letter is dated today rather than with a training-era date. Does NOT touch
+   * the grounding rules — the letter body stays grounded strictly in the
+   * merchant's stated fixes.
+   */
+  todayIso: string;
 }
 
 export async function generateAppealLetter(
   input: AppealLetterInput,
 ): Promise<string> {
-  const { shopInfo, suspensionReason, fixesMade } = input;
+  const { shopInfo, suspensionReason, fixesMade, todayIso } = input;
 
   const systemPrompt = [
     "You are a customer-success writer drafting a Google Merchant Center re-review request letter on behalf of a Shopify store owner.",
@@ -50,6 +57,7 @@ export async function generateAppealLetter(
     "",
     "Format: 200–400 words. Plain text only — no markdown, no bullet syntax (•, -, *), no HTML.",
     "Use prose paragraphs. Address the letter to 'Google Merchant Center Review Team'.",
+    `If the letter includes a date, use today's date exactly: ${todayIso}. Never use any other date or rely on your training data for the current date.`,
     "Sign off with the store name only — do NOT invent a person's name.",
     "",
     "Do not promise specific outcomes; do not threaten escalation; do not reference Google's policies you are not certain apply. Stick strictly to the facts the merchant supplied.",

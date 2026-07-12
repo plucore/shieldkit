@@ -5,7 +5,7 @@
  * previously generated policy type. Pro-only feature.
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import DOMPurify from "dompurify";
 import type { PolicyType } from "../lib/policy-generator.server";
 import type { GeneratedPolicies, PolicyRegenUsed, CheckResult } from "../lib/types";
@@ -42,6 +42,23 @@ export default function PolicyGenerationCard({
   onCopy,
 }: PolicyGenerationCardProps) {
   const [expandedType, setExpandedType] = useState<PolicyType | null>(null);
+
+  // Any policy currently generating (fetcher in flight). Buttons disable on
+  // this; the ref guard below also blocks same-tick re-clicks before the
+  // disabled state has re-rendered, so mashing can't fire concurrent POSTs.
+  const isAnyLoading = generatingPolicyType !== null;
+  const submitLockRef = useRef(false);
+  useEffect(() => {
+    if (generatingPolicyType === null) submitLockRef.current = false;
+  }, [generatingPolicyType]);
+  const submitPolicy = (type: PolicyType) => {
+    if (isAnyLoading || submitLockRef.current) return;
+    submitLockRef.current = true;
+    policyFetcher.submit(
+      { action: "generatePolicy", policyType: type },
+      { method: "POST" },
+    );
+  };
 
   // Determine which policy types to show: only failed checks
   const failedPolicyTypes = new Set<PolicyType>();
@@ -91,7 +108,6 @@ export default function PolicyGenerationCard({
 
             const remaining = !generated ? 2 : !regenUsed ? 1 : 0;
             const isLoadingThis = generatingPolicyType === type;
-            const isAnyLoading = generatingPolicyType !== null;
 
             return (
               <div key={type}>
@@ -162,12 +178,7 @@ export default function PolicyGenerationCard({
                       <button
                         type="button"
                         disabled={isAnyLoading}
-                        onClick={() => {
-                          policyFetcher.submit(
-                            { action: "generatePolicy", policyType: type },
-                            { method: "POST" },
-                          );
-                        }}
+                        onClick={() => submitPolicy(type)}
                         style={{
                           fontSize: "12px",
                           fontWeight: 600,
@@ -186,12 +197,7 @@ export default function PolicyGenerationCard({
                       <button
                         type="button"
                         disabled={isAnyLoading}
-                        onClick={() => {
-                          policyFetcher.submit(
-                            { action: "generatePolicy", policyType: type },
-                            { method: "POST" },
-                          );
-                        }}
+                        onClick={() => submitPolicy(type)}
                         style={{
                           fontSize: "12px",
                           fontWeight: 600,

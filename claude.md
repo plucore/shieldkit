@@ -70,7 +70,7 @@ Two plans only. The Partner Dashboard pricing UI advertises only these:
 | `@shopify/shopify-app-react-router` | ^1.1.0 | Auth, billing, webhooks, session management |
 | `@supabase/supabase-js` | ^2.47.0 | Postgres client (service role) |
 | `cheerio` | ^1.2.0 | Server-side HTML parsing for compliance checks |
-| `@anthropic-ai/sdk` | ^0.85.0 | AI policy + appeal-letter (model `claude-sonnet-4-20250514`) |
+| `@anthropic-ai/sdk` | ^0.85.0 | AI policy + appeal-letter (model `claude-sonnet-4-6`) |
 | `@sentry/node`, `@sentry/react` | ^10.54.0 | Server-side observability (`@sentry/react` currently dormant; init no-ops when `SENTRY_DSN` unset) |
 | `isbot` | ^5.1.31 | Bot detection for streaming SSR |
 | `dompurify` | ^3.3.3 | Client-side sanitization for AI-generated policy display |
@@ -220,7 +220,7 @@ Grandfathered (not offered to new merchants; kept for reconciliation):
 
 **Paid features** (gated via `hasPaidAccess`):
 - Unlimited re-scans (`scans_remaining = null`)
-- AI-written policies (Anthropic `claude-sonnet-4-20250514`) with self-consistency validator + monthly cap (12/window)
+- AI-written policies (Anthropic `claude-sonnet-4-6`) with self-consistency validator + monthly cap (12/window)
 - GMC re-review appeal letter generator (`/app/appeal-letter`), same monthly cap pool
 - Bulk GTIN/MPN/brand fill (`/app/gtin-fill`) when `WRITE_METAFIELDS_SCOPE_ENABLED`
 - Ongoing per-product enrichment via webhook → queue drainer
@@ -573,7 +573,7 @@ API Version `2025-10`. Queries: `SHOP_INFO_QUERY`, `SHOP_POLICIES_QUERY`, `PRODU
 Persistent via Supabase `scan_rate_limits` (10/hour/shop). In-memory `Map` fallback. Cleanup of >1h-old records fire-and-forget per check.
 
 ### Policy Generator (`app/lib/policy-generator.server.ts`)
-Model `claude-sonnet-4-20250514`. Types: refund, shipping, privacy, terms. Output: HTML → server-sanitized via `sanitize-html` → stored in `merchants.generated_policies` JSONB → client-sanitized via `dompurify` before render. Per-type cap: 2 (initial + 1 regen) tracked in `policy_regen_used`.
+Model `claude-sonnet-4-6`. Types: refund, shipping, privacy, terms. Output: HTML → server-sanitized via `sanitize-html` → stored in `merchants.generated_policies` JSONB → client-sanitized via `dompurify` before render. Per-type cap: 2 (initial + 1 regen) tracked in `policy_regen_used`.
 
 ### Policy Validator (`app/lib/policy-validator.server.ts`) — v4
 `validateGeneratedPolicy(policyType, htmlBody)` reuses regex constants from `app/lib/checks/constants.ts`. Returns `{ valid, missing[] }`. The route uses it to drive a single retry against Anthropic when the first generation fails self-consistency; no second AI credit consumed for that retry.
@@ -706,7 +706,7 @@ Singleton (dev caches on `global` for hot-reload survival). `service_role` key �
 | Shopify Admin API | GraphQL data | `{shop}/admin/api/2025-10/graphql.json` |
 | Shopify Partner API | Subscription reconciliation (canonical post-Apr-28) | `partners.shopify.com/api/<version>/graphql.json` |
 | Google PageSpeed Insights | Mobile performance scoring | `googleapis.com/pagespeedonline/v5/runPagespeed` |
-| Anthropic API | AI policy + appeal generation | `@anthropic-ai/sdk` (`claude-sonnet-4-20250514`) |
+| Anthropic API | AI policy + appeal generation | `@anthropic-ai/sdk` (`claude-sonnet-4-6`) |
 | Sentry | Server-side observability | When `SENTRY_DSN` set |
 
 ---

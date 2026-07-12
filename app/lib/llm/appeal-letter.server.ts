@@ -7,6 +7,7 @@
 
 import type AnthropicClient from "@anthropic-ai/sdk";
 import type { ShopInfo } from "../shopify-api.server";
+import { normalizeDashes } from "../text-normalize";
 
 // Lazily import + construct the Anthropic client on first use — keeps the SDK
 // out of the server bundle's cold-start evaluation for every non-appeal route.
@@ -55,7 +56,8 @@ export async function generateAppealLetter(
     "3. Do NOT add persuasion filler. Do NOT cite how long the business has operated ('operated successfully for X months/years', 'long-standing'). Do NOT use vague trust language ('highest standards', 'committed to trust', 'we take compliance seriously', 'valued customers'). Every sentence must carry a concrete, verifiable fact.",
     "4. Ground the entire letter in exactly these things and nothing else: what happened (the account was suspended), the stated suspension reason / the exact notice text Google provided (quote or paraphrase it faithfully, do not soften or reinterpret it), and the merchant's listed fixes. If you lack information for something, omit it — never fill the gap with invented detail.",
     "",
-    "Format: 200–400 words. Plain text only — no markdown, no bullet syntax (•, -, *), no HTML.",
+    "Format: 200 to 400 words. Plain text only: no markdown, no bullet syntax (•, -, *), no HTML.",
+    "Do NOT use em dashes (—) or en dashes (–). Use commas, periods, or parentheses to separate clauses, and a plain hyphen (-) for ranges.",
     "Use prose paragraphs. Address the letter to 'Google Merchant Center Review Team'.",
     `If the letter includes a date, use today's date exactly: ${todayIso}. Never use any other date or rely on your training data for the current date.`,
     "Sign off with the store name only — do NOT invent a person's name.",
@@ -85,5 +87,6 @@ export async function generateAppealLetter(
   });
 
   const textBlock = message.content.find((b) => b.type === "text");
-  return textBlock?.text?.trim() ?? "";
+  // Strip any em/en dashes the model used despite the prompt rule above.
+  return normalizeDashes(textBlock?.text?.trim() ?? "");
 }

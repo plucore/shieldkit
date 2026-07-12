@@ -1,5 +1,5 @@
 export const frontmatter = {
-  title: "JSON-LD vs llms.txt for Shopify — Which Matters More for AI Search?",
+  title: "JSON-LD vs llms.txt for Shopify, Which Matters More for AI Search?",
   slug: "json-ld-vs-llms-txt-shopify",
   description:
     "Both JSON-LD product schema and llms.txt help AI engines surface your Shopify products. They do different things. Here's exactly what each does, when to prioritize which, and why most stores need both.",
@@ -12,7 +12,7 @@ export const frontmatter = {
   ],
 };
 
-Both formats matter, they just do different jobs. **JSON-LD tells AI engines what your products *are*** — name, price, GTIN, brand, availability — embedded as structured data inside each page's HTML. **llms.txt tells AI engines what content on your site *matters*** — a curated markdown map at the site root that prioritizes pages and explains how to read them. JSON-LD is the data layer; llms.txt is the discovery layer. If you have to pick one, pick JSON-LD on every product page first — it's higher leverage. But the right answer for any serious 2026 Shopify store is both, plus FAQ schema and an Organization block on the homepage.
+Both formats matter, they just do different jobs. **JSON-LD tells AI engines what your products *are***, name, price, GTIN, brand, availability, embedded as structured data inside each page's HTML. **llms.txt tells AI engines what content on your site *matters***, a curated markdown map at the site root that prioritizes pages and explains how to read them. JSON-LD is the data layer; llms.txt is the discovery layer. If you have to pick one, pick JSON-LD on every product page first, it's higher leverage. But the right answer for any serious 2026 Shopify store is both, plus FAQ schema and an Organization block on the homepage.
 
 This post breaks down exactly what each does, when to prioritize which, and how the two layers connect.
 
@@ -20,7 +20,7 @@ This post breaks down exactly what each does, when to prioritize which, and how 
 
 The clearest way to explain the distinction:
 
-- **JSON-LD** is structured data inside the HTML of a page. One JSON-LD block per page (or per content type per page). AI engines parse it to extract attributes — what the product is called, what it costs, who makes it.
+- **JSON-LD** is structured data inside the HTML of a page. One JSON-LD block per page (or per content type per page). AI engines parse it to extract attributes, what the product is called, what it costs, who makes it.
 - **llms.txt** is a single markdown file at the site root. It lists which pages on the site matter, in priority order, with short descriptions. AI engines read it to figure out how to navigate your site.
 
 Said differently: JSON-LD is what an AI reads *on* a product page. llms.txt is what an AI reads *before* deciding which page to fetch.
@@ -51,7 +51,7 @@ Three jobs:
 - **Tells AI engines which pages to ingest deeply.** With the optional `llms-full.txt` companion, you can mark certain pages for full-content ingestion, useful for documentation-heavy sites.
 - **Reduces hallucination risk.** AI engines that have a curated map of your site are less likely to invent details. The factual density of llms.txt anchors the AI's answer in real content.
 
-Most important for **less-crawled domains** — newer stores, niche products, regional brands. Established stores with millions of inbound links have visibility through other signals; new stores need the explicit map.
+Most important for **less-crawled domains**, newer stores, niche products, regional brands. Established stores with millions of inbound links have visibility through other signals; new stores need the explicit map.
 
 ## The order of priority for a Shopify store
 
@@ -59,7 +59,7 @@ If you're building this stack from scratch:
 
 1. **JSON-LD on every product page (highest ROI).** Every product visible to AI requires schema. This is the foundation.
 2. **llms.txt at site root.** Once your products have schema, give AI engines the map of your site. See [what llms.txt is and how to add it to your Shopify store](/blog/llms-txt-shopify-guide).
-3. **llms-full.txt for content-heavy sites.** Optional — only if you have extensive documentation, blog content, or guides that should be ingested in full.
+3. **llms-full.txt for content-heavy sites.** Optional, only if you have extensive documentation, blog content, or guides that should be ingested in full.
 4. **FAQ schema on product + blog pages.** High-leverage citation signal for AI Overviews. See [how to optimize Shopify product pages for Google AI Overviews](/blog/ai-overviews-shopify-product-pages) for the FAQ implementation pattern.
 
 If you have to pick only one to do this quarter, pick #1.
@@ -74,7 +74,7 @@ What Shopify ships:
 
 What Shopify doesn't ship:
 
-- Merchant Listings extensions in JSON-LD (no [`gtin`](/fix/missing-gtin), [`brand`](/fix/missing-brand), [`mpn`](/fix/missing-mpn) by default — your theme has to add them, usually from product metafields)
+- Merchant Listings extensions in JSON-LD (no [`gtin`](/fix/missing-gtin), [`brand`](/fix/missing-brand), [`mpn`](/fix/missing-mpn) by default, your theme has to add them, usually from product metafields)
 - llms.txt at site root
 - FAQ schema on product pages
 - Organization or WebSite schema on the homepage
@@ -133,6 +133,6 @@ Yes, but be careful about duplicate or conflicting schema. Pick one source of tr
 
 ### Is FAQ schema part of JSON-LD or separate?
 
-FAQ schema is a different JSON-LD type — `FAQPage` rather than `Product`. You can have both on the same page. Both improve AI Overview citation odds.
+FAQ schema is a different JSON-LD type, `FAQPage` rather than `Product`. You can have both on the same page. Both improve AI Overview citation odds.
 
 For Google's official structured data documentation, see [Google's product schema specification](https://developers.google.com/search/docs/appearance/structured-data/product). For the llms.txt specification, see [llmstxt.org](https://llmstxt.org/).

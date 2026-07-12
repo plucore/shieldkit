@@ -12,7 +12,7 @@ export const frontmatter = {
   ],
 };
 
-Google rarely tells you which specific product triggered your GMC suspension. The email cites a policy bucket and leaves the diagnosis to you. The good news: with GMC Diagnostics, your Shopify feed, and a 5-step process, you can almost always find the culprit in under an hour. The bad news: half the time the "product" causing your suspension isn't a single product — it's a policy page, a pricing app, or a recently installed third-party integration that affects many products at once.
+Google rarely tells you which specific product triggered your GMC suspension. The email cites a policy bucket and leaves the diagnosis to you. The good news: with GMC Diagnostics, your Shopify feed, and a 5-step process, you can almost always find the culprit in under an hour. The bad news: half the time the "product" causing your suspension isn't a single product, it's a policy page, a pricing app, or a recently installed third-party integration that affects many products at once.
 
 This post walks through the diagnostic process the right way, in the order Google's reviewers themselves work through it.
 
@@ -20,11 +20,11 @@ This post walks through the diagnostic process the right way, in the order Googl
 
 Two reasons:
 
-**Account-level vs product-level suspensions are different.** A product-level suspension affects only the offending products and is fairly easy to diagnose because GMC Diagnostics surfaces "item issues" by SKU. An account-level suspension nukes your entire account, and the underlying cause may not be a single product at all — it could be a policy page issue, a business identity issue, or a pattern across many products.
+**Account-level vs product-level suspensions are different.** A product-level suspension affects only the offending products and is fairly easy to diagnose because GMC Diagnostics surfaces "item issues" by SKU. An account-level suspension nukes your entire account, and the underlying cause may not be a single product at all, it could be a policy page issue, a business identity issue, or a pattern across many products.
 
-**The vague suspension email is on purpose.** Google doesn't want to give bad actors a roadmap to gaming the system. So the email cites the policy bucket — "[misrepresentation](/fix/account-suspension-misrepresentation)," "[untrustworthy promotions](/fix/untrustworthy-promotions)," "[counterfeit goods](/fix/counterfeit-goods)" — and forces you to diagnose. Annoying, but understandable.
+**The vague suspension email is on purpose.** Google doesn't want to give bad actors a roadmap to gaming the system. So the email cites the policy bucket, "[misrepresentation](/fix/account-suspension-misrepresentation)," "[untrustworthy promotions](/fix/untrustworthy-promotions)," "[counterfeit goods](/fix/counterfeit-goods)", and forces you to diagnose. Annoying, but understandable.
 
-## The diagnostic process — 5 steps
+## The diagnostic process, 5 steps
 
 ### Step 1: Check GMC Diagnostics for product-level issues
 
@@ -32,15 +32,15 @@ In Google Merchant Center, go to **Products → Diagnostics**. There are two tab
 
 **Item issues** is where product-level violations show up. Each issue lists the affected SKUs, the violation type, and a short explanation. Common entries:
 
-- "Image too small" — your product images don't meet GMC minimum dimensions.
-- "[Price mismatch](/fix/price-mismatch)" — the price in your feed doesn't match the price on the landing page.
-- "[Availability mismatch](/fix/availability-mismatch)" — your feed says in stock, the page says sold out.
-- "[Missing GTIN](/fix/missing-gtin)" — a required identifier is missing for a brand-name product.
-- "Promotional overlay on image" — text or badges on the product image.
+- "Image too small", your product images don't meet GMC minimum dimensions.
+- "[Price mismatch](/fix/price-mismatch)", the price in your feed doesn't match the price on the landing page.
+- "[Availability mismatch](/fix/availability-mismatch)", your feed says in stock, the page says sold out.
+- "[Missing GTIN](/fix/missing-gtin)", a required identifier is missing for a brand-name product.
+- "Promotional overlay on image", text or badges on the product image.
 
-**Account issues** is the bucket your suspension lives in. The detail is usually thin, but it does sometimes name a specific page or pattern. Read it carefully — if it cites a specific URL (like `/policies/refund-policy`), you have your answer already.
+**Account issues** is the bucket your suspension lives in. The detail is usually thin, but it does sometimes name a specific page or pattern. Read it carefully, if it cites a specific URL (like `/policies/refund-policy`), you have your answer already.
 
-If GMC Diagnostics shows zero item issues but your account is suspended, the cause is almost certainly account-level (policy pages, business identity, untrustworthy promotions) — skip to step 4.
+If GMC Diagnostics shows zero item issues but your account is suspended, the cause is almost certainly account-level (policy pages, business identity, untrustworthy promotions), skip to step 4.
 
 ### Step 2: Cross-check feed vs live pages
 
@@ -72,13 +72,13 @@ If steps 1-3 turn up nothing, the cause is almost certainly a policy page issue.
 - `/policies/terms-of-service`
 - `/pages/contact-us` and `/pages/about-us`
 
-Each page must (a) load without authentication, (b) render full content (not a redirect to homepage), (c) match what your checkout actually does. The most common silent failure is a policy page that was deleted during a theme migration and now redirects to the homepage — Google reads that as "policy missing."
+Each page must (a) load without authentication, (b) render full content (not a redirect to homepage), (c) match what your checkout actually does. The most common silent failure is a policy page that was deleted during a theme migration and now redirects to the homepage, Google reads that as "policy missing."
 
 For the full list of policy-page checks, see [the 12-point Shopify checklist](/blog/gmc-suspension-shopify-checklist). For policy issues that don't show up on a casual read, see [the hidden GMC triggers most stores miss](/blog/hidden-gmc-triggers-shopify).
 
 ### Step 5: Run a compliance scan
 
-Manual auditing catches most issues but misses the subtle ones. ShieldKit's [free public scan](/scan) runs the same 12 checks Google's AI crawlers run — policy presence and substance, contact info visibility, business identity consistency, hidden fee detection, image hosting audit (catches dropshipper CDN images that quietly trigger suspension), and more. Five minutes, no install.
+Manual auditing catches most issues but misses the subtle ones. ShieldKit's [free public scan](/scan) runs the same 12 checks Google's AI crawlers run, policy presence and substance, contact info visibility, business identity consistency, hidden fee detection, image hosting audit (catches dropshipper CDN images that quietly trigger suspension), and more. Five minutes, no install.
 
 If the scan returns clean, your suspension cause is genuinely product-specific and you should focus on steps 1-3. If the scan flags issues you didn't catch manually, fix those first.
 
@@ -95,7 +95,7 @@ Map the reason in your suspension email to the most likely cause:
 
 Three steps:
 
-1. **Fix the specific product or page.** Don't bulk-edit the catalog "to be safe" — make the targeted fix and document it.
+1. **Fix the specific product or page.** Don't bulk-edit the catalog "to be safe", make the targeted fix and document it.
 2. **Wait 7 days for recrawl.** This is non-negotiable; see [the appeal timeline](/blog/gmc-suspension-appeal-timeline) for why.
 3. **Submit your appeal using the [letter template](/blog/gmc-appeal-letter-template-shopify).** Cite the specific product/page and the specific fix. Specific appeals get approved; vague appeals get rejected.
 
@@ -103,7 +103,7 @@ Three steps:
 
 Sometimes the diagnosis comes up empty. Two paths:
 
-- **Submit a generic audit appeal.** State that you've audited the full store, list every change made, and include before/after screenshots. The reviewer often clarifies the actual issue in the rejection email — which gives you the specific reason to address in the second appeal.
+- **Submit a generic audit appeal.** State that you've audited the full store, list every change made, and include before/after screenshots. The reviewer often clarifies the actual issue in the rejection email, which gives you the specific reason to address in the second appeal.
 - **Include comprehensive documentation.** Supplier invoices for branded products. Screenshots of every policy page. Date-stamped before/after of any changes. The more you provide upfront, the faster the reviewer can act.
 
 The [appeal letter template](/blog/gmc-appeal-letter-template-shopify) has a section specifically for the "couldn't find it" case.
@@ -116,7 +116,7 @@ In GMC, go to **Products → Diagnostics → Item issues** tab. The table lists 
 
 ### Why does GMC say my product is suspended but Diagnostics shows nothing?
 
-Item-level diagnostics only show product-specific issues. Account-level suspensions don't appear there — check **Products → Diagnostics → Account issues** tab and read the policy email carefully.
+Item-level diagnostics only show product-specific issues. Account-level suspensions don't appear there, check **Products → Diagnostics → Account issues** tab and read the policy email carefully.
 
 ### Can a single product cause a whole-account suspension?
 

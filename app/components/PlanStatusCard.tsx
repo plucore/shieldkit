@@ -97,7 +97,7 @@ function PaidCoverageCard({ jsonLdEnabled }: { jsonLdEnabled: boolean }) {
 
 /* ─── Free state ──────────────────────────────────────────────────────── */
 
-const HEADING_FREE = "Fix it now — and stay protected.";
+const HEADING_FREE = "Fix it now, and stay protected.";
 
 function FreeUpgradeCard({ onUpgrade }: { onUpgrade: () => void }) {
   const upgradeRef = useWebComponentClick<HTMLElement>(onUpgrade);

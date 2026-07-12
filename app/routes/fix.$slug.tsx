@@ -246,7 +246,7 @@ export default function FixPage() {
           </h2>
           <p className="mt-3 text-white/80 max-w-xl mx-auto">
             ShieldKit's scanner runs the same 12 checks Google's AI crawlers
-            run — find every issue on your store in five minutes, no install.
+            run, find every issue on your store in five minutes, no install.
           </p>
           <div className="mt-6 flex justify-center">
             <MarketingButton to="/scan" variant="onLight" size="lg">

@@ -19,7 +19,7 @@ export const headers: HeadersFunction = () => ({
 });
 
 export const meta = () => {
-  const title = "Privacy Policy — ShieldKit";
+  const title = "Privacy Policy, ShieldKit";
   const description =
     "How ShieldKit collects, stores, and handles data from connected Shopify stores.";
   const url = SITE.url + "/privacy";
@@ -80,34 +80,34 @@ export default function Privacy() {
       </p>
       <ul>
         <li>
-          <code>read_products</code> — read product titles, descriptions,
+          <code>read_products</code>, read product titles, descriptions,
           variants, images, and metafields to run compliance checks (data
           quality, image hosting, structured data).
         </li>
         <li>
-          <code>write_products</code> — used <strong>only</strong> on Shield
+          <code>write_products</code>, used <strong>only</strong> on Shield
           Max to write GTIN, MPN, and brand metafields back to your products
           via the GTIN/MPN/Brand Auto-Filler. We never modify product titles,
           descriptions, prices, inventory, or images.
         </li>
         <li>
-          <code>read_content</code> — read your shop's pages and blog content
+          <code>read_content</code>, read your shop's pages and blog content
           (e.g. About, Contact pages) to run the contact-information and
           business-identity-consistency checks.
         </li>
         <li>
-          <code>read_legal_policies</code> — read your published refund,
+          <code>read_legal_policies</code>, read your published refund,
           shipping, privacy, and terms policies to run policy-completeness
           checks.
         </li>
         <li>
-          <code>read_themes</code>, <code>write_themes</code> — read theme
+          <code>read_themes</code>, <code>write_themes</code>, read theme
           structure for the JSON-LD schema theme-app-extension and (Shield
           Max) install schema blocks. We do not modify theme template files
           beyond adding/removing our own app blocks.
         </li>
         <li>
-          <code>read_shipping</code>, <code>read_locations</code> — read
+          <code>read_shipping</code>, <code>read_locations</code>, read
           shipping zones and store locations to run the shipping-policy check
           and contact-information check.
         </li>
@@ -149,7 +149,7 @@ export default function Privacy() {
         </li>
         <li>
           <strong>Shop metadata.</strong> Domain, shop name, billing address
-          country, currency, primary locale — read from the Shopify Admin API
+          country, currency, primary locale, read from the Shopify Admin API
           at scan time so we can run compliance checks against your store's
           configuration.
         </li>
@@ -169,7 +169,7 @@ export default function Privacy() {
         <li>
           <strong>Billing state.</strong> Plan tier, billing cycle, Shopify
           subscription identifier, subscription start time. We do not see or
-          store credit card details — Shopify handles all payment data via
+          store credit card details, Shopify handles all payment data via
           Shopify Managed Pricing.
         </li>
         <li>
@@ -201,8 +201,8 @@ export default function Privacy() {
           When a storefront visitor or AI crawler requests{" "}
           <code>/apps/llms-txt</code>, we log the request's User-Agent, the
           identified crawler name (if recognised), and a privacy-preserving
-          IP hash. The IP is truncated before hashing — for IPv4 we drop the
-          last octet, for IPv6 we drop the last 64 bits — so the hash
+          IP hash. The IP is truncated before hashing, for IPv4 we drop the
+          last octet, for IPv6 we drop the last 64 bits, so the hash
           identifies a /24 or /64 network rather than a specific household.
           We never receive the visitor's name, email, or any identifying
           information beyond what their browser sends in HTTP headers.
@@ -230,7 +230,7 @@ export default function Privacy() {
           returned beyond the database row that stores the generated artifact.
         </li>
         <li>
-          Run the GTIN/MPN/Brand Auto-Filler (paid plan) — write
+          Run the GTIN/MPN/Brand Auto-Filler (paid plan), write
           identifier metafields back to your products to satisfy Google
           Merchant Center's identifier requirements.
         </li>
@@ -257,28 +257,28 @@ export default function Privacy() {
       </p>
       <ul>
         <li>
-          <strong>Supabase</strong> — primary database (PostgreSQL). All scan
+          <strong>Supabase</strong>, primary database (PostgreSQL). All scan
           results, billing state, and encrypted OAuth tokens live here.
         </li>
         <li>
-          <strong>Vercel</strong> — application hosting and Cron job execution.
+          <strong>Vercel</strong>, application hosting and Cron job execution.
         </li>
         <li>
-          <strong>Anthropic</strong> — Claude API for AI policy generation and
+          <strong>Anthropic</strong>, Claude API for AI policy generation and
           appeal letter drafting. Inputs you provide for these features are
           sent to Anthropic for inference.
         </li>
         <li>
-          <strong>Resend</strong> — transactional email delivery for the
+          <strong>Resend</strong>, transactional email delivery for the
           weekly health digest.
         </li>
         <li>
-          <strong>Google PageSpeed Insights</strong> — public storefront URLs
+          <strong>Google PageSpeed Insights</strong>, public storefront URLs
           are submitted to Google's PageSpeed API as part of compliance check
           #9. No private store data is sent.
         </li>
         <li>
-          <strong>Shopify</strong> — for billing, webhooks, and the Admin API
+          <strong>Shopify</strong>, for billing, webhooks, and the Admin API
           calls that drive the scanner.
         </li>
       </ul>
@@ -326,7 +326,7 @@ export default function Privacy() {
           your store by emailing <a href="mailto:hello@shieldkit.app">hello@shieldkit.app</a>.
         </li>
         <li>
-          <strong>Deletion:</strong> uninstall the app — within 48 hours
+          <strong>Deletion:</strong> uninstall the app, within 48 hours
           everything is hard-deleted by the Shopify <code>shop/redact</code> webhook.
           You can also email us to request immediate deletion.
         </li>
@@ -350,7 +350,7 @@ export default function Privacy() {
         being written to the database. Database access uses Supabase's service
         role key, scoped server-side; the key never reaches the browser.
         Application traffic is HTTPS-only. We follow the principle of least
-        privilege when requesting Shopify API scopes — see your store's
+        privilege when requesting Shopify API scopes, see your store's
         Apps & sales channels page for the exact scopes ShieldKit requests.
       </p>
 

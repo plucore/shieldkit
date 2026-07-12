@@ -11,13 +11,13 @@ export const frontmatter = {
   ],
 };
 
-If your Shopify store is suspended from Google Merchant Center — or you're trying to make sure it never gets suspended in the first place — this is the checklist to work through. Each item describes what Google checks, how to verify it on your store, and the exact fix.
+If your Shopify store is suspended from Google Merchant Center, or you're trying to make sure it never gets suspended in the first place, this is the checklist to work through. Each item describes what Google checks, how to verify it on your store, and the exact fix.
 
 This checklist matches the 12 automated checks in [ShieldKit's compliance scanner](/scan), so if you'd rather have the diagnostic done for you, that's the one-click path. Either way: fix the criticals first.
 
 ## 1. Contact Information (Critical)
 
-**What Google checks:** that at least two of three [contact methods](/fix/missing-contact-information) are publicly visible — phone, email, physical street address.
+**What Google checks:** that at least two of three [contact methods](/fix/missing-contact-information) are publicly visible, phone, email, physical street address.
 
 **How to verify on your store:** open your `/pages/contact-us` and `/pages/about-us` in an incognito window. Both should display the actual contact details, not just a contact form. PO boxes and gmail/outlook addresses don't count toward the threshold.
 
@@ -25,17 +25,17 @@ This checklist matches the 12 automated checks in [ShieldKit's compliance scanne
 
 ## 2. Refund / Return Policy (Critical)
 
-**What Google checks:** that you have a [published refund policy](/fix/missing-refund-policy), and that the policy contains three signals — return window, item condition, refund method.
+**What Google checks:** that you have a [published refund policy](/fix/missing-refund-policy), and that the policy contains three signals, return window, item condition, refund method.
 
 **How to verify on your store:** visit `/policies/refund-policy`. The page should specify (a) how long shoppers have to return ("within 30 days"), (b) what condition the item must be in ("unworn, with tags, in original packaging"), and (c) how the refund is issued ("to the original payment method").
 
-**Fix:** Shopify Admin → Settings → Policies → Refund Policy → "Create from template." Replace the merchant-specific placeholders with your actual return window and conditions. Don't delete sections — Google looks for them.
+**Fix:** Shopify Admin → Settings → Policies → Refund Policy → "Create from template." Replace the merchant-specific placeholders with your actual return window and conditions. Don't delete sections, Google looks for them.
 
 ## 3. Shipping Policy (Critical)
 
 **What Google checks:** that delivery timeframes and [shipping costs are explicitly stated](/fix/missing-shipping-policy).
 
-**How to verify on your store:** visit `/policies/shipping-policy`. The page should mention something like "orders ship within 1–2 business days" and "free shipping over $50, $5.99 flat rate otherwise." Vague language ("we ship most orders quickly") fails.
+**How to verify on your store:** visit `/policies/shipping-policy`. The page should mention something like "orders ship within 1-2 business days" and "free shipping over $50, $5.99 flat rate otherwise." Vague language ("we ship most orders quickly") fails.
 
 **Fix:** Shopify Admin → Settings → Policies → Shipping Policy. Add explicit timeframes and a costs table.
 
@@ -53,7 +53,7 @@ This checklist matches the 12 automated checks in [ShieldKit's compliance scanne
 
 **How to verify on your store:** browse 10 random products. For each, check description length (200+ characters minimum), at least one image, a non-zero non-absurd price, and a SKU.
 
-**Fix:** Shopify Admin → Products. For products with thin descriptions, add 2–3 paragraphs describing materials, care, dimensions. For products with missing images, upload them. For products with placeholder prices, set real ones.
+**Fix:** Shopify Admin → Products. For products with thin descriptions, add 2-3 paragraphs describing materials, care, dimensions. For products with missing images, upload them. For products with placeholder prices, set real ones.
 
 ## 6. Checkout Transparency (Warning)
 
@@ -77,7 +77,7 @@ This checklist matches the 12 automated checks in [ShieldKit's compliance scanne
 
 **How to verify on your store:** view-source on any product page, search for `application/ld+json`. The block should contain `"@type": "Product"` with all five required fields populated.
 
-**Fix:** Most Shopify themes inject Product JSON-LD automatically. If yours doesn't, install [ShieldKit's free JSON-LD theme block](https://apps.shopify.com/shieldkit) — it works on every plan and auto-populates the schema from product fields.
+**Fix:** Most Shopify themes inject Product JSON-LD automatically. If yours doesn't, install [ShieldKit's free JSON-LD theme block](https://apps.shopify.com/shieldkit), it works on every plan and auto-populates the schema from product fields.
 
 ## 9. Page Speed (Warning)
 
@@ -85,7 +85,7 @@ This checklist matches the 12 automated checks in [ShieldKit's compliance scanne
 
 **How to verify on your store:** run [pagespeed.web.dev](https://pagespeed.web.dev) against your store URL on the Mobile tab.
 
-**Fix:** Compress images to WebP (Shopify does this automatically if you re-upload). Lazy-load offscreen images. Audit installed apps — uninstall anything you're not actively using. Disable email-capture popups that appear on landing.
+**Fix:** Compress images to WebP (Shopify does this automatically if you re-upload). Lazy-load offscreen images. Audit installed apps, uninstall anything you're not actively using. Disable email-capture popups that appear on landing.
 
 ## 10. Business Identity Consistency (Info)
 
@@ -113,4 +113,4 @@ This checklist matches the 12 automated checks in [ShieldKit's compliance scanne
 
 ---
 
-After working through all twelve, document every fix with before-and-after screenshots. That documentation is the body of your Merchant Center re-review request — and reviewers move much faster when you give them the audit trail. For the deeper "why" behind each trigger, see the [GMC suspension explainer](/explainer).
+After working through all twelve, document every fix with before-and-after screenshots. That documentation is the body of your Merchant Center re-review request, and reviewers move much faster when you give them the audit trail. For the deeper "why" behind each trigger, see the [GMC suspension explainer](/explainer).

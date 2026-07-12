@@ -33,7 +33,7 @@ const HOMEPAGE_FAQ: { q: string; aPlain: string }[] = [
   {
     q: "How does the scan work?",
     aPlain:
-      "ShieldKit performs a read-only crawl of your storefront, your shop policies via the Shopify Admin API, and a sample of your product pages. We never make changes — only diagnose.",
+      "ShieldKit performs a read-only crawl of your storefront, your shop policies via the Shopify Admin API, and a sample of your product pages. We never make changes, only diagnose.",
   },
   {
     q: "Do you write anything to my store?",
@@ -43,16 +43,16 @@ const HOMEPAGE_FAQ: { q: string; aPlain: string }[] = [
   {
     q: "What does GMC misrepresentation actually mean?",
     aPlain:
-      "It's the most common cause of Google Merchant Center suspensions — Google believes your storefront is missing trust signals (contact info, policies, transparent pricing). Read the full explainer at /explainer.",
+      "It's the most common cause of Google Merchant Center suspensions, Google believes your storefront is missing trust signals (contact info, policies, transparent pricing). Read the full explainer at /explainer.",
   },
   {
     q: "How fast can I recover from a suspension?",
     aPlain:
-      "With clean fixes documented in your re-review request, most merchants are reinstated in 3–7 days. Repeat offenses or unclear fixes can extend that.",
+      "With clean fixes documented in your re-review request, most merchants are reinstated in 3-7 days. Repeat offenses or unclear fixes can extend that.",
   },
   {
     q: "Is the free plan really free?",
-    aPlain: "Yes — one free scan, no card required.",
+    aPlain: "Yes, one free scan, no card required.",
   },
   {
     q: "What do I get on the paid plan?",
@@ -75,7 +75,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
 export const meta: MetaFunction = () => {
   const title =
-    "ShieldKit — Fix Google Merchant Center Suspension on Shopify";
+    "ShieldKit, Fix Google Merchant Center Suspension on Shopify";
   const description =
     "12-point compliance audit + AI-powered policy generation for Shopify stores. Diagnose what Google flags, fix it fast, get back to selling.";
   const url = SITE.url + "/";
@@ -159,7 +159,7 @@ function Hero() {
             </MarketingButton>
           </div>
           <p className="mt-4 text-sm text-brand-gray-text">
-            No credit card. Read-only — we never write to your store. Or{" "}
+            No credit card. Read-only, we never write to your store. Or{" "}
             <a href="/fix" className="underline font-semibold text-brand-navy">
               browse 30+ specific fixes for common GMC errors
             </a>
@@ -231,12 +231,12 @@ function FeatureGrid() {
   const features = [
     {
       title: "12-Point Compliance Audit",
-      desc: "Automated scan against Google Merchant Center requirements — the same checks that decide whether your account stays live.",
+      desc: "Automated scan against Google Merchant Center requirements, the same checks that decide whether your account stays live.",
       icon: <IconShield />,
     },
     {
       title: "AI-Powered Policy Generation",
-      desc: "Refund, shipping, privacy, and terms drafted by Claude — tailored to your store and aligned with GMC requirements.",
+      desc: "Refund, shipping, privacy, and terms drafted by Claude, tailored to your store and aligned with GMC requirements.",
       icon: <IconSparkle />,
     },
     {
@@ -490,7 +490,7 @@ function FAQ() {
         <>
           ShieldKit performs a read-only crawl of your storefront, your shop
           policies via the Shopify Admin API, and a sample of your product
-          pages. We never make changes — only diagnose.
+          pages. We never make changes, only diagnose.
         </>
       ),
     },
@@ -508,7 +508,7 @@ function FAQ() {
       q: "What does GMC misrepresentation actually mean?",
       a: (
         <>
-          It's the most common cause of Google Merchant Center suspensions —
+          It's the most common cause of Google Merchant Center suspensions, 
           Google believes your storefront is missing trust signals (contact
           info, policies, transparent pricing).{" "}
           <a href="/explainer" className="underline">Read the full explainer</a>.
@@ -520,14 +520,14 @@ function FAQ() {
       a: (
         <>
           With clean fixes documented in your re-review request, most
-          merchants are reinstated in 3–7 days. Repeat offenses or unclear
+          merchants are reinstated in 3-7 days. Repeat offenses or unclear
           fixes can extend that.
         </>
       ),
     },
     {
       q: "Is the free plan really free?",
-      a: <>Yes — one free scan, no card required.</>,
+      a: <>Yes, one free scan, no card required.</>,
     },
     {
       q: "What do I get on the paid plan?",

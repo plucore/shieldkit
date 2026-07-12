@@ -1,5 +1,5 @@
 export const frontmatter = {
-  title: "Google Ads Counterfeit Policy on Shopify — Why GMC Is Fine but Ads Are Suspended",
+  title: "Google Ads Counterfeit Policy on Shopify, Why GMC Is Fine but Ads Are Suspended",
   slug: "google-ads-counterfeit-shopify",
   description:
     "Google Ads enforces counterfeit policy more aggressively than Google Merchant Center. Many Shopify merchants pass GMC review but still see Ads suspension. Here's the trigger gap and the recovery path.",
@@ -12,7 +12,7 @@ export const frontmatter = {
   ],
 };
 
-Google Ads and Google Merchant Center are two enforcement systems with different scope and different aggressiveness. GMC checks your feed and sampled product pages. Ads' [counterfeit-policy enforcement](/fix/counterfeit-goods) scans a wider surface — product titles, product descriptions, product images, old blog content, customer reviews, and even meta tags and image alt text. Many Shopify merchants clear GMC review cleanly and then [see their Google Ads account suspended for counterfeit anyway](/fix/google-ads-suspension), with no obvious reason because the suspension email is vague. The fix path is specific to each surface, and the appeal goes through Google Ads support (not Merchant Center support — they're separate systems). This post walks the six surfaces Ads policy scans and the recovery path.
+Google Ads and Google Merchant Center are two enforcement systems with different scope and different aggressiveness. GMC checks your feed and sampled product pages. Ads' [counterfeit-policy enforcement](/fix/counterfeit-goods) scans a wider surface, product titles, product descriptions, product images, old blog content, customer reviews, and even meta tags and image alt text. Many Shopify merchants clear GMC review cleanly and then [see their Google Ads account suspended for counterfeit anyway](/fix/google-ads-suspension), with no obvious reason because the suspension email is vague. The fix path is specific to each surface, and the appeal goes through Google Ads support (not Merchant Center support, they're separate systems). This post walks the six surfaces Ads policy scans and the recovery path.
 
 ## Why Ads stays suspended when GMC is fine
 
@@ -21,7 +21,7 @@ Two different enforcement systems with different scope:
 - **GMC's scope:** the product feed plus a sample of product landing pages. Reviews focus on price/availability accuracy and policy page presence.
 - **Google Ads' scope:** every page on your domain that the Ads crawler can index, plus historical content (cached blog posts, archived pages), plus every place a brand name might appear (titles, descriptions, alt text, meta tags, customer reviews).
 
-Ads also has stricter counterfeit policy. GMC will let through "Acme-style hoodies" if your refund policy and contact info are clean; Ads flags "Acme-style" as potentially counterfeit and suspends. The vagueness of the suspension email is intentional — Google doesn't want to give counterfeit operators a roadmap to evade detection.
+Ads also has stricter counterfeit policy. GMC will let through "Acme-style hoodies" if your refund policy and contact info are clean; Ads flags "Acme-style" as potentially counterfeit and suspends. The vagueness of the suspension email is intentional, Google doesn't want to give counterfeit operators a roadmap to evade detection.
 
 Common pattern: a store with branded resale products passes GMC product review (because the products are real and the policies are clean) but fails Ads policy review because some product titles contain [brand names you're not authorized to sell](/fix/account-suspension-counterfeit).
 
@@ -47,7 +47,7 @@ Brand names in titles without an authorized-reseller relationship. Even legitima
 
 **Audit:** export products CSV. Search the Title column for any brand names. Flag any not on your authorized-reseller list.
 
-**Fix:** remove the brand name from the title or add the authorization documentation in your Google Ads policy support form. For brands you don't have authorization for, remove from the catalog entirely — there's no compliant way to advertise them.
+**Fix:** remove the brand name from the title or add the authorization documentation in your Google Ads policy support form. For brands you don't have authorization for, remove from the catalog entirely, there's no compliant way to advertise them.
 
 ### Surface 2: Product images
 
@@ -71,7 +71,7 @@ Blog content from years ago that mentions "best dupes" or "alternatives to [bran
 
 **Audit:** site search for trigger words in blog content. Use Google's site-search operator: `site:yourstore.com "dupe"`, `site:yourstore.com "replica"`, `site:yourstore.com "alternative to"`.
 
-**Fix:** rewrite or unpublish the offending posts. Don't just delete — set up redirects so the URLs don't 404.
+**Fix:** rewrite or unpublish the offending posts. Don't just delete, set up redirects so the URLs don't 404.
 
 ### Surface 5: Customer reviews and testimonials
 
@@ -89,7 +89,7 @@ Brand names hidden in SEO fields. Common pattern: a developer added brand-name k
 
 **Fix:** remove brand-name keywords from meta tags, image alt text, and SEO fields. The clean rule: don't reference any brand name in metadata that you can't reference in customer-visible content.
 
-For automated detection of these patterns, ShieldKit's compliance scan flags brand-name patterns in product titles and dropshipper-CDN images — for the broader 6-surface audit, manual sweep is still the best approach.
+For automated detection of these patterns, ShieldKit's compliance scan flags brand-name patterns in product titles and dropshipper-CDN images, for the broader 6-surface audit, manual sweep is still the best approach.
 
 ## How to audit each surface
 
@@ -108,7 +108,7 @@ Different from the GMC appeal. Three differences:
 
 - **Submit through Google Ads support, not GMC.** The GMC appeal form doesn't reach the Ads policy team.
 - **Provide supplier invoices proving authentic sourcing.** For branded resale, this is the single most important piece of evidence.
-- **Identify exactly which products you reviewed and modified.** Same specificity rules as a GMC appeal — see [the appeal letter template](/blog/gmc-appeal-letter-template-shopify) for the structure.
+- **Identify exactly which products you reviewed and modified.** Same specificity rules as a GMC appeal, see [the appeal letter template](/blog/gmc-appeal-letter-template-shopify) for the structure.
 
 The format matches the GMC appeal closely (acknowledgment + specific changes + documentation + request), but go through Google Ads support: Help section in the Ads UI → "Contact us" → Policy → Counterfeit suspension. Ads support has its own queue and its own response time (usually 5-10 business days, faster than GMC).
 
@@ -121,7 +121,7 @@ Some brands and categories are flat-out unsellable on Google Ads without explici
 - **Major luxury fragrance brands.** Chanel, Dior, Tom Ford, Creed. Authorized retailer status with the brand directly is required.
 - **Watch brands.** Rolex, Omega, Patek Philippe, Audemars Piguet. The watch market is heavily monitored.
 - **Designer apparel.** Gucci, Louis Vuitton, Prada, Hermès. Even authorized resellers face additional verification.
-- **Branded electronics.** Apple, Samsung, Sony — for the actual branded SKUs (not accessories).
+- **Branded electronics.** Apple, Samsung, Sony, for the actual branded SKUs (not accessories).
 
 If you're selling in these categories without direct brand authorization, the cleanest move is removing those products entirely from your Google Ads campaigns. You can keep them on your storefront for organic traffic; just don't advertise them.
 
@@ -137,7 +137,7 @@ Fragrances, replica athletic wear, designer apparel, watches, jewelry, "compatib
 
 ### How do I get my Google Ads account reinstated after a counterfeit suspension?
 
-Audit all six surfaces (titles, images, descriptions, blog content, reviews, meta tags). Remove offending content. Submit an appeal through Google Ads support — not GMC support — with supplier invoices for any branded resale products.
+Audit all six surfaces (titles, images, descriptions, blog content, reviews, meta tags). Remove offending content. Submit an appeal through Google Ads support, not GMC support, with supplier invoices for any branded resale products.
 
 ### Can ShieldKit detect counterfeit-policy issues?
 
@@ -149,6 +149,6 @@ Yes, and aggressively. Dropshipped products are higher-risk for counterfeit issu
 
 ### What if I have authorization but Google still suspends?
 
-Submit the authorization documentation through the Ads appeal form. Authorization confirmation usually takes one or two appeal cycles to process — be patient and provide evidence each time.
+Submit the authorization documentation through the Ads appeal form. Authorization confirmation usually takes one or two appeal cycles to process, be patient and provide evidence each time.
 
 For Google's official Ads counterfeit policy text, see [Google Ads counterfeit goods policy](https://support.google.com/adspolicy/answer/176017). For Shopify's product content guidelines, see [Shopify's acceptable use policy](https://www.shopify.com/legal/aup).

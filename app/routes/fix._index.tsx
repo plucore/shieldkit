@@ -36,9 +36,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 export const meta: MetaFunction = () => {
   const title =
-    "Shopify Google Merchant Center Errors — Fix Library | ShieldKit";
+    "Shopify Google Merchant Center Errors, Fix Library | ShieldKit";
   const description =
-    "Step-by-step fixes for every Google Merchant Center error on Shopify — missing GTIN, untrustworthy promotions, hidden fees, account suspensions, and 26 more.";
+    "Step-by-step fixes for every Google Merchant Center error on Shopify, missing GTIN, untrustworthy promotions, hidden fees, account suspensions, and 26 more.";
   const url = SITE.url + "/fix";
   return [
     { title },
@@ -98,7 +98,7 @@ const CATEGORIES: Category[] = [
   {
     title: "Image issues",
     intro:
-      "Disapprovals tied to product imagery — hot-linked supplier images, sale overlays, or title quality flags that ride alongside image checks.",
+      "Disapprovals tied to product imagery, hot-linked supplier images, sale overlays, or title quality flags that ride alongside image checks.",
     slugs: [
       "dropshipping-cdn-images",
       "promotional-overlay-image",
@@ -133,7 +133,7 @@ const CATEGORIES: Category[] = [
   {
     title: "Restricted & prohibited",
     intro:
-      "Category-specific bans and counterfeit flags. The hardest suspensions to appeal — fixes require either documentation or removing the affected products.",
+      "Category-specific bans and counterfeit flags. The hardest suspensions to appeal, fixes require either documentation or removing the affected products.",
     slugs: ["counterfeit-goods", "restricted-product"],
   },
   {
@@ -205,7 +205,7 @@ export default function FixIndex() {
           </h1>
           <p className="mt-5 text-lg text-brand-gray-text">
             {FIXES.length} step-by-step fixes for the specific errors Google
-            Merchant Center surfaces on Shopify stores — from missing GTINs to
+            Merchant Center surfaces on Shopify stores, from missing GTINs to
             account-level suspensions. Every page lists Google's exact error
             text, the cause, and the fix.
           </p>

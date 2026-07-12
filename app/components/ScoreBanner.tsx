@@ -57,7 +57,7 @@ export default function ScoreBanner({
                 color: score === null ? "var(--p-color-text, #303030)" : scoreColor(score),
               }}
             >
-              {score !== null ? `${score}%` : "—"}
+              {score !== null ? `${score}%` : ", "}
             </div>
             <div
               style={{
@@ -108,7 +108,7 @@ export default function ScoreBanner({
           {/* v4 §8 — ongoing-value reassurance line for paid merchants whose
               latest scan is clean (score ≥ 80, no critical AND no warning
               issues). Reframes the "fixed" moment as continuous protection
-              rather than a done job — reduces the post-fix cancellation reflex.
+              rather than a done job, reduces the post-fix cancellation reflex.
               Warnings must be zero too: several checks are now WARNING (not
               CRITICAL), so gating on critical_count alone would assert "clean"
               while real warnings remain (mirrors SecurityStatusAside). */}

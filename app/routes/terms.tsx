@@ -17,9 +17,9 @@ export const headers: HeadersFunction = () => ({
 });
 
 export const meta = () => {
-  const title = "Terms of Service — ShieldKit";
+  const title = "Terms of Service, ShieldKit";
   const description =
-    "Terms of service for the ShieldKit Shopify app — eligibility, billing, acceptable use, and warranties.";
+    "Terms of service for the ShieldKit Shopify app, eligibility, billing, acceptable use, and warranties.";
   const url = SITE.url + "/terms";
   return [
     { title },
@@ -56,7 +56,7 @@ export default function Terms() {
       <p>
         Welcome to ShieldKit. By installing the ShieldKit Shopify app on your
         store, you agree to these terms. If you don't agree, uninstall the
-        app — that's the cleanest way to opt out.
+        app, that's the cleanest way to opt out.
       </p>
 
       <h2 style={{ fontSize: "22px", fontWeight: 700, margin: "32px 0 12px" }}>
@@ -77,7 +77,7 @@ export default function Terms() {
       <p>
         You must be the merchant of record for the Shopify store you install
         ShieldKit on, or have explicit authorisation from that merchant.
-        ShieldKit is for legitimate businesses only — no use with stores
+        ShieldKit is for legitimate businesses only, no use with stores
         engaged in fraud, illegal goods, or other policy violations.
       </p>
 
@@ -86,12 +86,12 @@ export default function Terms() {
       </h2>
       <ul>
         <li>
-          <strong>Free</strong> — one compliance scan, granted at install and
+          <strong>Free</strong>, one compliance scan, granted at install and
           not refilled, plus the JSON-LD theme extension, plus fix instructions
           for surfaced findings.
         </li>
         <li>
-          <strong>Monitoring</strong> — billed monthly or annually at the
+          <strong>Monitoring</strong>, billed monthly or annually at the
           price shown on the Shopify plan selection page. The single paid tier. Unlocks unlimited on-demand compliance scans,
           AI-written store policies (refund, shipping, privacy, terms), the
           GMC re-review appeal letter generator, bulk GTIN / MPN / brand
@@ -129,7 +129,7 @@ export default function Terms() {
       </h2>
       <p>
         Several ShieldKit features use Anthropic's Claude API to generate
-        text — store policies, GMC appeal letters, and other drafts. AI
+        text, store policies, GMC appeal letters, and other drafts. AI
         outputs are starting points, not finished legal documents.
       </p>
       <ul>
@@ -188,7 +188,7 @@ export default function Terms() {
       <ul>
         <li>Reverse-engineer, scrape, or attempt to extract the source code or scan logic.</li>
         <li>Use ShieldKit to scan stores you don't own or aren't authorised to administer.</li>
-        <li>Abuse the scanner — for example, automated rapid re-scans designed to overwhelm rate limits.</li>
+        <li>Abuse the scanner, for example, automated rapid re-scans designed to overwhelm rate limits.</li>
         <li>Use the AI features to generate content that violates Shopify's or Google's policies.</li>
         <li>Attempt to bypass the plan tier (e.g. modifying client-side state to access paid features without subscribing).</li>
       </ul>

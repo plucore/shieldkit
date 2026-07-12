@@ -12,6 +12,7 @@ import type AnthropicClient from "@anthropic-ai/sdk";
 import sanitizeHtml from "sanitize-html";
 import type { ShopInfo } from "./shopify-api.server";
 import { sentry } from "./sentry.server";
+import { normalizeDashes } from "./text-normalize";
 
 // Lazily import + construct the Anthropic client on first use. A static
 // top-level import pulls the sizeable @anthropic-ai/sdk into the single server
@@ -161,7 +162,8 @@ export function buildPolicySystemPrompt(
     "- Output valid HTML suitable for Shopify's legal policy editor",
     "- Output ONLY the raw HTML — do NOT wrap it in a Markdown code fence (no ```html)",
     "- Use <h2>, <p>, <ul>, <li> tags for structure",
-    `- Be specific and substantive — no placeholder text, except the contact placeholder "${CONTACT_PLACEHOLDER}" when and only when no contact email is on file`,
+    "- Do NOT use em dashes (—) or en dashes (–). Use commas, periods, or parentheses to separate clauses, and a plain hyphen (-) for ranges (e.g. 1-3 business days)",
+    `- Be specific and substantive, no placeholder text, except the contact placeholder "${CONTACT_PLACEHOLDER}" when and only when no contact email is on file`,
     "- Include all sections that Google Merchant Center expects for compliance",
     "- Use the store name and currency throughout",
     "- Write in clear, professional English",
@@ -242,13 +244,16 @@ export async function generatePolicy(
   // Vercel's Rust-based Node runtime doesn't support require()-ing ESM modules,
   // and jsdom's transitive dep tree triggers that error chain. The client still
   // runs DOMPurify before rendering as a second layer.
-  const body = sanitizeHtml(rawBody, {
-    allowedTags: sanitizeHtml.defaults.allowedTags.concat(["h1", "h2"]),
-    allowedAttributes: {
-      ...sanitizeHtml.defaults.allowedAttributes,
-      "*": ["class", "id"],
-    },
-  });
+  // normalizeDashes strips em/en dashes the model uses despite the prompt rule.
+  const body = normalizeDashes(
+    sanitizeHtml(rawBody, {
+      allowedTags: sanitizeHtml.defaults.allowedTags.concat(["h1", "h2"]),
+      allowedAttributes: {
+        ...sanitizeHtml.defaults.allowedAttributes,
+        "*": ["class", "id"],
+      },
+    }),
+  );
 
   return {
     type,

@@ -1,5 +1,5 @@
 export const frontmatter = {
-  title: "Shopify Product Variants Not Matching Google Feed — Full Diagnostic and Fix",
+  title: "Shopify Product Variants Not Matching Google Feed, Full Diagnostic and Fix",
   slug: "shopify-variants-not-matching-google-feed",
   description:
     "When variants in Shopify don't match what Google receives, you get item-level disapprovals across your catalog. Here's the diagnostic for variant mismatch and the fix in 2026.",
@@ -12,7 +12,7 @@ export const frontmatter = {
   ],
 };
 
-[Variant mismatches between Shopify and Google](/fix/variants-not-matching-feed) produce item-level disapprovals that scatter across your catalog — five products here, twelve products there, no obvious pattern from the GMC dashboard. Five specific issues cause 90% of these: variant prices that differ from the feed price, variant inventory inconsistencies between feed and live page, variant identifiers (GTIN/MPN) that exist at the product level but not the variant level, size attribute naming that doesn't match Google's expected taxonomy, and color attribute spellings that differ across variants of the same product. The fix is per-issue but the diagnostic flow is the same: filter GMC item issues by the affected SKU, cross-check Shopify's [feed XML against the live variant page](/fix/feed-not-matching-website), and fix at the variant level (not the product level).
+[Variant mismatches between Shopify and Google](/fix/variants-not-matching-feed) produce item-level disapprovals that scatter across your catalog, five products here, twelve products there, no obvious pattern from the GMC dashboard. Five specific issues cause 90% of these: variant prices that differ from the feed price, variant inventory inconsistencies between feed and live page, variant identifiers (GTIN/MPN) that exist at the product level but not the variant level, size attribute naming that doesn't match Google's expected taxonomy, and color attribute spellings that differ across variants of the same product. The fix is per-issue but the diagnostic flow is the same: filter GMC item issues by the affected SKU, cross-check Shopify's [feed XML against the live variant page](/fix/feed-not-matching-website), and fix at the variant level (not the product level).
 
 This post is the diagnostic flow and the per-issue fix.
 
@@ -33,7 +33,7 @@ In rough order of frequency.
 
 ### Issue 1: Variant prices differ from feed price
 
-Each Shopify variant has its own price. The Google channel app pushes that variant price to the feed. If the variant price is different from the product's "default" price (e.g., a "size XXL" upcharge), the feed shows the variant-specific price — but if the live product page shows the default price unless the customer selects the variant, the [mismatch is real](/fix/price-mismatch).
+Each Shopify variant has its own price. The Google channel app pushes that variant price to the feed. If the variant price is different from the product's "default" price (e.g., a "size XXL" upcharge), the feed shows the variant-specific price, but if the live product page shows the default price unless the customer selects the variant, the [mismatch is real](/fix/price-mismatch).
 
 **Detection:** open the product page. Note the displayed price. Click through to the XXL variant. If the price changes visibly, that's normal. If the page price doesn't update when the variant is selected (theme bug), the price the customer sees is stale.
 
@@ -53,7 +53,7 @@ Common pattern: a merchant sets the [GTIN](/fix/missing-gtin) and MPN at the pro
 
 **Detection:** Shopify Admin → [Product] → Variants → click any variant → check the Barcode (GTIN) field. If empty across variants but populated at product level, you have the issue.
 
-**Fix:** populate variant-level Barcode fields. For most stores, every variant has its own GTIN at the manufacturer level (each size has a different UPC). Bulk via CSV or Matrixify — see [why "missing GTIN" shows on your Shopify Google channel](/blog/missing-gtin-shopify-fix) for the GTIN bulk-edit walkthrough. For products that genuinely have no variant-level identifiers (your own private label), set `identifier_exists=false` per variant rather than per product.
+**Fix:** populate variant-level Barcode fields. For most stores, every variant has its own GTIN at the manufacturer level (each size has a different UPC). Bulk via CSV or Matrixify, see [why "missing GTIN" shows on your Shopify Google channel](/blog/missing-gtin-shopify-fix) for the GTIN bulk-edit walkthrough. For products that genuinely have no variant-level identifiers (your own private label), set `identifier_exists=false` per variant rather than per product.
 
 ### Issue 4: Size attribute uses store-specific naming
 
@@ -75,7 +75,7 @@ A product has variants in "Navy," "Navy Blue," and "navy blue" (different produc
 
 Three steps:
 
-**Step 1: GMC Diagnostics → Item issues filter.** Filter by error type — "Price mismatch," "Availability mismatch," "Missing identifier," "Size attribute," "Color attribute." The filter narrows down to specific affected variants.
+**Step 1: GMC Diagnostics → Item issues filter.** Filter by error type, "Price mismatch," "Availability mismatch," "Missing identifier," "Size attribute," "Color attribute." The filter narrows down to specific affected variants.
 
 **Step 2: Cross-check feed XML output vs live variant page.** Shopify Admin → Sales channels → Google → Settings → "Preview feed" link (if available) shows the XML being sent to Google. Compare a flagged variant's feed entry against the live product page state when the variant is selected.
 
@@ -105,7 +105,7 @@ Three approaches:
 
 A pattern worth knowing about: variant errors on a Shopify store sometimes appear because the theme's variant selector itself doesn't update the page state correctly. The customer selects "Size M, Color Navy," but the URL doesn't update, the JSON-LD doesn't update, and Google's crawler sees the default variant (usually the first one) regardless of selection.
 
-**Detection:** open a product page. Right-click → View page source. Note the variant data in the JSON-LD or the page meta. Click to a different variant. View source again. If the source didn't change, your theme isn't updating the page on variant selection — and Google's crawler is seeing one variant always.
+**Detection:** open a product page. Right-click → View page source. Note the variant data in the JSON-LD or the page meta. Click to a different variant. View source again. If the source didn't change, your theme isn't updating the page on variant selection, and Google's crawler is seeing one variant always.
 
 **Fix:** the theme update isn't trivial. Most modern themes handle this correctly; older themes don't. Either upgrade the theme or have a developer add proper variant-state management.
 
@@ -137,4 +137,4 @@ Inventory app lag. Shopify's native inventory updates the feed within minutes; t
 
 Shopify's Bulk Editor handles variant prices for up to 50 variants at a time. For larger catalogs, use Matrixify's variant CSV export and re-import.
 
-For Google's official variant attribute documentation, see [Google's product data specification — variants](https://support.google.com/merchants/answer/6324507). For Shopify's variant documentation, see [Shopify's product variants help](https://help.shopify.com/en/manual/products/variants).
+For Google's official variant attribute documentation, see [Google's product data specification, variants](https://support.google.com/merchants/answer/6324507). For Shopify's variant documentation, see [Shopify's product variants help](https://help.shopify.com/en/manual/products/variants).

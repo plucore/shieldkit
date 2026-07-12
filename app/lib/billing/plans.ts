@@ -269,7 +269,7 @@ export const PAID_TIERS: readonly Tier[] = [
  * prompts, anywhere a feature list per plan needs to appear.
  */
 export const PAID_FEATURES: readonly string[] = [
-  "Unlimited store scans — re-check anytime",
+  "Unlimited store scans, re-check anytime",
   "Store policies written for you (refund, shipping, privacy, terms)",
   "Appeal letters to help lift a Google suspension",
   "Auto-fill the product IDs Google requires",

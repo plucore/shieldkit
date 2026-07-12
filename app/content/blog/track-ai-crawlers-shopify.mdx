@@ -12,7 +12,7 @@ export const frontmatter = {
   ],
 };
 
-AI crawler visits are the single best leading indicator of AI search visibility. When GPTBot, ClaudeBot, OAI-SearchBot, or PerplexityBot fetch your Shopify store, they're building the index that decides whether your products surface in ChatGPT, Claude, or Perplexity answers a few weeks later. The catch: standard Shopify analytics and Google Analytics 4 both filter these visits out by default. They show up as bot traffic and get hidden. Tracking them requires either server-side logging, Cloudflare bot analytics, or a specialized tool. Without it you're flying blind on the most important AI signal — and you'll find out about a sudden visibility drop weeks after it happens instead of the day it starts.
+AI crawler visits are the single best leading indicator of AI search visibility. When GPTBot, ClaudeBot, OAI-SearchBot, or PerplexityBot fetch your Shopify store, they're building the index that decides whether your products surface in ChatGPT, Claude, or Perplexity answers a few weeks later. The catch: standard Shopify analytics and Google Analytics 4 both filter these visits out by default. They show up as bot traffic and get hidden. Tracking them requires either server-side logging, Cloudflare bot analytics, or a specialized tool. Without it you're flying blind on the most important AI signal, and you'll find out about a sudden visibility drop weeks after it happens instead of the day it starts.
 
 This post breaks down which crawlers to watch, why standard analytics misses them, and three ways to surface the data.
 
@@ -21,7 +21,7 @@ This post breaks down which crawlers to watch, why standard analytics misses the
 Three reasons:
 
 - **Leading indicator of citation odds.** A page GPTBot fetches frequently is a page ChatGPT is more likely to cite. A page ClaudeBot fetches frequently is a page Claude is more likely to surface. Crawler frequency precedes citation frequency by 2-6 weeks.
-- **Detect when AI engines stop paying attention.** A sudden drop in crawler visits is the earliest sign of a problem — robots.txt change, server issue, policy violation, or a deindex action. By the time it shows up in conversion tracking it's already weeks old.
+- **Detect when AI engines stop paying attention.** A sudden drop in crawler visits is the earliest sign of a problem, robots.txt change, server issue, policy violation, or a deindex action. By the time it shows up in conversion tracking it's already weeks old.
 - **Validate that schema and llms.txt actually work.** You added JSON-LD merchant listings extensions and an llms.txt file. Did anything notice? Crawler visits to those URLs (and to product pages with new schema) tell you yes or no.
 
 Tracking AI crawlers is what turns AI search optimization from faith-based to data-backed.
@@ -30,7 +30,7 @@ Tracking AI crawlers is what turns AI search optimization from faith-based to da
 
 Three reasons:
 
-- **GA4 default bot filtering.** Google Analytics filters out known bot traffic by default — including GPTBot, ClaudeBot, and PerplexityBot. The data never reaches your reports. Disabling bot filtering surfaces them but also surfaces a lot of garbage traffic.
+- **GA4 default bot filtering.** Google Analytics filters out known bot traffic by default, including GPTBot, ClaudeBot, and PerplexityBot. The data never reaches your reports. Disabling bot filtering surfaces them but also surfaces a lot of garbage traffic.
 - **Shopify analytics is human-focused.** Shopify's built-in analytics is built for measuring shopper behavior, not crawler activity. Bots don't appear in session data, page views, or any standard report.
 - **JavaScript-based trackers don't see headless crawlers.** GPTBot, ClaudeBot, and most AI crawlers fetch pages without executing JavaScript. Anything that requires JS to fire (GA4, most analytics platforms) misses these visits entirely.
 
@@ -41,39 +41,39 @@ The only ground truth is server logs (or a CDN that logs raw requests). Everythi
 Group by company:
 
 **OpenAI:**
-- `GPTBot` — training crawler
-- `ChatGPT-User` — real-time fetch when a ChatGPT user asks about your store
-- `OAI-SearchBot` — ChatGPT Search results crawler
+- `GPTBot`, training crawler
+- `ChatGPT-User`, real-time fetch when a ChatGPT user asks about your store
+- `OAI-SearchBot`, ChatGPT Search results crawler
 
 **Anthropic:**
-- `ClaudeBot` — primary crawler for Claude
-- `anthropic-ai` — legacy / alternative user-agent string
+- `ClaudeBot`, primary crawler for Claude
+- `anthropic-ai`, legacy / alternative user-agent string
 
 **Google:**
-- `Google-Extended` — Bard/Gemini training crawler (distinct from Googlebot)
-- `Googlebot` — classic search crawler (also informs AI Overviews)
+- `Google-Extended`, Bard/Gemini training crawler (distinct from Googlebot)
+- `Googlebot`, classic search crawler (also informs AI Overviews)
 
 **Perplexity:**
-- `PerplexityBot` — primary crawler for Perplexity Shopping and Search
+- `PerplexityBot`, primary crawler for Perplexity Shopping and Search
 
 **Common Crawl and other model trainers:**
-- `CCBot` — Common Crawl, used by many open-source and commercial model trainers
+- `CCBot`, Common Crawl, used by many open-source and commercial model trainers
 
 **Other notable:**
-- `Bytespider` — ByteDance / TikTok
-- `Applebot` and `Applebot-Extended` — Apple's intelligence systems
-- `Amazonbot` — Amazon
-- `MistralAI-User` — Mistral
-- `cohere-ai` — Cohere
-- `Diffbot` — Diffbot's web extraction
-- `YouBot` — You.com
-- `Meta-ExternalAgent` — Meta AI
+- `Bytespider`, ByteDance / TikTok
+- `Applebot` and `Applebot-Extended`, Apple's intelligence systems
+- `Amazonbot`, Amazon
+- `MistralAI-User`, Mistral
+- `cohere-ai`, Cohere
+- `Diffbot`, Diffbot's web extraction
+- `YouBot`, You.com
+- `Meta-ExternalAgent`, Meta AI
 
 The list updates quarterly as new agents emerge. Track the top 5-7 (OpenAI's three plus ClaudeBot, Google-Extended, PerplexityBot, CCBot) at minimum.
 
 ## Three ways to track AI crawler visits
 
-**Method 1: Server logs (raw, complete, technical).** If your hosting gives you access to access logs, every request including User-Agent strings is recorded. Filter by User-Agent containing `GPTBot`, `ClaudeBot`, etc. Aggregate weekly. This is the most complete data source — every fetch is captured — but it requires log access (which Shopify doesn't natively provide for storefront traffic) and tooling to parse.
+**Method 1: Server logs (raw, complete, technical).** If your hosting gives you access to access logs, every request including User-Agent strings is recorded. Filter by User-Agent containing `GPTBot`, `ClaudeBot`, etc. Aggregate weekly. This is the most complete data source, every fetch is captured, but it requires log access (which Shopify doesn't natively provide for storefront traffic) and tooling to parse.
 
 For Shopify-hosted stores, the storefront access logs aren't exposed. Workarounds: route traffic through Cloudflare or a similar reverse proxy that does expose logs.
 
@@ -81,7 +81,7 @@ For Shopify-hosted stores, the storefront access logs aren't exposed. Workaround
 
 This is the cleanest path for most Shopify stores. Set up Cloudflare in front of your domain, enable analytics, monitor weekly.
 
-**Method 3: A specialized tool.** Tools that combine raw bot detection with AI-search-specific reporting — visibility scores, week-over-week deltas, crawler diversity. ShieldKit's AI visibility tracking (Shield Max tier) is one option; others include Diffbot's analytics and a handful of new entrants in the AI SEO space. The advantage: pre-built dashboards instead of rolling your own log parser.
+**Method 3: A specialized tool.** Tools that combine raw bot detection with AI-search-specific reporting, visibility scores, week-over-week deltas, crawler diversity. ShieldKit's AI visibility tracking (Shield Max tier) is one option; others include Diffbot's analytics and a handful of new entrants in the AI SEO space. The advantage: pre-built dashboards instead of rolling your own log parser.
 
 ## What the data tells you
 
@@ -105,13 +105,13 @@ Three patterns of action:
 Four patterns to avoid:
 
 - **Blocking AI crawlers in robots.txt.** Some stores added blocks during the 2024-2025 "should AI train on us" debate and never reverted. Each block kills visibility for that crawler. Audit robots.txt and remove blocks unless you have a specific reason.
-- **Treating all bot traffic as spam.** A spike in unfamiliar bot user-agents isn't necessarily attack traffic — it's often a new AI crawler. Investigate before blocking.
+- **Treating all bot traffic as spam.** A spike in unfamiliar bot user-agents isn't necessarily attack traffic, it's often a new AI crawler. Investigate before blocking.
 - **Not separating AI crawlers from SEO crawlers.** Googlebot and AhrefsBot have different purposes than GPTBot. Bucket them in your analytics so you can see AI-specific trends.
 - **Watching only one crawler.** GPTBot frequency is one signal. Diversity across GPTBot, ClaudeBot, PerplexityBot, and CCBot is a better signal. A store crawled by only one engine has fragile visibility.
 
 For ensuring AI crawlers actually have a clean path to your content, see [what llms.txt is and how to add it to your Shopify store](/blog/llms-txt-shopify-guide). For the underlying schema that drives citations once crawlers do visit, see [JSON-LD vs llms.txt for Shopify](/blog/json-ld-vs-llms-txt-shopify) and [how to optimize Shopify product pages for Google AI Overviews](/blog/ai-overviews-shopify-product-pages). For ChatGPT-specific visibility checks, see [will my Shopify store appear in ChatGPT Shopping](/blog/chatgpt-shopping-shopify-visibility).
 
-If you're starting from scratch on AI search readiness, the [free compliance scan](/scan) flags the upstream issues — robots.txt blocks, schema gaps, llms.txt missing — that determine whether AI crawlers can do their job in the first place.
+If you're starting from scratch on AI search readiness, the [free compliance scan](/scan) flags the upstream issues, robots.txt blocks, schema gaps, llms.txt missing, that determine whether AI crawlers can do their job in the first place.
 
 ## FAQ
 

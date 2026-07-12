@@ -63,7 +63,7 @@ export default function AuditChecklist({
             color: "#0f172a",
           }}
         >
-          12-Point GMC Compliance Audit — {truePassedCount} / {totalChecks} passed
+          12-Point GMC Compliance Audit, {truePassedCount} / {totalChecks} passed
         </div>
         <button
           onClick={onToggleExpand}
@@ -197,7 +197,7 @@ export default function AuditChecklist({
                         ? PRO_POLICY_FIX
                         : check.fix_instruction
                           ? check.fix_instruction
-                          : "Detailed remediation copy coming soon — check back after your next scan."}
+                          : "Detailed remediation copy coming soon, check back after your next scan."}
                     </div>
                   )}
                 </div>

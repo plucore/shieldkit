@@ -131,7 +131,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         ok: false,
         error:
           (error.message ?? "").includes("pro_settings")
-            ? "The pro_settings column hasn't been added yet — apply the pending SQL ALTER first."
+            ? "The pro_settings column hasn't been added yet, apply the pending SQL ALTER first."
             : error.message,
       },
       { status: 500 },
@@ -145,7 +145,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
 function buildSnippet(prefs: BotPrefs): string {
   const lines: string[] = [];
-  lines.push("# ShieldKit AI bot rules — generated " + new Date().toISOString().slice(0, 10));
+  lines.push("# ShieldKit AI bot rules, generated " + new Date().toISOString().slice(0, 10));
   lines.push("");
   for (const bot of BOTS) {
     const pref = prefs[bot.id] ?? "allow";

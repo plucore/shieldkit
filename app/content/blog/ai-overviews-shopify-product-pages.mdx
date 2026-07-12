@@ -12,13 +12,13 @@ export const frontmatter = {
   ],
 };
 
-Google AI Overviews now appear on roughly 40% of US searches and they sit above the classic blue links — meaning a product cited in an AI Overview gets seen before any organic result, including position #1. The factors that drive AI Overview citations are different from classic SEO ranking factors. AI Overviews favor: complete Product JSON-LD with all merchant listing extensions, factual product descriptions, FAQ schema, fast Core Web Vitals, and external authority signals (reviews, mentions). Shopify ships maybe 30% of this out of the box. The remaining 70% is theme-level work that pays back in AI citations the moment Google's index catches up.
+Google AI Overviews now appear on roughly 40% of US searches and they sit above the classic blue links, meaning a product cited in an AI Overview gets seen before any organic result, including position #1. The factors that drive AI Overview citations are different from classic SEO ranking factors. AI Overviews favor: complete Product JSON-LD with all merchant listing extensions, factual product descriptions, FAQ schema, fast Core Web Vitals, and external authority signals (reviews, mentions). Shopify ships maybe 30% of this out of the box. The remaining 70% is theme-level work that pays back in AI citations the moment Google's index catches up.
 
-This post is the optimization checklist — eight specific factors, in priority order, with how to add each to a Shopify product page.
+This post is the optimization checklist, eight specific factors, in priority order, with how to add each to a Shopify product page.
 
 ## What AI Overviews are and how they work
 
-AI Overviews are Google's generative answer at the top of search results. Behind the scenes they use retrieval-augmented generation: the AI fetches relevant pages from Google's index, reads them, then synthesizes a citation-attributed answer. For commerce queries — "best wool socks under $50," "most reliable noise-canceling headphones," "where can I buy [product]" — AI Overviews now appear on roughly 40% of US searches.
+AI Overviews are Google's generative answer at the top of search results. Behind the scenes they use retrieval-augmented generation: the AI fetches relevant pages from Google's index, reads them, then synthesizes a citation-attributed answer. For commerce queries, "best wool socks under $50," "most reliable noise-canceling headphones," "where can I buy [product]", AI Overviews now appear on roughly 40% of US searches.
 
 Citation in an AI Overview beats organic #1 for two reasons:
 
@@ -40,7 +40,7 @@ Required fields for AI Overview eligibility:
 - `aggregateRating` and `review` blocks where applicable
 - Merchant Listings extensions: `gtin`, `mpn`, `material`, `pattern`, `color`, `size`
 
-Most Shopify themes emit the basic Product schema but skip the Merchant Listings extensions. Adding them is high-leverage — a product without [`gtin`](/fix/missing-gtin), [`mpn`](/fix/missing-mpn), or [`brand`](/fix/missing-brand) doesn't get cited even when its description is perfect.
+Most Shopify themes emit the basic Product schema but skip the Merchant Listings extensions. Adding them is high-leverage, a product without [`gtin`](/fix/missing-gtin), [`mpn`](/fix/missing-mpn), or [`brand`](/fix/missing-brand) doesn't get cited even when its description is perfect.
 
 ### Factor 2: First-person, factual product descriptions
 
@@ -85,11 +85,11 @@ Implementation on Shopify: use a metafield app to add structured FAQ entries, or
 
 ### Factor 5: Author / Organization schema
 
-Establishes the brand identity behind the product. On the product page itself, this is `brand` inside `Product` schema. On the homepage, it's a separate `Organization` block — see [making your Shopify store visible in ChatGPT, Gemini, and Perplexity](/blog/shopify-store-ai-search-visible) for the homepage Organization + WebSite blocks.
+Establishes the brand identity behind the product. On the product page itself, this is `brand` inside `Product` schema. On the homepage, it's a separate `Organization` block, see [making your Shopify store visible in ChatGPT, Gemini, and Perplexity](/blog/shopify-store-ai-search-visible) for the homepage Organization + WebSite blocks.
 
 ### Factor 6: Page load speed (Core Web Vitals)
 
-AI Overviews disfavor slow pages. Target the Google-published thresholds: LCP under 2.5s, INP under 200ms, CLS under 0.1. Shopify themes vary widely — the default Dawn theme passes; some legacy themes don't. Run [PageSpeed Insights](https://pagespeed.web.dev/) on a product page and address whatever fails.
+AI Overviews disfavor slow pages. Target the Google-published thresholds: LCP under 2.5s, INP under 200ms, CLS under 0.1. Shopify themes vary widely, the default Dawn theme passes; some legacy themes don't. Run [PageSpeed Insights](https://pagespeed.web.dev/) on a product page and address whatever fails.
 
 ### Factor 7: Internal link depth
 
@@ -118,7 +118,7 @@ That's enough to be indexed but not enough to be cited.
 
 The gap between "indexed" and "cited" is where the work is:
 
-- **Custom theme block or app for full Product schema.** Including merchant listings extensions: GTIN, MPN, material, color, size. ShieldKit's free JSON-LD theme block emits the Merchant Listings extensions automatically from product metafields — drop into your product template, configure metafield mappings once, every product page is enriched.
+- **Custom theme block or app for full Product schema.** Including merchant listings extensions: GTIN, MPN, material, color, size. ShieldKit's free JSON-LD theme block emits the Merchant Listings extensions automatically from product metafields, drop into your product template, configure metafield mappings once, every product page is enriched.
 - **FAQ schema on product pages.** Via a metafield-driven theme block or a third-party schema app.
 - **Organization and WebSite schema on the homepage.** See [the AI search visibility post](/blog/shopify-store-ai-search-visible) for the implementation pattern.
 - **A populated llms.txt at site root.** See [what llms.txt is and how to add it](/blog/llms-txt-shopify-guide).
@@ -127,9 +127,9 @@ The gap between "indexed" and "cited" is where the work is:
 
 Two patterns that consistently outperform:
 
-**Title pattern:** `[Audience] [Color] [Material] [Product Type] by [Brand] — [Key Attribute], [Size]`
+**Title pattern:** `[Audience] [Color] [Material] [Product Type] by [Brand], [Key Attribute], [Size]`
 
-Example: "Men's Black Cotton Hoodie by Acme — Slim Fit, Size M" outperforms "Acme Hoodie 2024."
+Example: "Men's Black Cotton Hoodie by Acme, Slim Fit, Size M" outperforms "Acme Hoodie 2024."
 
 **Description opening:** lead with the use case, not the brand. "Comfortable everyday hoodie in midweight cotton, ideal for transitional weather" reaches more queries than "The Acme Hoodie is our flagship product."
 
@@ -139,13 +139,13 @@ Avoid superlatives in both. AI engines have an explicit downweight on "best ever
 
 Three checks:
 
-- **Test queries.** Search Google for queries that should match your product category. Note whether AI Overviews appear and whether your products are cited. Don't overfit — sample broadly.
+- **Test queries.** Search Google for queries that should match your product category. Note whether AI Overviews appear and whether your products are cited. Don't overfit, sample broadly.
 - **Google's Rich Results Test.** Run [Rich Results Test](https://search.google.com/test/rich-results) on a product page. It shows what schema Google sees and flags errors. Aim for green on every required field.
 - **Monitor referrals.** GA4 → Acquisition → Traffic acquisition → segment by `google.com` referrers, then sub-filter for AI Overview-attributed traffic. The traffic source shows up as `google.com` but with a unique `_gl` parameter signature for AI Overview clicks.
 
 For the broader question of which AI search formats matter most, see [JSON-LD vs llms.txt for Shopify](/blog/json-ld-vs-llms-txt-shopify). For tracking which AI engines are actually crawling your store, see [how to track AI crawler visits on your Shopify store](/blog/track-ai-crawlers-shopify). And for the upstream merchant feed cleanup that improves AI eligibility too, see [why "missing GTIN" shows on your Shopify Google channel](/blog/missing-gtin-shopify-fix).
 
-Want to check whether your product pages already meet the schema bar for AI Overview citations? Run a free scan at [shieldkit.app/scan](/scan) — it surfaces the missing Merchant Listings extensions, weak product titles, and structured-data gaps that keep stores out of AI answers.
+Want to check whether your product pages already meet the schema bar for AI Overview citations? Run a free scan at [shieldkit.app/scan](/scan), it surfaces the missing Merchant Listings extensions, weak product titles, and structured-data gaps that keep stores out of AI answers.
 
 ## FAQ
 
@@ -163,7 +163,7 @@ Complete Product JSON-LD with merchant listings extensions (GTIN, brand, MPN, et
 
 ### Can I add FAQ schema to a Shopify product page?
 
-Yes — via a metafield-driven theme block, a third-party schema app, or directly in theme code with JSON-LD. Each FAQ entry should be one clear question and one factual answer.
+Yes, via a metafield-driven theme block, a third-party schema app, or directly in theme code with JSON-LD. Each FAQ entry should be one clear question and one factual answer.
 
 ### How long after I optimize will I see AI Overview citations?
 
@@ -171,6 +171,6 @@ Yes — via a metafield-driven theme block, a third-party schema app, or directl
 
 ### Will optimizing for AI Overviews hurt my classic SEO?
 
-No. The factors overlap heavily — complete schema, fast pages, factual content, internal linking. Optimizing for AI tends to improve classic ranking too.
+No. The factors overlap heavily, complete schema, fast pages, factual content, internal linking. Optimizing for AI tends to improve classic ranking too.
 
 For Google's official Rich Results documentation, see [Google's Rich Results help](https://developers.google.com/search/docs/appearance/structured-data/search-gallery). For Shopify's product schema documentation, see [Shopify's online store metadata help](https://help.shopify.com/en/manual/online-store/themes/theme-structure/sections-and-blocks).

@@ -19,7 +19,7 @@ const PUBLISHED_AT = "2026-05-04";
 const TITLE =
   "Google Merchant Center Suspension on Shopify: The Complete 2026 Guide";
 const DESCRIPTION =
-  "Everything Shopify merchants need to know about GMC misrepresentation suspensions in 2026 — triggers, recovery process, prevention.";
+  "Everything Shopify merchants need to know about GMC misrepresentation suspensions in 2026, triggers, recovery process, prevention.";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   // Bounce embedded-app traffic just like the homepage / scan page.
@@ -74,14 +74,14 @@ export default function ExplainerPage() {
       <JsonLd data={articleJsonLd} />
       <MarketingArticleLayout
         title={TITLE}
-        subtitle="Why Google suspends Shopify stores, what triggers misrepresentation flags, and how to recover fast — plus what to build into your store so you never get hit again."
+        subtitle="Why Google suspends Shopify stores, what triggers misrepresentation flags, and how to recover fast, plus what to build into your store so you never get hit again."
         publishedAt={PUBLISHED_AT}
       >
         <h2>What is GMC Misrepresentation Suspension?</h2>
         <p>
           A Google Merchant Center misrepresentation suspension is the action
-          Google takes when it concludes — algorithmically, or after manual
-          review — that your storefront, your data feed, or your business
+          Google takes when it concludes, algorithmically, or after manual
+          review, that your storefront, your data feed, or your business
           practices misrepresent yourself to shoppers. It is the single most
           common reason Shopify stores lose access to Google Shopping. According
           to industry analysis published by Swell in early 2026, roughly 60% of
@@ -93,8 +93,8 @@ export default function ExplainerPage() {
           suspension lands, your products stop appearing in free Shopping
           listings and across the Shopping ads network. Every active campaign
           tied to the affected Merchant Center account is paused. Organic
-          shopping traffic — which for many DTC brands accounts for 15–30% of
-          weekly revenue — vanishes. And because Performance Max and Demand Gen
+          shopping traffic, which for many DTC brands accounts for 15-30% of
+          weekly revenue, vanishes. And because Performance Max and Demand Gen
           campaigns lean on Merchant feed signals, even non-Shopping placements
           get destabilized for the duration of the suspension.
         </p>
@@ -103,7 +103,7 @@ export default function ExplainerPage() {
           specifically triggered it. You get a one-line "your account has been
           suspended for misrepresentation" and a link to the same generic
           policy page every other suspended merchant gets. The work of
-          diagnosing what changed — or what was always missing — falls
+          diagnosing what changed, or what was always missing, falls
           entirely on you.
         </p>
 
@@ -115,7 +115,7 @@ export default function ExplainerPage() {
           number, an email address (ideally on your store domain rather than a
           generic gmail/outlook address), and a physical street address. PO
           boxes don't count. A "Contact us" page that only contains a form is
-          insufficient — the contact details themselves must be visible without
+          insufficient, the contact details themselves must be visible without
           submitting anything. This is one of the easiest issues to introduce
           accidentally during a theme redesign, and one of the most common
           triggers for first-time suspensions.
@@ -137,8 +137,8 @@ export default function ExplainerPage() {
         <p>
           Same idea as the refund policy: a shipping policy with vague language
           like "we ship most orders quickly" is treated as missing. Google
-          wants explicit delivery timeframes ("orders ship within 1–2 business
-          days, US delivery 3–7 business days") and explicit shipping costs
+          wants explicit delivery timeframes ("orders ship within 1-2 business
+          days, US delivery 3-7 business days") and explicit shipping costs
           ("free over $50, $5.99 flat rate otherwise"). Free-text language
           like "calculated at checkout" is acceptable but only if it appears
           alongside concrete cost ranges or a cost table.
@@ -146,7 +146,7 @@ export default function ExplainerPage() {
 
         <h3>4. Missing terms of service / privacy policy</h3>
         <p>
-          Privacy policy is non-negotiable — beyond GMC, GDPR (EU) and CCPA
+          Privacy policy is non-negotiable, beyond GMC, GDPR (EU) and CCPA
           (California) require one regardless. Terms of service is technically
           optional under GMC policy but in practice its absence is a strong
           negative signal. Both should be linked from your storefront footer
@@ -157,8 +157,8 @@ export default function ExplainerPage() {
         <p>
           This is one of the most under-appreciated triggers. If your
           storefront mentions handling fees, restocking fees, processing fees,
-          surcharges, convenience fees, or service fees anywhere — on a
-          product page, in a FAQ, in your cart-page copy — those fees must
+          surcharges, convenience fees, or service fees anywhere, on a
+          product page, in a FAQ, in your cart-page copy, those fees must
           also appear in your shipping policy or refund policy. Google's
           systems crawl product pages alongside policy pages and flag the
           mismatch. A "$5 handling fee on all orders under $25" mentioned in
@@ -168,19 +168,19 @@ export default function ExplainerPage() {
 
         <h3>6. Storefront password protection still enabled</h3>
         <p>
-          You wouldn't think this happens, but it does — particularly for
+          You wouldn't think this happens, but it does, particularly for
           merchants who run a soft launch, capture a few orders, then submit
           to Merchant Center before remembering to remove the password gate.
           Google's crawler hits the password page, can't reach your products,
           and suspends the account. Check Online Store → Preferences →
-          Restrict access — make sure that checkbox is off.
+          Restrict access, make sure that checkbox is off.
         </p>
 
         <h3>7. Dropshipper-hosted product images</h3>
         <p>
           Products whose <code>descriptionHtml</code> references images on
-          known dropshipping CDNs — cdn.cjdropshipping.com, alicdn.com,
-          aliexpress-img.alicdn.com — telegraph to Google that you're reselling
+          known dropshipping CDNs, cdn.cjdropshipping.com, alicdn.com,
+          aliexpress-img.alicdn.com, telegraph to Google that you're reselling
           someone else's catalog without value-add. This alone often won't
           trigger suspension, but combined with thin product descriptions or
           missing structured data, it becomes the deciding factor. Self-host
@@ -193,7 +193,7 @@ export default function ExplainerPage() {
             <strong>Run a compliance audit.</strong> Before anything else,
             establish a clear list of what Google might be flagging. You can
             run our <a href="/scan">free public scanner</a> against your store
-            URL — it surfaces 8 of the most common triggers in under a minute.
+            URL, it surfaces 8 of the most common triggers in under a minute.
             Document everything you find.
           </li>
           <li>
@@ -204,7 +204,7 @@ export default function ExplainerPage() {
           </li>
           <li>
             <strong>Document every fix you made.</strong> Write down each
-            issue, the fix, and the date — including screenshots of before and
+            issue, the fix, and the date, including screenshots of before and
             after. You'll paste this into your re-review request. Reviewers
             move faster when you give them the audit trail.
           </li>
@@ -217,8 +217,8 @@ export default function ExplainerPage() {
             Vague requests get vague responses.
           </li>
           <li>
-            <strong>Wait 3–7 business days.</strong> Most reinstatements land
-            in this window. Don't submit a second request — it resets the
+            <strong>Wait 3-7 business days.</strong> Most reinstatements land
+            in this window. Don't submit a second request, it resets the
             queue position.
           </li>
           <li>
@@ -235,7 +235,7 @@ export default function ExplainerPage() {
         <p>
           The recovery cycle is exhausting. Most merchants who go through it
           once have a strong incentive never to repeat it. The core
-          prevention discipline is continuous monitoring — running a
+          prevention discipline is continuous monitoring, running a
           compliance scan on a regular cadence (weekly is standard) so that
           any regression introduced by a theme update, a new app, a policy
           edit, or a copy change gets caught before Google's crawler finds
@@ -245,7 +245,7 @@ export default function ExplainerPage() {
         </p>
         <p>
           The other prevention vectors are less obvious. Theme updates are a
-          common silent regression vector — a theme creator updates their
+          common silent regression vector, a theme creator updates their
           product template and accidentally removes a JSON-LD block, or
           changes the structure of the contact page. Your store's compliance
           score quietly drops the day you click "update theme" and you have
@@ -259,7 +259,7 @@ export default function ExplainerPage() {
           For first-time suspensions where the triggers are obvious (missing
           policy, password gate, hidden fees), DIY is fast and cheap. Run a
           scan, fix what's flagged, document the changes, submit the
-          re-review request — most stores are reinstated within a week.
+          re-review request, most stores are reinstated within a week.
         </p>
         <p>
           For repeat suspensions, ambiguous triggers ("we did everything and
@@ -270,7 +270,7 @@ export default function ExplainerPage() {
           a Merchant Center practice; <strong>FeedArmy</strong> specializes
           in feed-level disapprovals that look like account suspensions but
           actually need feed work. None of these are competitors to ShieldKit
-          — we're the prevention layer; they're the recovery layer. The two
+, we're the prevention layer; they're the recovery layer. The two
           stack cleanly.
         </p>
         <p>

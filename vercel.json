@@ -47,7 +47,23 @@
     { "source": "/docker-compose.yml", "destination": "/", "permanent": true },
     { "source": "/dump.sql",           "destination": "/", "permanent": true },
     { "source": "/database.sql",       "destination": "/", "permanent": true },
-    { "source": "/backup.sql",         "destination": "/", "permanent": true }
+    { "source": "/backup.sql",         "destination": "/", "permanent": true },
+
+    { "source": "/contact",           "destination": "/", "permanent": false },
+    { "source": "/contact-us",        "destination": "/", "permanent": false },
+    { "source": "/contactus",         "destination": "/", "permanent": false },
+    { "source": "/contacto",          "destination": "/", "permanent": false },
+    { "source": "/contatti",          "destination": "/", "permanent": false },
+    { "source": "/kontakt",           "destination": "/", "permanent": false },
+    { "source": "/get-in-touch",      "destination": "/", "permanent": false },
+    { "source": "/reach-us",          "destination": "/", "permanent": false },
+    { "source": "/about",             "destination": "/", "permanent": false },
+    { "source": "/about-us",          "destination": "/", "permanent": false },
+    { "source": "/sobre-nosotros",    "destination": "/", "permanent": false },
+    { "source": "/impressum",         "destination": "/", "permanent": false },
+    { "source": "/support",           "destination": "/", "permanent": false },
+    { "source": "/help",              "destination": "/", "permanent": false },
+    { "source": "/team",              "destination": "/", "permanent": false }
   ],
   "headers": [
     {

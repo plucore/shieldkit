@@ -67,3 +67,31 @@ describe("Anthropic model string is pinned to claude-sonnet-4-6", () => {
     });
   }
 });
+
+// The model-pin test above stops a bad model string at the source, but the alert
+// that catches a model retired AFTER we pin it (env drift, Anthropic retiring an
+// id, a new call site) lives in Sentry — and it only works if the Anthropic 404
+// actually reaches Sentry. Both LLM call sites originally let the error propagate
+// to a route catch that returned a 500 WITHOUT capturing it, so the alert would
+// have fired on nothing. This guards the capture. See docs/sentry-alerts-runbook.md.
+describe("LLM call sites report Anthropic errors to Sentry (SHIELDKIT-1 alert has a signal)", () => {
+  for (const relPath of LLM_CALL_SITES) {
+    const absPath = path.join(APP_DIR, relPath);
+
+    describe(relPath, () => {
+      const content = fs.readFileSync(absPath, "utf-8");
+
+      it("imports the Sentry wrapper", () => {
+        expect(content).toMatch(/from ["']\.\.?\/sentry\.server["']/);
+      });
+
+      it("captures the Anthropic error on the messages.create failure path", () => {
+        expect(content).toContain("captureException");
+        // capture-and-rethrow: the error is reported AND still propagates, so the
+        // caller's existing error handling is unchanged.
+        expect(content).toMatch(/\.catch\(/);
+        expect(content).toMatch(/throw err/);
+      });
+    });
+  }
+});

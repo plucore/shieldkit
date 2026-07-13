@@ -130,6 +130,29 @@ const POLICY_INSTRUCTIONS: Record<PolicyType, string> = {
 };
 
 /**
+ * De-emphasis instruction for the defensive international / customs framing the
+ * model tends to over-produce (2026-07-13). Applied to the shipping, refund, and
+ * terms prompts only, NOT privacy.
+ *
+ * CRITICAL: this SOFTENS the framing, it does not switch the policy to
+ * domestic-only. The app does not know the store's shipping regions at prompt
+ * time (ShopInfo carries no ship-to data), so the model must never assert a
+ * domestic-only scope. A false "we ship only within <country>" claim is itself a
+ * GMC misrepresentation for a store that actually ships worldwide.
+ */
+export const INTERNATIONAL_FRAMING_RULE: string = [
+  "International framing (applies to this policy):",
+  '- Write for a store that may ship both domestically and internationally. Do NOT state or imply the store ships only within one country, and do NOT add a "domestic orders only" scope. A false domestic-only claim is itself a misrepresentation for a store that ships worldwide.',
+  "- If a store Country is shown above, it is the store's registration country, not a statement of where the store ships. Never treat it as evidence the store ships domestically only.",
+  "- Where the store ships internationally, keep that coverage accurate and present: delivery times, available methods, and a brief, factual note that customs duties or import taxes may apply.",
+  "- Do NOT lead with defensive international disclaimers and do NOT over-stress them. Do NOT open the policy, or its shipping or returns section, with customs-duties-are-the-customer's-responsibility language, with sanctions / embargo / denied-party clauses, or with a restocking fee charged when a customer refuses a delivery over customs. Keep any such terms short, neutral, and placed after the core terms, never as the headline.",
+].join("\n");
+
+/** Policy types that receive the softened international-framing rule above. */
+const INTERNATIONAL_FRAMING_TYPES: ReadonlySet<PolicyType> =
+  new Set<PolicyType>(["shipping", "refund", "terms"]);
+
+/**
  * Builds the system prompt for a policy generation. Pure + exported so the
  * date/contact grounding can be unit-tested without an Anthropic call.
  */
@@ -154,6 +177,8 @@ export function buildPolicySystemPrompt(
     "",
     POLICY_INSTRUCTIONS[type],
     "",
+    INTERNATIONAL_FRAMING_TYPES.has(type) ? INTERNATIONAL_FRAMING_RULE : null,
+    INTERNATIONAL_FRAMING_TYPES.has(type) ? "" : null,
     "Grounding rules (these override formatting preferences):",
     `- Today's date is ${context.todayIso}. Wherever the policy shows a "Last updated" or effective date, use EXACTLY this date. Do NOT use any other date, and do NOT rely on your training data for the current date.`,
     `- ${contactRule}`,
@@ -210,20 +235,32 @@ export async function generatePolicy(
     extraInstruction,
   );
 
-  const message = await (await getAnthropicClient()).messages.create({
-    // max_tokens raised from 2048 -> 8192: a full ToS/refund policy overran
-    // 2048 and ended mid-sentence in production. The AI cap counts generations,
-    // not tokens, so the larger ceiling costs the merchant nothing extra.
-    model: "claude-sonnet-4-6",
-    max_tokens: 8192,
-    messages: [
-      {
-        role: "user",
-        content: `Generate a complete ${POLICY_TITLES[type]} for my Shopify store "${shopInfo.name}".`,
-      },
-    ],
-    system: systemPrompt,
-  });
+  const message = await (await getAnthropicClient()).messages
+    .create({
+      // max_tokens raised from 2048 -> 8192: a full ToS/refund policy overran
+      // 2048 and ended mid-sentence in production. The AI cap counts generations,
+      // not tokens, so the larger ceiling costs the merchant nothing extra.
+      model: "claude-sonnet-4-6",
+      max_tokens: 8192,
+      messages: [
+        {
+          role: "user",
+          content: `Generate a complete ${POLICY_TITLES[type]} for my Shopify store "${shopInfo.name}".`,
+        },
+      ],
+      system: systemPrompt,
+    })
+    .catch((err: unknown) => {
+      // Report Anthropic API failures to Sentry from the source. The route-level
+      // catch only turns a throw into a 500 for the merchant, so without this a
+      // model-not-found 404 (message contains "not_found_error" + "model:", the
+      // SHIELDKIT-1 class) never reaches Sentry and the model-not-found alert has
+      // nothing to match. Re-throw so the caller's existing handling is unchanged.
+      sentry.captureException(err, {
+        tags: { area: "policy-generator", policy_type: type },
+      });
+      throw err;
+    });
 
   // A truncated policy is a real merchant-facing defect (mid-sentence cutoff),
   // so surface it. Non-fatal — the partial policy is still returned; the

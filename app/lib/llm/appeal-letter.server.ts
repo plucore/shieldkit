@@ -8,6 +8,7 @@
 import type AnthropicClient from "@anthropic-ai/sdk";
 import type { ShopInfo } from "../shopify-api.server";
 import { normalizeDashes } from "../text-normalize";
+import { sentry } from "../sentry.server";
 
 // Lazily import + construct the Anthropic client on first use — keeps the SDK
 // out of the server bundle's cold-start evaluation for every non-appeal route.
@@ -79,12 +80,22 @@ export async function generateAppealLetter(
     "Please draft my re-review request letter. Use only the fixes listed above; do not invent or embellish any others. For any fix that points to a page on my store, leave a bracketed placeholder such as \"[paste the link to your refund policy]\" for me to fill in. Do not mention how long my business has operated and do not add generic trust statements.",
   ].join("\n");
 
-  const message = await (await getAnthropicClient()).messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 1024,
-    system: systemPrompt,
-    messages: [{ role: "user", content: userMessage }],
-  });
+  const message = await (await getAnthropicClient()).messages
+    .create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 1024,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userMessage }],
+    })
+    .catch((err: unknown) => {
+      // Report Anthropic API failures to Sentry from the source — notably the
+      // SHIELDKIT-1 model-not-found 404 (message contains "not_found_error" +
+      // "model:"). The appeal route only turns a throw into a user-facing error,
+      // so without this the model-not-found alert has nothing to match. Re-throw
+      // so the caller's existing handling (slot release, error response) is intact.
+      sentry.captureException(err, { tags: { area: "appeal-letter" } });
+      throw err;
+    });
 
   const textBlock = message.content.find((b) => b.type === "text");
   // Strip any em/en dashes the model used despite the prompt rule above.

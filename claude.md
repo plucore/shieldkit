@@ -1,5 +1,12 @@
 # ShieldKit — Complete Project Reference
 
+> **This file is committed as lowercase `claude.md`.** `git ls-files` tracks exactly one path,
+> `claude.md`; the `CLAUDE.md` you may see locally is the same inode surfaced by macOS's
+> case-insensitive filesystem (`core.ignorecase=true`), not a second file. On a case-sensitive
+> checkout (Linux CI, a Vercel build container) the uppercase `CLAUDE.md` that agent tooling looks
+> for **does not exist**. To rename, `git mv` through a temporary name — a direct
+> `git mv claude.md CLAUDE.md` is a no-op under `core.ignorecase`.
+
 _Last rewritten 2026-05-29 from current code + live DB inspection after the v4 pricing overhaul (one paid tier, AI cap, weekly-cron removal, PlanStatusCard, post-fix reassurance) AND the 2026-05-28 cleanup batch (JSON-LD verifier removed; aside card two-state; onboarding 3 steps; PlanStatusCard JSON-LD row display-only; per-page intros; GTIN zero-work feedback; FK cascade for GDPR shop/redact)._
 
 ## 1. Project Overview
@@ -36,7 +43,7 @@ Two plans only. The Partner Dashboard pricing UI advertises only these:
 - `tier='shield'` — old "Shield Pro" ($14/mo or $140/yr). 0 live rows. `hasPaidAccess` returns false — graceful degrade to free-level access without forced demotion.
 - `tier='recovery'` — pre-v4 Recovery plan. 0 live rows. Treated as paid via `hasPaidAccess`.
 
-**Live tier distribution 2026-05-29:** `free=28, monitoring=2, pro=2`.
+**Live tier distribution 2026-07-28:** `free=52, monitoring=2, pro=0`. (Was `free=28, monitoring=2, pro=2` on 2026-05-29; the two `pro` rows were demoted to `free`.) **Caveat:** one of the two `monitoring` rows is `shieldkit-test-stor.myshopify.com`, the founder's own dev store, and it has `shopify_subscription_id IS NULL` so `reconcile-subscriptions` can never demote it. Real paying customers = 1. Do not read the tier counts as MRR.
 
 **Source of truth for tier access:** `app/lib/billing/plans.ts`:
 - `hasPaidAccess(tier)` → true when tier ∈ `{ 'monitoring', 'recovery', 'pro' }` (single gate; replaces v3's `hasMonitoringAccess` / `hasRecoveryAccess`).
@@ -163,7 +170,8 @@ tests/                 # Vitest regression suites (14 files, 329 tests on 2026-0
 * **API Version:** `ApiVersion.October25` (Shopify Admin API `2025-10`)
 * **Runtime scopes:** `process.env.SCOPES ?? "read_products,read_content,read_legal_policies"`. Production `SCOPES` is set to the full 8.
 * **Session storage:** Custom `SupabaseSessionStorage` (`app/lib/session-storage.server.ts`).
-* **Token rotation:** `expiringOfflineAccessTokens: true`; tokens encrypted at rest.
+* **Token rotation:** `expiringOfflineAccessTokens` is **OFF** (removed 2026-06-26, commit `138d4aa`). Offline tokens are deliberately LONG-LIVED — ShieldKit is background-heavy (crons, webhooks, enrichment) and those paths have no request context in which to run the token exchange, so expiring tokens killed 42/43 installs' background work ~24h after install. Tokens are still encrypted at rest. **Do not re-enable this flag** — see the comment block at `app/shopify.server.ts:28-38`.
+* **Legacy session cohort (as of 2026-07-28):** 38 of 54 `sessions` rows still carry a non-null `expires` from the flag era; all are expired. Those merchants' stored tokens return HTTP 401 to every background call and only recover if the merchant reopens the embedded app (which mints a modern non-expiring token). A 401 for one of these shops is **not** evidence of uninstall.
 * **afterAuth hook:** offline sessions only. Upserts the `merchants` row touching ONLY `shopify_domain`, `access_token_encrypted`, `installed_at`, `uninstalled_at`. **`scans_remaining` is intentionally NOT in the payload** — first install gets `1` via DB DEFAULT; reinstall of a soft-deleted row preserves the existing value (typically `0` post-scan). This prevents free-scan farming via uninstall/reinstall loops. Loud regression test in `tests/bug-fixes.test.ts` asserts the payload never grows to include `scans_remaining`.
 * **authenticate.admin(request):** Validates App Bridge 4.x JWT on every `/app/*` route.
 * **No `billing` config registered.** Managed Pricing — plan registry lives in the Partner Dashboard.
@@ -173,11 +181,11 @@ All use `authenticate.webhook(request)` which verifies `X-Shopify-Hmac-Sha256`.
 
 | Topic | Route File | Behaviour |
 |-------|-----------|-----------|
-| `app/uninstalled` | `webhooks.app.uninstalled.tsx` | Deletes sessions, soft-deletes merchant. Inserts a `webhook_failures` audit row on Supabase write failure (best-effort try/catch). Always 200. Daily `reconcile-installs` cron is the durable safety net. |
+| `app/uninstalled` | `webhooks.app.uninstalled.tsx` | Fires `captureEvent(shop, "uninstall", { tier })` FIRST (PostHog is the only churn record that outlives the merchant — see below), then deletes sessions and soft-deletes the merchant. Inserts a `webhook_failures` audit row on Supabase write failure. Always 200. **`reconcile-installs` is NOT a safety net for this** — it never writes `uninstalled_at` (see §7). |
 | `app/scopes_update` | `webhooks.app.scopes_update.tsx` | Updates session scope string. |
 | `app_subscriptions/update` | `webhooks.app_subscriptions.update.tsx` | Pre-April-28 supplementary reconciliation path. Maps plan name → tier + billing_cycle via `PLAN_NAME_TO_TIER` / `PLAN_NAME_TO_CYCLE`. Post-April-28 the Partner API path (the dashboard + billing.confirm self-heal + reconcile-subscriptions cron) is canonical. |
 | `products/create`, `products/update` | `webhooks.products.update.tsx` | HMAC + merchant lookup. For paid tiers with `write_products` granted: enqueues a `pending_scan_triggers` row (`trigger_type='enrichment'`, payload `{ product_gid, numeric_product_id }`, dedup'd against `schema_enrichments` and the queue). Returns 200 in <1s. |
-| `themes/update`, `themes/publish` | `webhooks.themes.update.tsx` | HMAC + merchant lookup. Returns 200. **No-op in v4** — the theme-change → re-scan path was retired with the weekly cron infra. Kept registered to avoid Shopify scope-review churn. |
+| ~~`themes/update`, `themes/publish`~~ | — | **REMOVED from `shopify.app.toml` entirely** (commit `288329f`, 2026-06-11). The v4 handler was a pure no-op. Webhook topics are not part of App Store scope review, so dropping them was churn-free. Earlier revisions of this file said they were "kept registered" — that is stale. |
 | `customers/data_request` | `webhooks.customers.data_request.tsx` | GDPR. Logs and 200. |
 | `customers/redact` | `webhooks.customers.redact.tsx` | GDPR. 200 (no customer PII stored). |
 | `shop/redact` | `webhooks.shop.redact.tsx` | GDPR. Hard-deletes merchant row 48h post-uninstall. **All 7 child FKs now CASCADE** after migration `20260528160000_cascade_fks_for_shop_redact.sql` — previously 3 FKs (`enrichment_webhook_log`, `llms_txt_requests`, `pending_scan_triggers`) were `NO ACTION` and silently broke the redact for any merchant who had ever triggered enrichment/llms.txt/scan-trigger queueing. Shopify does NOT retry GDPR redact webhooks on 5xx, so the silent failure was a real GDPR exposure. |
@@ -299,7 +307,7 @@ One row per installed shop. Soft-deleted on uninstall; hard-deleted by `shop/red
 | `ai_generations_reset_at` | TIMESTAMPTZ NOT NULL DEFAULT now() | v4 — start of the current 30-day window |
 | `review_prompted` | BOOLEAN DEFAULT false | Set true when merchant dismisses review banner |
 | `llms_txt_last_served_at` | TIMESTAMPTZ | Updated fire-and-forget from `api.proxy.llms-txt.ts` on every response |
-| `shop_name` | TEXT | Shopify metadata (opportunistically refreshed every scan) |
+| `shop_name` | TEXT | Shopify metadata. Refreshed opportunistically inside `runComplianceScan` — but **only since 2026-05-14** (commit `b444795`), and the write is skipped silently when `getShopInfo()` returns null. 18 of 54 rows are NULL: 14 last scanned before the feature shipped, 3 never scanned, 1 hit the silent skip. **11 of those 18 sit at `scans_remaining = 0`, so they can never self-heal** — the only writer is gated behind the quota decrement. `scripts/backfill-merchant-shop-info.ts` is their only path. |
 | `shop_owner_name`, `contact_email` | TEXT | |
 | `country`, `province`, `city` | TEXT | From `shop.billingAddress` |
 | `currency_code`, `shopify_plan`, `primary_domain` | TEXT | |
@@ -536,9 +544,11 @@ On first scan, shop owner email collected via GraphQL (`shop { email }`) and ups
 | Route File | URL Path | Method | Behaviour |
 |-----------|----------|--------|-----------|
 | `api.scan.ts` | `/api/scan` | POST | Authenticated scan endpoint. Rate-limited + atomic quota. Returns full scan JSON. GET → 405. |
-| `api.cron.process-scan-triggers.ts` | `/api/cron/process-scan-triggers` | POST | Drains the queue, `BATCH_SIZE=10`. Hit by GitHub Actions every 6h (primary, see §15) AND Vercel Cron daily 12:00 UTC (failsafe). Bearer `CRON_SECRET`. |
-| `api.cron.reconcile-subscriptions.ts` | `/api/cron/reconcile-subscriptions` | POST | Vercel Cron daily 04:00 UTC. Walks paid merchants, queries Partner API, demotes on terminal status. Never demotes on `unknown`. |
-| `api.cron.reconcile-installs.ts` | `/api/cron/reconcile-installs` | POST | Vercel Cron daily 03:00 UTC. Probes Shopify Admin API for active merchants; HTTP 401/403 → mark uninstalled + delete sessions + audit row in `webhook_failures`. |
+| `api.cron.process-scan-triggers.ts` | `/api/cron/process-scan-triggers` | **GET + POST** | Drains the queue. `BATCH_SIZE=100` rows selected, bounded by `TIME_BUDGET_MS=45000` and drained by a pool of `ENRICH_CONCURRENCY=5`. GitHub Actions every 6h + Vercel Cron daily 12:00 UTC. Bearer `CRON_SECRET`. |
+| `api.cron.reconcile-subscriptions.ts` | `/api/cron/reconcile-subscriptions` | **GET + POST** | Vercel Cron daily 04:00 UTC. Walks paid merchants, queries Partner API, demotes on terminal status. Never demotes on `unknown`. |
+| `api.cron.reconcile-installs.ts` | `/api/cron/reconcile-installs` | **GET + POST** | Vercel Cron daily 03:00 UTC. Probes Shopify Admin API for still-installed merchants. **Strictly NON-DESTRUCTIVE since 2026-06-26** — a 401/403 records a non-persisted `auth_stale` signal only. It NEVER writes `uninstalled_at`, NEVER deletes sessions, and NEVER writes `webhook_failures`. |
+
+> **Cron HTTP method — read before touching a cron route.** Vercel Cron invokes a scheduled path with **GET**, which React Router dispatches to the `loader`. All three routes were previously POST-only behind a 405 loader, so **the Vercel crons had never executed** — `process-scan-triggers` ran only because `.github/workflows/process-scan-triggers.yml` passes `--request POST`, and `reconcile-subscriptions` (the only code path that demotes a cancelled subscription) had never run at all. Fixed 2026-07-28: each route exports a thin `loader` and `action` that both delegate to a shared `run(request)`. **Authorisation is the bearer `CRON_SECRET` check inside `run()`, never the HTTP verb** — do not "restore" a method guard.
 | `api.proxy.llms-txt.ts` | `/api/proxy/llms-txt` | GET | App Proxy endpoint, HMAC verified by `authenticate.public.appProxy`. Paid only. Generates llms.txt from shop name/description/email + policies + first 50 published products. Per-process 24h in-memory cache. |
 
 **Removed in v4:** `api.cron.weekly-scan.ts`, `api.cron.weekly-digest.ts`, `api.cron.monthly-reset.ts`.
@@ -613,6 +623,12 @@ Singleton (dev caches on `global` for hot-reload survival). `service_role` key �
 | `scripts/cleanup-orphan-webhooks.ts` | Deletes orphan webhook subscriptions pointing at dead trycloudflare dev tunnels. |
 | `scripts/dev-cleanup-subs.ts` | Cancels test subscriptions. |
 | `scripts/top-criticals.ts` | Ops query for hottest critical check failures. |
+| `scripts/prune-enrichment-log.ts` | **Manual only, never wired to a cron.** Deletes `enrichment_webhook_log` rows older than `RETENTION_DAYS` (default 30). That table is 230k rows / 50 MB (~91% of the DB) of write-only telemetry with no reader. A first bulk delete must be batched + VACUUMed, and wants a `created_at` index — a single DELETE will hit a statement timeout. |
+| `scripts/purge-free-scan-triggers.ts` | Removes free-tier rows from `pending_scan_triggers` out-of-band. |
+| `scripts/backfill-product-webhooks.ts` | Re-asserts per-shop `products/*` subscriptions for paid merchants (added `288329f`, 2026-06-11). |
+| `scripts/audit-product-webhooks.ts` | Read-only audit of per-shop `products/*` subscriptions. |
+
+**Standalone-script gotcha:** `tsx` is NOT a declared dependency and `dotenv` is only transitive. Run these with `node --experimental-strip-types`, matching the convention `scripts/outbound-scanner.ts` documents — do not assume `npx tsx` works.
 | `scripts/validate-partner-api.ts` | Smoke test for Partner API plumbing. |
 
 ---
@@ -657,7 +673,8 @@ Singleton (dev caches on `global` for hot-reload survival). `service_role` key �
 * **GTIN button surfaces zero-work outcome** (v4 cleanup §7) — the success banner is gated on `succeeded > 0`; an additional info-tone banner renders on `ok=true && succeeded=0 && failed=0` so the merchant sees feedback when no candidate qualified.
 * **`scans_remaining` preserved on reinstall** (v4 cleanup §6) — afterAuth's upsert never includes `scans_remaining` in the payload. First install: DB DEFAULT 1. Reinstall: preserved (typically 0 post-scan). Prevents free-scan farming. Regression test in `tests/bug-fixes.test.ts` asserts the payload never includes the column.
 * **All child FKs to `merchants` CASCADE** (v4 cleanup §8) — `enrichment_webhook_log`, `llms_txt_requests`, `pending_scan_triggers` were `ON DELETE NO ACTION` and silently broke GDPR `shop/redact` for any merchant who had ever triggered enrichment / served llms.txt / queued a scan trigger. Migration `20260528160000_cascade_fks_for_shop_redact.sql` made them CASCADE.
-* **Webhook reliability** — `app/uninstalled` records `webhook_failures` rows on Supabase write errors; daily `reconcile-installs` cron is the durable backstop for any failure mode.
+* **Webhook reliability** — `app/uninstalled` records `webhook_failures` rows on Supabase write errors. **There is no cron backstop**: `reconcile-installs` is non-destructive and never writes `uninstalled_at`. `webhook_failures` being empty means "no Supabase write ever errored", NOT "no webhook ever failed" — it is not a delivery log.
+* **Churn must never be stored only on the `merchants` row** (audit 2026-07-28) — `webhooks.shop.redact.tsx:45-48` hard-deletes the merchant 48h after uninstall and all 7 child FKs CASCADE, so `uninstalled_at` has a 48-hour half-life and a point-in-time query can essentially never observe it. ~40 real uninstalls left no trace this way; they were only reconstructable from orphaned `leads` rows (that table has no FK, which is the sole reason it survived). Durable churn goes to PostHog (`uninstall` event) and to the FK-free `install_events` ledger. **Never add a foreign key to `install_events`, and never prune `leads` on redact until `install_events` has replaced it as the historical record.**
 * **GTIN enrichment off the webhook hot path** — webhook enqueues `trigger_type='enrichment'`; drainer runs the work with the 60s function ceiling instead of the ~5s webhook ACK window.
 * **Billing self-heal off the critical render path** — moved to a post-mount action so dashboard paint doesn't block on Partner API latency.
 

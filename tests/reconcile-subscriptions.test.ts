@@ -31,9 +31,21 @@ const read = (...parts: string[]) =>
 describe("api.cron.reconcile-subscriptions.ts — file shape", () => {
   const src = read("app", "routes", "api.cron.reconcile-subscriptions.ts");
 
-  it("requires POST and rejects GET with 405", () => {
-    expect(src).toMatch(/method !== "POST"/);
-    expect(src).toContain("method_not_allowed");
+  // Was: "requires POST and rejects GET with 405". Inverted 2026-07-28.
+  // Vercel Cron invokes scheduled paths with GET, so a POST-only route meant
+  // this reconciler had never run in production — the only code path that
+  // demotes a merchant on terminal Partner-API status. The loader must now
+  // serve the same handler as the action. The security property is unchanged
+  // and is asserted separately below: authorisation is the CRON_SECRET bearer
+  // check, never the HTTP verb.
+  it("serves both GET (Vercel Cron) and POST (GitHub Actions) via one handler", () => {
+    expect(src).toMatch(/export async function loader\(\{ request \}/);
+    expect(src).toMatch(/export async function action\(\{ request \}/);
+    expect(src).toMatch(/async function run\(request: Request\)/);
+    // Both entry points delegate rather than duplicating the body.
+    expect(src.match(/return run\(request\);/g)?.length).toBe(2);
+    // The verb must not be an authorisation gate any more.
+    expect(src).not.toMatch(/method !== "POST"/);
   });
 
   it("authenticates via CRON_SECRET bearer token", () => {
@@ -180,7 +192,7 @@ vi.mock("../app/lib/billing/partner-api.server", () => ({
   getActiveSubscriptionByChargeId: vi.fn(async () => partnerApiResponse),
 }));
 
-import { action } from "../app/routes/api.cron.reconcile-subscriptions";
+import { action, loader } from "../app/routes/api.cron.reconcile-subscriptions";
 
 function makeRequest(opts: { method?: string; auth?: string | null } = {}) {
   const headers = new Headers();
@@ -205,11 +217,23 @@ describe("reconcile-subscriptions action — runtime behavior", () => {
     vi.clearAllMocks();
   });
 
-  it("rejects GET with 405", async () => {
-    const res = await action({
+  // Was: "rejects GET with 405". Inverted 2026-07-28 — see the file-shape note.
+  // A GET carrying the correct bearer is exactly how Vercel Cron calls this
+  // route, so it must NOT be rejected.
+  it("accepts an authorised GET (this is how Vercel Cron invokes it)", async () => {
+    const res = await loader({
       request: makeRequest({ method: "GET" }),
-    } as unknown as Parameters<typeof action>[0]);
-    expect(res.status).toBe(405);
+    } as unknown as Parameters<typeof loader>[0]);
+    expect(res.status).not.toBe(405);
+    expect(res.status).toBe(200);
+  });
+
+  // The regression that matters: widening the verb must not widen access.
+  it("still rejects an UNAUTHORISED GET with 401", async () => {
+    const res = await loader({
+      request: makeRequest({ method: "GET", auth: "Bearer wrong" }),
+    } as unknown as Parameters<typeof loader>[0]);
+    expect(res.status).toBe(401);
   });
 
   it("rejects missing/invalid bearer token with 401", async () => {

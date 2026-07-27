@@ -2,6 +2,7 @@ import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
 import { sentry } from "../lib/sentry.server";
+import { captureEvent } from "../lib/analytics.server";
 
 /**
  * app/uninstalled
@@ -22,6 +23,28 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   // authenticate.webhook() verifies X-Shopify-Hmac-Sha256 against
   // SHOPIFY_API_SECRET. Throws a 401 Response automatically on HMAC failure.
   const { shop, payload } = await authenticate.webhook(request);
+
+  // Churn analytics. This fires BEFORE the DB writes below for a reason: the
+  // merchants row this shop owns is hard-deleted by the GDPR shop/redact
+  // webhook 48h from now (webhooks.shop.redact.tsx), taking uninstalled_at and
+  // every child row with it. PostHog is therefore the only churn record that
+  // outlives the merchant, and it must be captured even if the Supabase writes
+  // below fail. Read the tier first (best-effort) so the event can be segmented
+  // by plan — a free churn and a paid churn are entirely different events.
+  // captureEvent is self-guarding: no-ops when POSTHOG_API_KEY is unset, never
+  // throws, and bounds its flush, so it can never break the webhook ACK.
+  let churnTier: string | null = null;
+  try {
+    const { data: tierRow } = await supabase
+      .from("merchants")
+      .select("tier")
+      .eq("shopify_domain", shop)
+      .maybeSingle();
+    churnTier = (tierRow?.tier as string | undefined) ?? null;
+  } catch {
+    // Tier lookup is decoration on the event, never a reason to lose it.
+  }
+  await captureEvent(shop, "uninstall", { tier: churnTier });
 
   // Delete all OAuth sessions for this shop. Safe to run on duplicate delivery.
   const { error: sessionError } = await supabase

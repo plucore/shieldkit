@@ -38,12 +38,34 @@ import { enrichProductMetafields } from "../lib/enrichment/gtin-enrichment.serve
 import { hasPaidAccess, PAID_TIERS } from "../lib/billing/plans";
 import { sentry } from "../lib/sentry.server";
 
-// A bounded batch per invocation. Each enrichment touches one product gid and
-// Shopify metafieldsSet usually returns in <2s, so 10 enrichments stay well
-// under Vercel Hobby's 60s ceiling. Bumped 1→10 (2026-06-26): the legit paid
-// backlog is tiny now, so a batch of 10 clears it in a single pass AND means a
-// single slow/failed row no longer dominates an entire invocation.
-const BATCH_SIZE = 10;
+// Upper bound on rows SELECTed per invocation. The real limiter is
+// TIME_BUDGET_MS below — BATCH_SIZE only caps the query so a huge backlog
+// doesn't pull an enormous result set into memory.
+//
+// History: 1 → 10 (2026-06-26) → 100 (2026-07-28). The 10 was sized for "the
+// legit paid backlog is tiny now", which stopped being true when a paying
+// merchant with a large catalog upgraded on 2026-07-12. At 10/invocation ×
+// 4 GitHub Actions runs/day = 40 rows/day against a ~600/day inbound rate, the
+// queue accumulated a 3,358-row backlog reaching back to 2026-07-13 — i.e. the
+// paying customer's enrichment was ~14 days stale and falling further behind
+// daily.
+const BATCH_SIZE = 100;
+
+// Wall-clock guard. Vercel Hobby hard-kills a function at 60s; a kill mid-batch
+// loses the unmarked rows' work (they stay unprocessed, so it is safe, just
+// wasteful). Stop admitting new products at 45s, leaving ~15s of headroom for
+// the in-flight product to finish, the final markProcessed, and the response.
+const TIME_BUDGET_MS = 45_000;
+
+// Products processed concurrently. Raising BATCH_SIZE alone is inert: each
+// enrichment is a ~2s Shopify round-trip, so a serial loop only ever completes
+// ~20 products inside the time budget no matter how many rows were selected.
+// A small pool is what actually converts the budget into throughput (~5x).
+// Kept deliberately low: Shopify's Admin GraphQL cost limit is per-shop, and in
+// practice a backlog belongs to one merchant, so all concurrency lands on a
+// single shop's bucket. 5 is comfortably inside the standard leaky-bucket
+// refill rate for calls this cheap.
+const ENRICH_CONCURRENCY = 5;
 
 function json<T>(body: T, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -68,17 +90,26 @@ interface TriggerRow {
   };
 }
 
-export async function loader(_args: LoaderFunctionArgs) {
-  return json(
-    { error: "method_not_allowed", message: "Use POST /api/cron/process-scan-triggers." },
-    405,
-  );
+// Vercel Cron invokes a scheduled path with **GET**, which React Router routes
+// to the loader. This route used to 405 every GET, so the declared Vercel cron
+// (vercel.json) never did any work — the queue was drained solely by the
+// GitHub Actions workflow, which passes `--request POST`. Both verbs now run
+// the same handler; the bearer CRON_SECRET check inside `run()` is the only
+// authorisation gate, so widening the verb does not widen access. Vercel
+// automatically sends `Authorization: Bearer $CRON_SECRET` when that env var is
+// set. Fixed 2026-07-28.
+export async function loader({ request }: LoaderFunctionArgs) {
+  return run(request);
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-  if (request.method !== "POST") {
-    return json({ error: "method_not_allowed", message: "Use POST." }, 405);
-  }
+  return run(request);
+}
+
+async function run(request: Request) {
+  // Stamped before any work so TIME_BUDGET_MS covers the auth + SELECT too,
+  // not just the enrichment loop.
+  const startedAt = Date.now();
 
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
@@ -146,7 +177,27 @@ export async function action({ request }: ActionFunctionArgs) {
   // installed merchant; the per-row guard below is defensive belt-and-braces
   // (e.g. a malformed payload with no product gid) that ALSO advances the row
   // so it can never wedge the head.
-  for (const row of enrichmentRows) {
+  // Worker-pool drain. `cursor` is the shared index into enrichmentRows;
+  // because JS is single-threaded, `cursor++` is atomic with respect to the
+  // other workers, so each row is claimed exactly once. Every worker re-checks
+  // the wall clock before claiming, so the pool winds down cleanly at the
+  // budget instead of being killed mid-flight at 60s.
+  let cursor = 0;
+  let timedOut = false;
+
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      if (Date.now() - startedAt > TIME_BUDGET_MS) {
+        timedOut = true;
+        return;
+      }
+      const index = cursor++;
+      if (index >= enrichmentRows.length) return;
+      await processEnrichmentRow(enrichmentRows[index]);
+    }
+  };
+
+  const processEnrichmentRow = async (row: TriggerRow): Promise<void> => {
     const merchant = row.merchants;
     const productGid = row.payload?.product_gid;
     const numericId = row.payload?.numeric_product_id ?? null;
@@ -157,9 +208,8 @@ export async function action({ request }: ActionFunctionArgs) {
       !productGid ||
       !hasPaidAccess(merchant.tier)
     ) {
-      await markProcessed([row.id]);
-      triggersProcessed += 1;
-      continue;
+      if (await markProcessed([row.id])) triggersProcessed += 1;
+      return;
     }
 
     try {
@@ -167,7 +217,21 @@ export async function action({ request }: ActionFunctionArgs) {
       const adminLike = makeAdminLike(admin);
       const result = await enrichProductMetafields(adminLike, productGid);
 
-      if (result.ok && result.written.length > 0 && numericId) {
+      // Write the dedup anchor whenever the product was successfully EXAMINED,
+      // not only when fields were actually written.
+      //
+      // Was: `result.ok && result.written.length > 0 && numericId`. A product
+      // that already had all three metafields returns ok with written=[], so no
+      // schema_enrichments row was created — and that table is exactly what the
+      // webhook's 24h dedup reads (webhooks.products.update.tsx:107-115, which
+      // checks only `enriched_at`, never the field list). With no anchor, the
+      // next products/update for that product re-enqueued, the drainer wrote
+      // nothing again, and the cycle repeated forever. The deep backlog has
+      // been masking this: repeat deliveries hit `skip_already_queued` instead.
+      // Clearing the backlog without this fix would have turned that latent
+      // loop live. An empty `enriched_fields` array is the correct record of
+      // "examined, nothing to do" (the column is nullable; [] is valid).
+      if (result.ok && numericId) {
         try {
           await supabase
             .from("schema_enrichments")
@@ -206,9 +270,20 @@ export async function action({ request }: ActionFunctionArgs) {
     // outcome (success, skip, or thrown error) so one bad product can never
     // block the queue head.
     if (await markProcessed([row.id])) triggersProcessed += 1;
-  }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(ENRICH_CONCURRENCY, enrichmentRows.length) }, worker),
+  );
 
   return json({
+    // `timed_out` + `unclaimed` make backlog burn-down observable from the
+    // cron response alone: a run that keeps reporting timed_out=true with a
+    // non-zero unclaimed count means the queue is still growing faster than
+    // this cadence drains it.
+    timed_out: timedOut,
+    unclaimed: Math.max(0, enrichmentRows.length - cursor),
+    elapsed_ms: Date.now() - startedAt,
     enrichments_processed: enrichmentsProcessed,
     legacy_skipped: legacySkipped,
     triggers_processed: triggersProcessed,

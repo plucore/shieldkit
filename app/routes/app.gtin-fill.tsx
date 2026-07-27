@@ -369,7 +369,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         const numericId = gidToNumericId(p.id);
         const written = writtenByProduct.get(p.id) ?? {};
         const fields = Object.keys(written);
-        if (!numericId || fields.length === 0) return null;
+        // Same dedup-anchor defect as the drainer (see the long comment in
+        // api.cron.process-scan-triggers.ts). Was `!numericId || fields.length
+        // === 0`, which skipped the schema_enrichments row for any product that
+        // needed no writes — leaving the webhook's 24h dedup with no anchor and
+        // letting that product re-enqueue indefinitely. Record the examination
+        // regardless; an empty enriched_fields means "checked, nothing to do".
+        if (!numericId) return null;
         return {
           merchant_id: merchant.id,
           product_id: numericId,

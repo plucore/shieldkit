@@ -349,9 +349,21 @@ export async function runComplianceScan(
       const prevCrit = Number(prev.critical_count ?? 0);
       const scoreDrop = prevScore - complianceScore;
       const criticalJump = criticalCount - prevCrit;
-      // Either a >20-point collapse, or 0 criticals turning into 4+ — the exact
-      // signature of the fabricated-criticals bug.
-      if (scoreDrop > 20 || (prevCrit === 0 && criticalCount >= 4)) {
+      // Either a >20-point collapse, or 0 criticals turning into several.
+      //
+      // The threshold is 3, not 4. The historical signature was FOUR criticals
+      // (contact_information, privacy_and_terms, refund_return_policy,
+      // shipping_policy), but the 2026-07-09 false-positive remediation demoted
+      // contact_information to a 1-of-N warning — so the same data-unavailability
+      // can now produce at most THREE criticals. A `>= 4` threshold was therefore
+      // unreachable for the very failure mode it was written to catch; found by
+      // forcing the failure in tests/trust-fix-failure-modes.test.ts rather than
+      // by reading the code.
+      const CRITICAL_JUMP_ALARM = 3;
+      if (
+        scoreDrop > 20 ||
+        (prevCrit === 0 && criticalCount >= CRITICAL_JUMP_ALARM)
+      ) {
         sentry.captureMessage(
           `IMPLAUSIBLE SCORE COLLAPSE for ${shopifyDomain}: ${prevScore} -> ${complianceScore} ` +
             `(drop ${scoreDrop.toFixed(2)}), criticals ${prevCrit} -> ${criticalCount} ` +

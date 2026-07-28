@@ -14,6 +14,12 @@
  * Returns a structured result the webhook persists to enrichment_webhook_log.
  */
 
+import {
+  decideEnrichment,
+  needsShopNameFallback,
+  type EnrichmentSnapshot,
+} from "./enrichment-decision.server";
+
 export interface EnrichmentResult {
   ok: boolean;
   written: string[];
@@ -84,69 +90,48 @@ export async function enrichProductMetafields(
       return { ok: false, written: [], skipped: [], error: "product_not_found" };
     }
 
+    // Normalise the edges shape this query returns into the shared snapshot the
+    // paged reconcile also builds, then run the SINGLE shared decision function.
+    // Both discovery paths must reach identical conclusions or the Block 4 parity
+    // gate is meaningless — see enrichment-decision.server.ts.
     const variant = product.variants.edges[0]?.node;
-    const sku = variant?.sku ?? null;
-    const barcode = variant?.barcode ?? null;
     const existing: Record<string, string> = {};
     for (const { node: m } of product.metafields.edges) existing[m.key] = m.value;
+    const snap: EnrichmentSnapshot = {
+      productGid,
+      vendor: product.vendor ?? null,
+      sku: variant?.sku ?? null,
+      barcode: variant?.barcode ?? null,
+      existing,
+    };
 
-    // Honour explicit opt-out flag.
-    if (existing["identifier_exists"] === "false") {
-      return { ok: true, written: [], skipped: ["gtin", "mpn", "brand"] };
-    }
-
-    // Brand fallback: shop.name when vendor is missing.
-    let brandValue: string | null = null;
-    if (!existing["brand"]) {
-      brandValue = product.vendor && product.vendor.length > 0 ? product.vendor : null;
-      if (!brandValue) {
-        try {
-          const shopRes = await admin.graphql(SHOP_QUERY);
-          const shopJson = (await shopRes.json()) as { data?: { shop?: { name?: string } } };
-          brandValue = shopJson?.data?.shop?.name ?? null;
-        } catch {
-          brandValue = null;
-        }
+    // Lazily resolve the last-resort brand fallback: one extra query, and only
+    // for products that actually need it.
+    let shopName: string | null = null;
+    if (needsShopNameFallback(snap)) {
+      try {
+        const shopRes = await admin.graphql(SHOP_QUERY);
+        const shopJson = (await shopRes.json()) as { data?: { shop?: { name?: string } } };
+        shopName = shopJson?.data?.shop?.name ?? null;
+      } catch {
+        shopName = null;
       }
     }
 
-    type MetafieldInput = {
-      ownerId: string;
-      namespace: string;
-      key: string;
-      type: string;
-      value: string;
-    };
-    const inputs: MetafieldInput[] = [];
-    const written: string[] = [];
-    const skipped: string[] = [];
-
-    if (existing["gtin"]) {
-      skipped.push("gtin");
-    } else if (barcode) {
-      inputs.push({ ownerId: productGid, namespace: "custom", key: "gtin", type: "single_line_text_field", value: barcode });
-      written.push("gtin");
-    } else {
-      skipped.push("gtin");
+    const decision = decideEnrichment(snap, shopName);
+    const skipped = decision.skipped;
+    if (decision.optedOut) {
+      return { ok: true, written: [], skipped };
     }
 
-    if (existing["mpn"]) {
-      skipped.push("mpn");
-    } else if (sku) {
-      inputs.push({ ownerId: productGid, namespace: "custom", key: "mpn", type: "single_line_text_field", value: sku });
-      written.push("mpn");
-    } else {
-      skipped.push("mpn");
-    }
-
-    if (existing["brand"]) {
-      skipped.push("brand");
-    } else if (brandValue) {
-      inputs.push({ ownerId: productGid, namespace: "custom", key: "brand", type: "single_line_text_field", value: brandValue });
-      written.push("brand");
-    } else {
-      skipped.push("brand");
-    }
+    const written = decision.writes.map((w) => w.key);
+    const inputs = decision.writes.map((w) => ({
+      ownerId: productGid,
+      namespace: "custom",
+      key: w.key,
+      type: "single_line_text_field",
+      value: w.value,
+    }));
 
     if (inputs.length === 0) {
       return { ok: true, written: [], skipped };

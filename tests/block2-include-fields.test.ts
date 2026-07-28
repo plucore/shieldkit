@@ -78,6 +78,18 @@ describe("products/* subscriptions request only the field the handler reads", ()
     expect(src).toMatch(/UNVERIFIED/);
     expect(src).toMatch(/CERTAIN/);
   });
+
+  it("records the debounce hypothesis as RETIRED UNTESTED, not pending", () => {
+    // The planned 48h delivery-count test measured products/update redelivery
+    // volume, and products/update was unsubscribed 2026-07-29. Deliveries fall to
+    // ~0 because the topic is gone, so the number can attribute nothing. Leaving
+    // it recorded as "pending" would invite someone to run a comparison that
+    // cannot answer the question.
+    expect(src).toMatch(/RETIRED UNTESTED/);
+    expect(src).toMatch(/48h test is void/);
+    // ...and the change must be justified on the DOCUMENTED reason alone.
+    expect(src).toMatch(/kept on reason 1\s*\n?\s*\*?\s*alone, which is documented/);
+  });
 });
 
 describe("products/* remain per-shop, so `shopify app deploy` is NOT the mechanism", () => {

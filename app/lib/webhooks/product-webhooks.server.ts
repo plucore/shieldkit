@@ -79,12 +79,23 @@ const DESIRED_TOPICS = ["PRODUCTS_CREATE"] as const;
  *     That directly cuts Vercel Fast Origin Transfer, which was ~18.6 GB in the
  *     May-June blow-out.
  *
- *  2. UNVERIFIED — delivery count. Omitting `updated_at` is widely reported to
- *     let Shopify suppress a redelivery whose payload is byte-identical to the
- *     previous one, which would cut the ~2.37 deliveries-per-product redundancy
- *     measured in July. I could NOT find this in Shopify's documentation — the
- *     schema docs describe payload contents only. Treat it as a hypothesis that
- *     the 48h delivery count will confirm or refute; do not bank the saving.
+ *  2. UNVERIFIED, AND NOW PERMANENTLY UNTESTABLE HERE — delivery count. Omitting
+ *     `updated_at` is widely reported to let Shopify suppress a redelivery whose
+ *     payload is byte-identical to the previous one, which would have cut the
+ *     ~2.37 deliveries-per-product redundancy measured in July. I could not find
+ *     it in Shopify's documentation — the schema docs describe payload contents
+ *     only.
+ *
+ *     **The planned 48h test is void.** It measured products/update redelivery
+ *     volume, and products/update was unsubscribed on 2026-07-29. The only
+ *     remaining subscription is products/create, whose volume (a handful a day) is
+ *     far too low to detect a debounce effect. Deliveries will fall to ~0, but
+ *     because the topic is gone, so the number can attribute nothing.
+ *
+ *     So this hypothesis is RETIRED UNTESTED. `includeFields` is kept on reason 1
+ *     alone, which is documented. Nobody should later cite the debounce as
+ *     established, or re-run a delivery-count comparison expecting it to say
+ *     anything about it.
  *
  * If the handler ever needs another field, add it here AND redeploy — an existing
  * subscription does not pick this up on its own (see the update path below).

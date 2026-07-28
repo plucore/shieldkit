@@ -1,5 +1,6 @@
 import type {
   ActionFunctionArgs,
+  HeadersFunction,
   LoaderFunctionArgs,
   MetaFunction,
   LinksFunction,
@@ -62,6 +63,31 @@ export const meta: MetaFunction = () => {
     { name: "twitter:description", content: description },
     { tagName: "link", rel: "canonical", href: url },
   ];
+};
+
+/**
+ * /scan was the only public route with no `headers` export, so every GET was a
+ * confirmed CDN miss that cold-started the 1.1MB SSR bundle — the most
+ * expensive shape of invocation this app has. Crawlers hit it constantly.
+ *
+ * The GET body is a static marketing form with no per-request data, so it is
+ * safe to cache at the edge. The POST is NOT: it returns a scan of a
+ * user-supplied URL, and serving one visitor's scan result to another would be
+ * both wrong and a privacy leak. `actionHeaders` is populated only on a
+ * document POST, so it is the discriminator — when present we explicitly
+ * no-store rather than falling through to the cacheable default.
+ *
+ * `?shop=` GETs 302 into the embedded app. Those are cached per-query-string
+ * (Vercel keys the CDN on the full query string), so a shop only ever gets its
+ * own redirect back.
+ */
+export const headers: HeadersFunction = ({ actionHeaders }) => {
+  if (actionHeaders && [...actionHeaders.keys()].length > 0) {
+    return { "Cache-Control": "no-store" };
+  }
+  return {
+    "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
+  };
 };
 
 /* ─────────────────────────────────────────────────── Loader / Action ── */

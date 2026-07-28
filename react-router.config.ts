@@ -43,9 +43,17 @@ export default {
   // ?shop=... visitors to /app and must stay dynamic.
   //
   // /sitemap.xml and /llms.txt are resource routes (loader-only) whose bodies
-  // are pure functions of the static content registries — no per-request data —
-  // so they prerender to static files too, keeping crawler/AI-bot hits off the
-  // 1.1MB SSR function. (/robots.txt is served as a static public/ file.)
+  // are pure functions of the static content registries — no per-request data.
+  //
+  // CORRECTION (2026-07-28 usage investigation): listing a RESOURCE route here
+  // does NOT make it a static file. Unlike the UI routes above, these two are
+  // still FUNCTION-BACKED at runtime; what actually keeps crawler hits off the
+  // bundle is the `Cache-Control: public, max-age=3600` each loader sets, so a
+  // cold hit every hour still boots the 1.1MB SSR function. Earlier comments
+  // here and in CLAUDE.md claimed they were prerendered to static — they are
+  // not. Volume is low so the cost is small, but do not rely on this line as a
+  // guarantee that these paths never invoke a function.
+  // (/robots.txt IS genuinely static — it is a real file in public/.)
   async prerender() {
     return [
       "/blog",

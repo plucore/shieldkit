@@ -953,22 +953,52 @@ export default function Index() {
     );
   }, [merchant, selfHealFetcher]);
 
-  // When self-heal reports drift was fixed, revalidate so the dashboard
-  // re-renders with the new tier / scans_remaining values.
+  // ── Revalidate-once effects ────────────────────────────────────────────────
+  //
+  // BOTH effects below MUST keep their fired-once ref guard, and MUST NOT put
+  // `revalidator` back in the dependency array. Without the guard this is an
+  // unbounded self-retriggering loop, not a one-shot refresh:
+  //
+  //   useRevalidator() returns React.useMemo(() => ({ revalidate, state:
+  //   state.revalidation }), [revalidate, state.revalidation]) — see
+  //   react-router/dist/development/chunk-D6LUOGOQ.js:7614. `state.revalidation`
+  //   cycles idle -> loading -> idle on every revalidation, so each revalidation
+  //   mints a NEW `revalidator` object identity. With it in the deps the effect
+  //   re-runs; the fetcher is still `idle` with its `data` still populated, so
+  //   the early-return does not catch it; it calls revalidate() again. Forever.
+  //
+  // Each iteration is one `/app.data` request = one Vercel function invocation
+  // plus ~14 Supabase queries, at roughly 2/s for as long as the tab stays open
+  // (~7,200 invocations/hour/tab against a 1M/month Hobby allowance shared by
+  // every project on the team). Found 2026-07-28; introduced 23cf403.
+  //
+  // The correct pattern is already used three times in this file:
+  // selfHealFiredRef above, scanViewedRef below, and the toastId state guard.
+  const selfHealRevalidatedRef = useRef(false);
   useEffect(() => {
+    if (selfHealRevalidatedRef.current) return;
     if (selfHealFetcher.state !== "idle" || !selfHealFetcher.data) return;
     if (selfHealFetcher.data.healed) {
+      selfHealRevalidatedRef.current = true;
       revalidator.revalidate();
     }
-  }, [selfHealFetcher.state, selfHealFetcher.data, revalidator]);
+    // `revalidator` deliberately omitted — see the comment above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selfHealFetcher.state, selfHealFetcher.data]);
 
   // When the merchant clicks Enable JSON-LD, revalidate so the aside card
   // immediately reflects the new state. The action flips json_ld_enabled
-  // synchronously now (no verifier in the loop).
+  // synchronously now (no verifier in the loop). Once per mount is right:
+  // enabling is a one-way switch, after which the card renders its "On" state.
+  const jsonLdRevalidatedRef = useRef(false);
   useEffect(() => {
+    if (jsonLdRevalidatedRef.current) return;
     if (jsonLdFetcher.state !== "idle" || !jsonLdFetcher.data) return;
+    jsonLdRevalidatedRef.current = true;
     revalidator.revalidate();
-  }, [jsonLdFetcher.state, jsonLdFetcher.data, revalidator]);
+    // `revalidator` deliberately omitted — see the comment above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jsonLdFetcher.state, jsonLdFetcher.data]);
 
   // Deduplicated toast — only fires once per unique scanId
   const [toastId, setToastId] = useState<string | null>(null);

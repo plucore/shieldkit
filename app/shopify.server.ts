@@ -67,13 +67,23 @@ const shopify = shopifyApp({
       //   below without also gating it on "row didn't exist before" — adding
       //   it unconditionally would refund a free scan on every reauth, which
       //   is a paid-tier abuse path.
+      // NEVER add installed_at to this payload. afterAuth fires on every
+      // offline-token EXCHANGE, not just on install (see the comment above),
+      // and .upsert() with onConflict compiles to
+      // `ON CONFLICT DO UPDATE SET <every key in this object> = EXCLUDED.<key>`
+      // — so an `installed_at: now()` here restamps the column on every
+      // re-auth. That bug ran from the initial commit until 2026-07-28 and
+      // corrupted 27 of 54 rows (drift up to 87 days), making every cohort and
+      // tenure metric unusable. The column is NOT NULL DEFAULT now(), so the
+      // first INSERT still stamps it correctly; omitting it here is exactly
+      // what makes it immutable afterwards. `created_at` is the independent
+      // cross-check — nothing in the codebase writes it.
       const { error } = await supabase.from("merchants").upsert(
         {
           shopify_domain: session.shop,
           access_token_encrypted: session.accessToken
             ? encrypt(session.accessToken)
             : null,
-          installed_at: new Date().toISOString(),
           uninstalled_at: null,
         },
         { onConflict: "shopify_domain" }

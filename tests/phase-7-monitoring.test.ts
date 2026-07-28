@@ -78,8 +78,53 @@ describe("api.cron.process-scan-triggers (v4 enrichment-only drainer)", () => {
   });
 
   it("drains a bounded batch per invocation to stay under Vercel Hobby's 60s function ceiling", () => {
-    expect(src).toMatch(/const\s+BATCH_SIZE\s*=\s*10\b/);
+    // Updated 2026-07-28. This used to pin BATCH_SIZE to exactly 10, which is
+    // what let a 3,358-row backlog build up unnoticed once a large-catalog
+    // merchant upgraded: 10/run x 4 runs/day could not keep up with ~600/day
+    // inbound. Pinning an exact number was the wrong invariant — what actually
+    // has to hold is that the batch is BOUNDED and that a wall-clock guard,
+    // not the row count, is what keeps the invocation under the 60s ceiling.
+    expect(src).toMatch(/const\s+BATCH_SIZE\s*=\s*\d+/);
     expect(src).toContain(".limit(BATCH_SIZE)");
+
+    // The time budget must leave real headroom under Hobby's 60s hard kill.
+    const budget = src.match(/const\s+TIME_BUDGET_MS\s*=\s*([\d_]+)/);
+    expect(budget).not.toBeNull();
+    expect(Number(budget![1].replace(/_/g, ""))).toBeLessThanOrEqual(50_000);
+
+    // ...and it must actually be enforced inside the drain loop, otherwise it
+    // is decoration.
+    expect(src).toMatch(/Date\.now\(\)\s*-\s*startedAt\s*>\s*TIME_BUDGET_MS/);
+  });
+
+  it("converts the time budget into throughput with a bounded worker pool", () => {
+    // Raising BATCH_SIZE alone is inert: each enrichment is a ~2s Shopify
+    // round-trip, so a serial loop completes only ~20 rows inside the budget
+    // regardless of how many were selected. Concurrency is the lever, and it
+    // must stay small because Shopify's cost limit is per-shop and a backlog
+    // is typically one merchant's catalog.
+    const conc = src.match(/const\s+ENRICH_CONCURRENCY\s*=\s*(\d+)/);
+    expect(conc).not.toBeNull();
+    expect(Number(conc![1])).toBeGreaterThan(1);
+    expect(Number(conc![1])).toBeLessThanOrEqual(10);
+    expect(src).toContain("Promise.all");
+  });
+
+  it("writes the schema_enrichments dedup anchor even when no fields needed writing", () => {
+    // The webhook's 24h dedup reads schema_enrichments.enriched_at only. Gating
+    // the anchor write on `written.length > 0` meant a product that already had
+    // all three metafields never got a row, so it re-enqueued on every
+    // products/update forever. Guard against the old condition returning.
+    //
+    // Strip comments first: the source deliberately quotes the old condition in
+    // an explanatory comment, and a naive match would hit that instead of code.
+    const code = src
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("//"))
+      .join("\n");
+    expect(code).not.toMatch(/result\.written\.length\s*>\s*0\s*&&/);
+    expect(code).toMatch(/if\s*\(result\.ok\s*&&\s*numericId\)/);
   });
 
   it("scopes the queue head to PAID, installed merchants so free-tier rows can't wedge the drainer", () => {

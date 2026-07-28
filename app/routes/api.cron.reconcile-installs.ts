@@ -54,21 +54,22 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-export async function loader(_args: LoaderFunctionArgs) {
-  return json(
-    {
-      error: "method_not_allowed",
-      message: "Use POST /api/cron/reconcile-installs.",
-    },
-    405,
-  );
+// Vercel Cron invokes a scheduled path with **GET**, which React Router routes
+// to the loader. This route used to 405 every GET, so the declared Vercel cron
+// never executed and the auth-health signal was never produced. Both verbs now
+// run the same handler; the bearer CRON_SECRET check inside `run()` is the only
+// authorisation gate, so widening the verb does not widen access. This route is
+// still strictly NON-DESTRUCTIVE (see the header) — making it actually run does
+// not put any merchant row at risk. Fixed 2026-07-28.
+export async function loader({ request }: LoaderFunctionArgs) {
+  return run(request);
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-  if (request.method !== "POST") {
-    return json({ error: "method_not_allowed", message: "Use POST." }, 405);
-  }
+  return run(request);
+}
 
+async function run(request: Request) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     console.error("[cron/reconcile-installs] CRON_SECRET env var is not set");

@@ -148,6 +148,88 @@ async function fetchPage(
   }
 }
 
+/**
+ * Three-way classification of a page fetch. This is the whole point of the
+ * 2026-07-28 fix to this file.
+ *
+ * The old code wrote `fetch?.status === 200 ? fetch.html : null` and handed that
+ * `null` to the policy checks, which reported `critical` "Missing … Policy". That
+ * collapsed three completely different outcomes into one:
+ *
+ *   - HTTP 404/410      the policy genuinely is not published — a REAL finding
+ *   - HTTP 429/503/403  rate-limited, down, or a bot-challenge — "we could not look"
+ *   - null              timeout / DNS / network — "we could not look"
+ *
+ * So any Shopify storefront behind a rate limiter or Cloudflare bot-challenge got
+ * three fabricated criticals. On `/scan` — the lead-generation funnel — that is
+ * the first number a prospect ever sees about their own store.
+ *
+ * "absent" is the only outcome a check may report as a failure.
+ */
+export type FetchAvailability = "ok" | "absent" | "unavailable";
+
+export function classifyFetch(
+  r: { status: number; html: string } | null
+): FetchAvailability {
+  if (!r) return "unavailable"; // timeout / DNS / connection reset
+  if (r.status === 404 || r.status === 410) return "absent"; // genuinely not there
+  if (r.status >= 200 && r.status < 300) return "ok";
+  // 429 rate-limited, 5xx down, 403 bot-challenge, 401, anything else: we did
+  // not get an answer, so we do not have grounds to assert absence.
+  return "unavailable";
+}
+
+/**
+ * Fetch with ONE bounded retry, and only for the `unavailable` class. A 404 is a
+ * definitive answer and is never retried; neither is a 200. Mirrors the bounded
+ * retry added to getShopPolicies() on the authenticated side.
+ */
+async function fetchPageChecked(
+  url: string,
+  timeoutMs = 10_000
+): Promise<{ page: { status: number; html: string } | null; availability: FetchAvailability }> {
+  let page = await fetchPage(url, timeoutMs);
+  let availability = classifyFetch(page);
+  if (availability === "unavailable") {
+    await new Promise((r) => setTimeout(r, 600));
+    page = await fetchPage(url, timeoutMs);
+    availability = classifyFetch(page);
+  }
+  return { page, availability };
+}
+
+/**
+ * Rewrite a check result whose input could not be fetched into a NON-SCORABLE
+ * info. Excluded from both sides of the headline score by computeHeadlineScore,
+ * exactly as a PageSpeed timeout already is. Same contract as the authenticated
+ * orchestrator's degradeUnverifiable().
+ */
+function degradeUnverifiable(
+  r: PublicCheckResult,
+  what: string
+): PublicCheckResult {
+  return {
+    ...r,
+    passed: true, // not a failure — we simply could not look
+    severity: "info",
+    scorable: false,
+    title: `${r.title.split(" — ")[0]} — Not Checked`,
+    description:
+      `We could not load your ${what} just now, so this was not checked and has ` +
+      `not affected your score. That is usually the store rate-limiting an ` +
+      `automated request, not a problem with your store. Try the scan again in a ` +
+      `few minutes.`,
+    fix_instruction: "No action needed. Re-run the scan.",
+    raw_data: {
+      ...r.raw_data,
+      degraded: true,
+      degraded_reason: "storefront_fetch_unavailable",
+      original_severity: r.severity,
+      original_passed: r.passed,
+    },
+  };
+}
+
 async function fetchJson<T>(url: string, timeoutMs = 10_000): Promise<T | null> {
   try {
     const res = await fetch(url, {
@@ -718,10 +800,12 @@ export async function runPublicScan(
     fetchPage(`${storeUrl}/pages/about-us`).then((r) =>
       r && r.status === 200 ? r : fetchPage(`${storeUrl}/pages/about`)
     ),
-    fetchPage(`${storeUrl}/policies/shipping-policy`),
-    fetchPage(`${storeUrl}/policies/privacy-policy`),
-    fetchPage(`${storeUrl}/policies/terms-of-service`),
-    fetchPage(`${storeUrl}/policies/refund-policy`),
+    // Policy pages go through fetchPageChecked so a 429/503/timeout is
+    // distinguishable from a 404 and gets one bounded retry.
+    fetchPageChecked(`${storeUrl}/policies/shipping-policy`),
+    fetchPageChecked(`${storeUrl}/policies/privacy-policy`),
+    fetchPageChecked(`${storeUrl}/policies/terms-of-service`),
+    fetchPageChecked(`${storeUrl}/policies/refund-policy`),
     fetchJson<{ products: Array<{ handle: string }> }>(
       `${storeUrl}/products.json?limit=5`
     ),
@@ -752,15 +836,15 @@ export async function runPublicScan(
       )
     ),
     safeCheck("shipping_policy", () =>
-      checkShippingPolicy(shippingFetch?.status === 200 ? shippingFetch.html : null)
+      checkShippingPolicy(shippingFetch.availability === "ok" ? shippingFetch.page!.html : null)
     ),
     safeCheck("refund_return_policy", () =>
-      checkRefundReturnPolicy(refundFetch?.status === 200 ? refundFetch.html : null)
+      checkRefundReturnPolicy(refundFetch.availability === "ok" ? refundFetch.page!.html : null)
     ),
     safeCheck("privacy_and_terms", () =>
       checkPrivacyAndTerms(
-        privacyFetch?.status === 200 ? privacyFetch.html : null,
-        termsFetch?.status === 200 ? termsFetch.html : null
+        privacyFetch.availability === "ok" ? privacyFetch.page!.html : null,
+        termsFetch.availability === "ok" ? termsFetch.page!.html : null
       )
     ),
     safeCheck("checkout_transparency", () =>
@@ -778,15 +862,54 @@ export async function runPublicScan(
     safeCheck("page_speed", () => checkPageSpeed(storeUrl)),
   ]);
 
-  const passed = results.filter((r) => r.passed).length;
-  const errored = results.filter((r) => r.severity === "error").length;
+  // ── Degrade any check whose source page could not be FETCHED ──────────────
+  //
+  // RULE: never report a compliance failure derived from a fetch that failed.
+  // Only `absent` (a real 404) may become a finding; `unavailable` must not.
+  // Kept at the assembly point rather than threaded through the check
+  // signatures so the availability logic lives in one auditable place — same
+  // shape as the authenticated orchestrator.
+  const degradedPublic: string[] = [];
+  const degradeMap: Record<string, { availability: FetchAvailability; what: string }> = {
+    shipping_policy: { availability: shippingFetch.availability, what: "shipping policy page" },
+    refund_return_policy: { availability: refundFetch.availability, what: "refund policy page" },
+    // privacy_and_terms reads TWO pages; degrade only if BOTH were unavailable,
+    // because either one alone is enough for the check to render a real verdict.
+    privacy_and_terms: {
+      availability:
+        privacyFetch.availability === "unavailable" && termsFetch.availability === "unavailable"
+          ? "unavailable"
+          : "ok",
+      what: "privacy and terms pages",
+    },
+  };
+
+  // `results` is a fixed-length tuple from Promise.all, so build a new array
+  // rather than mutating it in place.
+  const finalResults: PublicCheckResult[] = results.map((r) => {
+    const entry = degradeMap[r.check_name];
+    if (entry && entry.availability === "unavailable") {
+      degradedPublic.push(r.check_name);
+      return degradeUnverifiable(r, entry.what);
+    }
+    return r;
+  });
+
+  if (degradedPublic.length > 0) {
+    console.warn(
+      `[PublicScan] DEGRADED for ${storeUrl}: ${degradedPublic.join(", ")} — storefront fetch unavailable after retry; excluded from the score rather than reported as missing.`
+    );
+  }
+
+  const passed = finalResults.filter((r) => r.passed).length;
+  const errored = finalResults.filter((r) => r.severity === "error").length;
   // Headline score excludes errored AND unmeasured (scorable:false, e.g. a
   // PageSpeed API timeout) checks from both sides — same rule as the
   // authenticated scanner and computeRiskScore, so a transient external failure
   // never moves it and it agrees with the RiskScoreBanner on the same page.
-  const score = computeHeadlineScore(results);
-  const criticals = results.filter((r) => !r.passed && r.severity === "critical").length;
-  const warnings = results.filter((r) => !r.passed && r.severity === "warning").length;
+  const score = computeHeadlineScore(finalResults);
+  const criticals = finalResults.filter((r) => !r.passed && r.severity === "critical").length;
+  const warnings = finalResults.filter((r) => !r.passed && r.severity === "warning").length;
 
   return {
     ok: true,
@@ -795,12 +918,15 @@ export async function runPublicScan(
     score,
     threat_level: deriveThreatLevel(score, criticals),
     summary: {
-      total_checks: results.length,
+      total_checks: finalResults.length,
       passed_checks: passed,
       critical_count: criticals,
       warning_count: warnings,
       errored_checks: errored,
     },
-    results,
+    // MUST be finalResults, not `results` — the degraded copies are what the
+    // prospect actually sees. Returning the raw tuple here would make the whole
+    // degradation cosmetic.
+    results: finalResults,
   };
 }

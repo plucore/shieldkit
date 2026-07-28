@@ -23,6 +23,7 @@ import { join } from "node:path";
 
 // ─── Mutable fixtures the mocks read ────────────────────────────────────────
 let policiesAvailable = true;
+let pagesAvailable = true;
 let prevScan: { compliance_score: number; critical_count: number; created_at: string } | null = null;
 let prevScanThrows = false;
 let insertedViolations: Array<Record<string, unknown>> = [];
@@ -130,6 +131,9 @@ vi.mock("../app/lib/shopify-api.server", () => ({
   ),
   getProducts: vi.fn(async () => []),
   getPages: vi.fn(async () => []),
+  // The orchestrator reads pages through the availability-aware variant so a
+  // failed Pages fetch cannot be read as "this shop has no policy pages".
+  getPagesWithAvailability: vi.fn(async () => ({ pages: [], available: pagesAvailable })),
 }));
 
 import { runComplianceScan } from "../app/lib/checks/index.server";
@@ -235,6 +239,7 @@ describe("getShopPolicies: every failure mode yields available:false", () => {
 describe("orchestrator: unavailable policy data never becomes a finding", () => {
   beforeEach(() => {
     policiesAvailable = true;
+    pagesAvailable = true;
     prevScan = null;
     prevScanThrows = false;
     insertedViolations = [];
@@ -355,6 +360,7 @@ describe("orchestrator: unavailable policy data never becomes a finding", () => 
 describe("collapse alarm", () => {
   beforeEach(() => {
     policiesAvailable = true;
+    pagesAvailable = true;
     prevScan = null;
     prevScanThrows = false;
     insertedViolations = [];

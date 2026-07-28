@@ -10,7 +10,7 @@ import {
   getShopInfo,
   getShopPolicies,
   getProducts,
-  getPages,
+  getPagesWithAvailability,
 } from "../shopify-api.server";
 import { supabase } from "../../supabase.server";
 import { sentry } from "../sentry.server";
@@ -78,12 +78,13 @@ export async function runComplianceScan(
   const executor = await createAdminClient(shopifyDomain);
 
   // ── 2. Fetch all Shopify data concurrently ──────────────────────────────────
-  const [shopInfo, shopPolicies, products, pages] = await Promise.all([
+  const [shopInfo, shopPolicies, products, pagesResult] = await Promise.all([
     getShopInfo(executor),
     getShopPolicies(executor),
     getProducts(executor, 50),
-    getPages(executor, 20),
+    getPagesWithAvailability(executor, 20),
   ]);
+  const pages = pagesResult.pages;
 
   // ── 2b. Opportunistically refresh merchant metadata from Shopify ────────────
   // Fire-and-forget: keeps shop_name, owner, country, plan, etc. in sync on
@@ -248,7 +249,14 @@ export async function runComplianceScan(
     };
   };
 
-  const policiesUnavailable = !shopPolicies.available;
+  // BOTH sources must be available before a policy check may report absence.
+  // `pages` is the FALLBACK source, and the checks literally say "not found in
+  // Settings → Policies OR AS A SHOPIFY PAGE" — so an empty `pages` caused by a
+  // failed fetch makes that sentence a false assertion. Before getPages got its
+  // own flag this was a live divergence: the policies retry could succeed while
+  // getPages failed, yielding available:true + pages:[] and an un-degraded
+  // CRITICAL.
+  const policiesUnavailable = !shopPolicies.available || !pagesResult.available;
   const fatalFive: CheckResult[] = fatalFiveResults.map((r) => {
     if (
       policiesUnavailable &&
@@ -277,6 +285,16 @@ export async function runComplianceScan(
     );
   }
 
+  // hidden_fee_detection consumes shopPolicies too, but sits in the SECOND batch
+  // which the map above never touched — a hole in the degradation shipped
+  // earlier on 2026-07-28. With unavailable policies its `policyText` is empty,
+  // so EVERY storefront fee mention becomes "undisclosed" and it emits a
+  // CRITICAL "Undisclosed Fees Detected". Degrade it on the same gate.
+  const check11Degraded =
+    !shopPolicies.available && check11.check_name === "hidden_fee_detection"
+      ? degradeUnverifiable(check11, "store policies")
+      : check11;
+
   const checkResults: CheckResult[] = [
     ...fatalFive,
     check6,
@@ -284,7 +302,7 @@ export async function runComplianceScan(
     check8,
     check9,
     check10,
-    check11,
+    check11Degraded,
     check12,
   ];
 

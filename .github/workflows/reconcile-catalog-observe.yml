@@ -1,0 +1,94 @@
+name: Catalog reconcile (observe)
+
+# BLOCK 4 — runs the catalog reconcile IN PARALLEL with the products/create +
+# products/update webhooks, in `observe` mode, which writes NOTHING anywhere.
+#
+# Its job is to accumulate the parity evidence that gates switching enrichment
+# discovery from webhooks to paging: for each paid merchant it walks the catalog
+# 250 products at a time, decides enrichment need from the paged data alone, and
+# diffs that against what the webhook path actually did over the same window
+# (read from enrichment_webhook_log).
+#
+# The number that blocks the switch is `webhook_only_unexplained` — a product the
+# webhooks enqueued that the reconcile neither flagged nor can account for. It
+# must be 0, on a run where `truncated` is false.
+#
+# Cadence matches the drainer's 6h so one tick covers one webhook cycle. This is
+# a temporary, read-only workflow: once the switch is approved it should either be
+# retired or re-pointed at `mode=enqueue`.
+#
+# Manual setup: CRON_SECRET must already exist in the repo's Actions secrets (the
+# process-scan-triggers workflow uses the same one).
+#
+# Security notes:
+#   - No user-controlled event payload is consumed. The only inputs are
+#     workflow_dispatch inputs (collaborators only), and they are passed through
+#     env: rather than interpolated into the shell.
+#   - Both inputs are re-validated against a strict allowlist below before they
+#     reach the URL, so neither can inject extra query parameters.
+#   - Scheduled runs are pinned to observe unconditionally, so no default or
+#     input can turn the parallel run into a writer.
+
+on:
+  schedule:
+    - cron: "30 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "observe (default, writes nothing) or enqueue — do NOT use enqueue before the parity gate is approved"
+        required: false
+        default: observe
+        type: choice
+        options:
+          - observe
+          - enqueue
+      window_hours:
+        description: "Parity window in hours"
+        required: false
+        default: "24"
+
+concurrency:
+  group: reconcile-catalog
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: GET /api/cron/reconcile-catalog
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          INPUT_MODE: ${{ inputs.mode }}
+          INPUT_WINDOW_HOURS: ${{ inputs.window_hours }}
+        run: |
+          set -euo pipefail
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET secret is not set. Add it under Settings -> Secrets and variables -> Actions." >&2
+            exit 1
+          fi
+
+          # Scheduled runs are ALWAYS observe. Only an explicit manual dispatch can
+          # select enqueue, and only after the parity gate has been approved.
+          MODE=observe
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "${INPUT_MODE:-}" = "enqueue" ]; then
+            MODE=enqueue
+          fi
+
+          # Digits only, so the value cannot carry extra query parameters.
+          WINDOW_HOURS=24
+          case "${INPUT_WINDOW_HOURS:-}" in
+            ''|*[!0-9]*) ;;
+            *) WINDOW_HOURS="$INPUT_WINDOW_HOURS" ;;
+          esac
+
+          HTTP_STATUS=$(curl --silent --show-error --output /tmp/reconcile.json --write-out "%{http_code}" \
+            --max-time 240 \
+            --header "Authorization: Bearer $CRON_SECRET" \
+            "https://shieldkit.vercel.app/api/cron/reconcile-catalog?mode=${MODE}&window_hours=${WINDOW_HOURS}")
+          echo "HTTP $HTTP_STATUS (mode=$MODE window_hours=$WINDOW_HOURS)"
+          cat /tmp/reconcile.json || true
+          echo
+          if [ "$HTTP_STATUS" -ge 400 ]; then
+            exit 1
+          fi

@@ -572,3 +572,69 @@ describe("the pending-queue read is paginated — the third 1,000-row cap in one
     expect(route).not.toMatch(/\.from\("schema_enrichments"\)\s*\n?\s*\.select\("merchant_id"\)/);
   });
 });
+
+describe("cursor persistence — coverage, not just latency", () => {
+  const route = read("app", "routes", "api.cron.reconcile-catalog.ts");
+  const migration = read(
+    "supabase", "migrations", "20260729000000_catalog_reconcile_state.sql",
+  );
+
+  it("resumes from the saved cursor instead of restarting at page 1", () => {
+    // Load-bearing, not an optimisation. On the scheduled multi-shop run each
+    // shop gets ~22s while sex-eshop's 31 pages need ~45s, so a walk that always
+    // restarted would read the first ~15 pages FOREVER and never reach the tail —
+    // not late, never, and invisible because every run looks successful.
+    expect(route).toMatch(/loadState\(m\.shopify_domain\)/);
+    expect(route).toMatch(/const resumeFrom =/);
+    expect(route).toMatch(/after: resumeFrom/);
+  });
+
+  it("an explicit ?after= beats the saved cursor, and reset_cursor forces a restart", () => {
+    expect(route).toMatch(/\(onlyShop && after\) \|\|/);
+    expect(route).toMatch(/reset_cursor/);
+    expect(route).toMatch(/resetCursor \|\| cycleStale \? null :/);
+  });
+
+  it("a cycle that never finishes is restarted rather than resumed forever", () => {
+    expect(route).toMatch(/CYCLE_STALE_AFTER_MS/);
+    expect(route).toMatch(/cycleStale/);
+  });
+
+  it("only a walk that reached the END closes the cycle", () => {
+    expect(route).toMatch(
+      /const cycleComplete = !rec\.truncated && rec\.nextCursor === null && rec\.errors\.length === 0/,
+    );
+  });
+
+  it("the parity verdict grades COVERAGE, not per-invocation truncation", () => {
+    // Truncation is normal once the walk resumes, so grading on it would mark
+    // every large shop inconclusive forever. Cycle completion is the real question.
+    expect(route).toMatch(/truncated: !cycleComplete/);
+  });
+
+  it("reports when the whole catalog was last seen", () => {
+    expect(route).toMatch(/last_full_catalog_pass: nextState\.last_completed_at/);
+    expect(route).toMatch(/cycle_complete: cycleComplete/);
+  });
+
+  it("a failed state read or write can never skip catalog", () => {
+    // Losing the cursor costs a repeated walk; that is the safe direction.
+    expect(route).toMatch(/start from the beginning/);
+    expect(route).toMatch(/never skipped catalog/);
+  });
+
+  it("the state table is FK-free, keyed on shop_domain, and holds no PII", () => {
+    const createStart = migration.indexOf("CREATE TABLE IF NOT EXISTS catalog_reconcile_state");
+    const ddl = migration
+      .slice(createStart, migration.indexOf("\n);", createStart))
+      .split("\n")
+      .filter((l) => !l.trimStart().startsWith("--"))
+      .join("\n");
+    expect(ddl).toMatch(/shop_domain\s+TEXT PRIMARY KEY/);
+    expect(ddl).not.toMatch(/REFERENCES/i);
+    expect(ddl).not.toMatch(/merchant_id/);
+    for (const col of ["email", "owner", "address", "token"]) {
+      expect(ddl).not.toMatch(new RegExp(col, "i"));
+    }
+  });
+});

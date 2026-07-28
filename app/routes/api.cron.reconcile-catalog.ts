@@ -43,6 +43,14 @@
  *   max_pages=<n>          bound the walk
  *   enqueue_cap=<n>        cap rows inserted in enqueue mode, default 500
  *   budget_ms=<n>          per-shop wall-clock budget, default 25s multi-shop
+ *   reset_cursor=1         discard the saved cursor and restart the cycle
+ *
+ * CURSOR PERSISTENCE (catalog_reconcile_state, 2026-07-29). A large catalog does
+ * not fit in one invocation, so the walk resumes where the last one stopped. This
+ * is load-bearing, not an optimisation: on the scheduled multi-shop run each shop
+ * gets ~22s while sex-eshop's 31 pages need ~45s, so without a saved cursor the
+ * walk would read roughly the first 15 pages FOREVER and never reach the tail —
+ * not late, never, and invisible because every individual run looks successful.
  *
  * WALL CLOCK IS THE BINDING CONSTRAINT, NOT THE RATE LIMIT. The first production
  * observe run took 57.7s for three merchants against the 60s Hobby ceiling, and
@@ -87,6 +95,15 @@ const MULTI_SHOP_BUDGET_MS = 22_000;
  * pages measured ~44s at Vercel's observed 1.42s/page.
  */
 const SINGLE_SHOP_BUDGET_MS = 50_000;
+
+/**
+ * A cycle that has not completed within this window is restarted from the
+ * beginning rather than resumed. Bounds the damage from a cursor Shopify no
+ * longer accepts, or from a shop whose catalog keeps growing faster than one
+ * cycle can walk it — either way, silently limping forever is the failure to
+ * avoid.
+ */
+const CYCLE_STALE_AFTER_MS = 24 * 60 * 60 * 1000;
 
 function json<T>(body: T, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -207,6 +224,8 @@ async function run(request: Request) {
     Number(url.searchParams.get("budget_ms")) ||
     (onlyShop ? SINGLE_SHOP_BUDGET_MS : MULTI_SHOP_BUDGET_MS);
 
+  const resetCursor = url.searchParams.get("reset_cursor") === "1";
+
   for (const m of ordered) {
     // Never START a shop we cannot plausibly finish inside the ceiling. A
     // silently-omitted merchant would read as "nothing to do" for that shop.
@@ -215,11 +234,21 @@ async function run(request: Request) {
       continue;
     }
     try {
+      // Resume the in-progress cycle. An explicit ?after= always wins (operator
+      // control); ?reset_cursor=1 forces a fresh cycle; and a cycle older than
+      // CYCLE_STALE_AFTER_MS restarts rather than resuming forever.
+      const state = await loadState(m.shopify_domain);
+      const cycleStale =
+        !!state?.cycle_started_at &&
+        Date.now() - Date.parse(state.cycle_started_at) > CYCLE_STALE_AFTER_MS;
+      const resumeFrom =
+        (onlyShop && after) || (resetCursor || cycleStale ? null : state?.cursor ?? null);
+
       const rec = await reconcileCatalog({
         shopDomain: m.shopify_domain,
         merchantId: m.id,
         mode: scopeOk ? mode : "observe",
-        after: onlyShop ? after : null,
+        after: resumeFrom,
         enqueueCap,
         maxPages,
         timeBudgetMs: Math.max(
@@ -228,12 +257,30 @@ async function run(request: Request) {
         ),
       });
 
+      // A walk that stopped mid-catalog leaves the cursor for the next run; one
+      // that reached the end closes the cycle and stamps last_completed_at, the
+      // only timestamp that licenses "the whole catalog has been seen".
+      const cycleComplete = !rec.truncated && rec.nextCursor === null && rec.errors.length === 0;
+      const nextState = await saveState({
+        shopDomain: m.shopify_domain,
+        cursor: cycleComplete ? null : rec.nextCursor,
+        cycleComplete,
+        startingFresh: resumeFrom === null,
+        pagesDelta: rec.pagesWalked,
+        productsDelta: rec.productsSeen,
+        prior: state,
+      });
+
       const parity = await buildParityReport({
         merchantId: m.id,
         windowHours,
         needsWork: rec.needsWork,
         noWork: rec.noWork,
-        truncated: rec.truncated,
+        // Coverage, not per-invocation truncation, is what the verdict depends on.
+        // Truncation is NORMAL for a large catalog now that the walk resumes, so
+        // grading on it alone would mark every big shop inconclusive forever;
+        // grading on cycle completion asks the right question.
+        truncated: !cycleComplete,
       });
 
       results.push({
@@ -248,6 +295,11 @@ async function run(request: Request) {
         enqueued: rec.enqueued,
         truncated: rec.truncated,
         next_cursor: rec.nextCursor,
+        cycle_complete: cycleComplete,
+        cycle_pages_walked: nextState.pages_walked_this_cycle,
+        cycle_products_seen: nextState.products_seen_this_cycle,
+        cycle_started_at: nextState.cycle_started_at,
+        last_full_catalog_pass: nextState.last_completed_at,
         elapsed_ms: rec.elapsedMs,
         total_actual_query_cost: rec.totalActualQueryCost,
         errors: rec.errors,
@@ -376,4 +428,98 @@ async function buildParityReport(opts: {
     webhook_only_unexplained: unexplained,
     reconcile_only: needs.size - agreed,
   };
+}
+
+// ─── Cursor persistence ──────────────────────────────────────────────────────
+
+interface ReconcileState {
+  cursor: string | null;
+  cycle_started_at: string | null;
+  last_completed_at: string | null;
+  pages_walked_this_cycle: number;
+  products_seen_this_cycle: number;
+}
+
+const EMPTY_STATE: ReconcileState = {
+  cursor: null,
+  cycle_started_at: null,
+  last_completed_at: null,
+  pages_walked_this_cycle: 0,
+  products_seen_this_cycle: 0,
+};
+
+/**
+ * Best-effort. A failed read means "start from the beginning", which costs a
+ * repeated walk but can never skip catalog — the safe direction.
+ */
+async function loadState(shopDomain: string): Promise<ReconcileState | null> {
+  try {
+    const { data, error } = await supabase
+      .from("catalog_reconcile_state")
+      .select(
+        "cursor, cycle_started_at, last_completed_at, pages_walked_this_cycle, products_seen_this_cycle",
+      )
+      .eq("shop_domain", shopDomain)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return (data as ReconcileState | null) ?? null;
+  } catch (err) {
+    sentry.captureException(err, {
+      tags: { area: "cron.reconcile-catalog", branch: "load_state" },
+      extra: { shop: shopDomain },
+    });
+    return null;
+  }
+}
+
+/**
+ * Persist the resume point and the cycle counters. Returns the state as written
+ * so the response reports what was actually saved rather than what was intended.
+ */
+async function saveState(opts: {
+  shopDomain: string;
+  cursor: string | null;
+  cycleComplete: boolean;
+  startingFresh: boolean;
+  pagesDelta: number;
+  productsDelta: number;
+  prior: ReconcileState | null;
+}): Promise<ReconcileState> {
+  const nowIso = new Date().toISOString();
+  const prior = opts.prior ?? EMPTY_STATE;
+
+  const next: ReconcileState = opts.cycleComplete
+    ? {
+        cursor: null,
+        cycle_started_at: null,
+        last_completed_at: nowIso,
+        pages_walked_this_cycle: 0,
+        products_seen_this_cycle: 0,
+      }
+    : {
+        cursor: opts.cursor,
+        cycle_started_at: opts.startingFresh
+          ? nowIso
+          : prior.cycle_started_at ?? nowIso,
+        last_completed_at: prior.last_completed_at,
+        pages_walked_this_cycle:
+          (opts.startingFresh ? 0 : prior.pages_walked_this_cycle) + opts.pagesDelta,
+        products_seen_this_cycle:
+          (opts.startingFresh ? 0 : prior.products_seen_this_cycle) + opts.productsDelta,
+      };
+
+  try {
+    const { error } = await supabase.from("catalog_reconcile_state").upsert(
+      { shop_domain: opts.shopDomain, ...next, updated_at: nowIso },
+      { onConflict: "shop_domain" },
+    );
+    if (error) throw new Error(error.message);
+  } catch (err) {
+    // A lost cursor costs a restarted cycle, never skipped catalog.
+    sentry.captureException(err, {
+      tags: { area: "cron.reconcile-catalog", branch: "save_state" },
+      extra: { shop: opts.shopDomain },
+    });
+  }
+  return next;
 }

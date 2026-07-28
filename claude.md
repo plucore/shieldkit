@@ -805,8 +805,8 @@ Singleton (dev caches on `global` for hot-reload survival). `service_role` key �
 * **`scans_remaining` preserved on reinstall** (v4 cleanup §6) — afterAuth's upsert never includes `scans_remaining` in the payload. First install: DB DEFAULT 1. Reinstall: preserved (typically 0 post-scan). Prevents free-scan farming. Regression test in `tests/bug-fixes.test.ts` asserts the payload never includes the column.
 * **All child FKs to `merchants` CASCADE** (v4 cleanup §8) — `enrichment_webhook_log`, `llms_txt_requests`, `pending_scan_triggers` were `ON DELETE NO ACTION` and silently broke GDPR `shop/redact` for any merchant who had ever triggered enrichment / served llms.txt / queued a scan trigger. Migration `20260528160000_cascade_fks_for_shop_redact.sql` made them CASCADE.
 * **Webhook reliability** — `app/uninstalled` records `webhook_failures` rows on Supabase write errors. **There is no cron backstop**: `reconcile-installs` is non-destructive and never writes `uninstalled_at`. `webhook_failures` being empty means "no Supabase write ever errored", NOT "no webhook ever failed" — it is not a delivery log.
-* **An unbounded Supabase `.select()` is a bug on any table that can exceed 1,000 rows** (2026-07-28, learned three times in one day). PostgREST silently caps a response at 1,000 rows — no error, no flag. It bit the Block 4 parity read (reported 777 distinct products where the window held 4,250 rows / 2,941 distinct, making the gate look **cleaner** than the data supported), the reconcile's catalog-size hint, and the reconcile's `alreadyQueued` read (which re-enqueued everything past row 1,000 and inflated the enrichment queue from ~4,700 to 15,559 duplicate rows). **Paginate with `.range(offset, offset + PAGE - 1)`, stop on a short page, and report the row count actually read.** When an incomplete read would cause a bad write, suppress the write rather than proceed on a partial view (see `enqueue_suppressed`). Remaining unbounded reads are on `merchants` (55 rows) and per-scan `violations` (~12) — safe by size, not by construction.
-* **A Shopify THROTTLED reply is HTTP 200 with `errors[]` and NO `data`** (2026-07-28). Never read `json?.data?.X` and treat undefined as a fact about the store. That single collapse silently discarded ~5,800 products of a paying merchant's enrichment: the read returned `product_not_found` for a rate limit, and the write returned `ok: true` with a populated `written` list for fields it never wrote — then wrote a `schema_enrichments` anchor claiming success, which also suppressed the product from the dedup meant to retry it. `EnrichmentResult.unavailable` now means "could not look / could not write"; `product_not_found` is returned **only** when `data` is present and `product` is explicitly null. Background callers must route through `executeWithRetry` (`createAdminClient` returns a bare fetch wrapper with no rate-limit handling), defer unavailable work by re-enqueueing with a bounded `attempt` counter rather than consuming the queue row, and report SUCCESSES rather than attempts.
+* **An unbounded Supabase `.select()` is a bug on any table that can exceed 1,000 rows** — instance 4 of the pattern in §11a (2026-07-28, three separate reads). PostgREST silently caps a response at 1,000 rows — no error, no flag. It bit the Block 4 parity read (reported 777 distinct products where the window held 4,250 rows / 2,941 distinct, making the gate look **cleaner** than the data supported), the reconcile's catalog-size hint, and the reconcile's `alreadyQueued` read (which re-enqueued everything past row 1,000 and inflated the enrichment queue from ~4,700 to 15,559 duplicate rows). **Paginate with `.range(offset, offset + PAGE - 1)`, stop on a short page, and report the row count actually read.** When an incomplete read would cause a bad write, suppress the write rather than proceed on a partial view (see `enqueue_suppressed`). Remaining unbounded reads are on `merchants` (55 rows) and per-scan `violations` (~12) — safe by size, not by construction.
+* **A Shopify THROTTLED reply is HTTP 200 with `errors[]` and NO `data`** — instance 3 of the pattern in §11a (2026-07-28). Never read `json?.data?.X` and treat undefined as a fact about the store. That single collapse silently discarded ~5,800 products of a paying merchant's enrichment: the read returned `product_not_found` for a rate limit, and the write returned `ok: true` with a populated `written` list for fields it never wrote — then wrote a `schema_enrichments` anchor claiming success, which also suppressed the product from the dedup meant to retry it. `EnrichmentResult.unavailable` now means "could not look / could not write"; `product_not_found` is returned **only** when `data` is present and `product` is explicitly null. Background callers must route through `executeWithRetry` (`createAdminClient` returns a bare fetch wrapper with no rate-limit handling), defer unavailable work by re-enqueueing with a bounded `attempt` counter rather than consuming the queue row, and report SUCCESSES rather than attempts.
 * **Measured Shopify enrichment concurrency (2026-07-28):** concurrency 5 → 183 succeeded/46s; 10 → 384/47s, zero deferrals; 16 → 278 + 28 deferred. **10 is the sustainable ceiling**; the earlier "24 is linear" reading was an artefact of the broken counters, where failures looked like speed. Drainer defaults stay 150/5/45s; `?batch=`, `?concurrency=`, `?budget_ms=` are bounded operator overrides for burn-down only.
 * **The catalog reconcile must NOT dedup against `schema_enrichments`** (2026-07-28). The webhook path has to, because it only knows a product was *edited*. The reconcile reads live metafields off the catalog page, so an anchor can only ever override ground truth — and did: ~838 products carried anchors claiming success while still needing work, and a dedup would have classified exactly those as `dedup_fresh` and refused to re-enqueue the work the anchor was wrong about. Re-enqueue pressure is bounded by the pending-queue check instead, which is self-limiting with no clock involved.
 * **Churn must never be stored only on the `merchants` row** (audit 2026-07-28) — `webhooks.shop.redact.tsx:45-48` hard-deletes the merchant 48h after uninstall and all 7 child FKs CASCADE, so `uninstalled_at` has a 48-hour half-life and a point-in-time query can essentially never observe it. ~40 real uninstalls left no trace this way; they were only reconstructable from orphaned `leads` rows (that table has no FK, which is the sole reason it survived). Durable churn goes to PostHog (`uninstall` event) and to the FK-free `install_events` ledger. **Never add a foreign key to `install_events`, and never prune `leads` on redact until `install_events` has replaced it as the historical record.**
@@ -814,6 +814,93 @@ Singleton (dev caches on `global` for hot-reload survival). `service_role` key �
 * **Billing self-heal off the critical render path** — moved to a post-mount action so dashboard paint doesn't block on Partner API latency.
 
 ---
+
+---
+
+## 11a. THE NAMED PATTERN: "could not look" must never become "is not there"
+
+**Four instances found in one day, 2026-07-28. Two of them were introduced by the
+same work that fixed the other two.** If you are reading this file because
+something reported a confident negative, start here.
+
+### The shape
+
+A read fails. The failure is *structurally indistinguishable* from a successful
+read that found nothing — an `undefined`, a `null`, an empty array — and the code
+treats it as a fact about the world:
+
+```
+"the fetch failed"           becomes  "the store has no refund policy"
+"Shopify rate-limited us"    becomes  "that product does not exist"
+"the response carried no data" becomes "there were no errors, so it worked"
+"the page returned 1,000 rows" becomes "there are exactly 1,000 rows"
+```
+
+Every instance shares three properties, and all three are why it survives review:
+
+1. **It looks like correct defensive coding.** `?.`, `?? []`, `if (!x) break` are
+   all idiomatic. The bug is not the operator, it is that the fallback asserts
+   something.
+2. **It fails silently and confidently.** No throw, no log, no error counter. The
+   caller gets a plausible answer and acts on it.
+3. **It fails in the direction that looks like success.** Fewer findings, an empty
+   queue, a clean gate, a green count. Nobody investigates good news.
+
+### The rule
+
+**A failed read has three possible answers, not two, and the third one must be
+representable.**
+
+| | Meaning | Correct handling |
+|---|---|---|
+| `ok` | We looked, here is what is there | Act on it |
+| `absent` | We looked, it is genuinely not there | A real finding |
+| `unavailable` | **We could not look** | Degrade, defer, or refuse — never assert |
+
+`absent` must be *narrowly* proven (an explicit `404`/`410`, a `data` key present
+with `null` inside it). Everything else is `unavailable`. If you cannot tell the
+two apart from the response, you have the bug.
+
+### The four sites
+
+| # | Site | The collapse | Consequence | Fixed |
+|---|---|---|---|---|
+| 1 | `checks/public-scanner.server.ts`, `checks/storefront-accessibility.server.ts`, `scripts/outbound-scanner.ts` | `res?.status === 200 ? html : null` — a 404 and a 429/503/timeout became the same `null` | Three fabricated CRITICALs on the public `/scan` lead-gen funnel — the first number a prospect ever sees. Fired on `normae-shop.com` from a single HTTP 503 | Block 1 — `classifyFetch` / `fetchPageChecked` / `degradeUnverifiable` |
+| 2 | `shopify-api.server.ts` `getShopPolicies` / `getPages` | A GraphQL `errors` body returned an all-null result, identical to "this shop has no policies" | Four simultaneous CRITICALs on paying merchants' dashboards; scores flipped 91.67↔58.33 with no store change. Three paying merchants churned | Phase A / Block 1 — `available: boolean` + bounded retry |
+| 3 | `enrichment/gtin-enrichment.server.ts` (read **and** write) + `api.cron.process-scan-triggers.ts` | A THROTTLED reply is **HTTP 200 with `errors[]` and no `data`**. The read's `json?.data?.product` → undefined → `product_not_found`. The write's `userErrors ?? []` → `[]` → **`ok: true` with a populated `written` list for fields it never wrote** | ~5,800 products of a paying merchant's enrichment silently discarded while the drainer reported `0 errors`; ~838 products stamped with success anchors that then suppressed their own retry | 2026-07-28 — `unavailable` flag, `executeWithRetry`, defer-and-requeue |
+| 4 | `api.cron.reconcile-catalog.ts` (parity read) and `enrichment/catalog-reconcile.server.ts` (`alreadyQueued`) — **both mine** | PostgREST silently caps a response at 1,000 rows. A short page was read as "that is all of them" | The parity read reported 777 distinct products where the window held 2,941 — **making the gate look cleaner than the data supported**, the most dangerous direction. `alreadyQueued` re-enqueued everything past row 1,000, inflating the queue from ~4,700 to 15,559 duplicate rows | 2026-07-28 — `.range()` pagination, `webhook_log_rows_read`, `enqueue_suppressed` |
+
+Also worth knowing about site 4: the merchant-facing `/app/gtin-fill` carried the
+same pair (a throttled page read as end-of-catalog, a throttled write counted as
+success) — worse than the others because the drainer misled an *operator* while
+that button misled the *customer*.
+
+### Two facts about Shopify that cause site 3 and will cause the next one
+
+* **A THROTTLED Admin API reply is `HTTP 200`.** Body: `{errors: [{message:
+  "Throttled", extensions: {code: "THROTTLED"}}], extensions: {cost: {...}}}` and
+  **no `data` key**. Checking `response.ok` tells you nothing. Never read
+  `json?.data?.X` and treat `undefined` as a statement about the store.
+* **`createAdminClient` returns a BARE fetch wrapper with no rate-limit
+  handling.** `executeWithRetry` is what implements the THROTTLED backoff, and
+  every background caller must route through it. Site 3 existed because
+  `makeAdminLike` wrapped the bare executor.
+
+### How each one was actually caught
+
+Not by review, in any of the four cases:
+
+* Site 1 — a scoped audit that asked "where else does this exact expression appear".
+* Site 2 — a post-mortem correlating `critical_count = 4` against
+  `shop_info_unavailable` (9/17 vs 0/98 elsewhere).
+* Site 3 — draining the queue to zero and then **asking Shopify whether the work
+  had landed**, instead of trusting the queue depth. It had not.
+* Site 4 — cross-checking the route's own output against a direct SQL
+  `count(DISTINCT ...)`.
+
+**The generalisable move: never verify a system against its own bookkeeping.** An
+empty queue is not completed work. A zero error count is not an absence of
+failure. Ask the external system what is true.
 
 ## 12. Known Issues / Limitations
 

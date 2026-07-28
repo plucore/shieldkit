@@ -108,6 +108,73 @@ minute.
 
 ---
 
+## C2. grepiq middleware matcher fix — DIFFERENT REPO, deploys are unblocked
+
+**Not this repo.** Code lives at `github.com/plucore/foxtap`, checked out locally at
+`/Users/am/Projects/Grep`. Filed here only so it is not lost.
+
+**Problem.** An external once-per-minute poller hits `https://grepiq.com/` — 43,200 invocations/month,
+~56% of the Vercel team's function invocations and an estimated ~30% of Fluid Active CPU (the binding
+Hobby resource). The page itself is free: `x-vercel-cache: HIT`, `age: ~69 days`,
+`x-nextjs-prerender: 1`. What costs is `src/proxy.ts` — Next.js 16 Routing Middleware, which runs
+**before** the CDN cache is consulted, on every request, and performs
+`await supabase.auth.getUser()` each time.
+
+**Surgical fix.** Add `/` (and any other purely public prerendered marketing route) to the matcher's
+negative lookahead so the middleware never runs for it. Current matcher already excludes
+`_next/static`, `_next/image`, `favicon.ico`, `r/`, `api/`, `auth/callback` and image extensions — it
+just does not exclude the landing page. The landing page is fully prerendered and needs no auth check,
+so excluding it is behaviour-neutral. Keeps the product working; no pausing, no domain removal.
+
+**Deploys are NOT blocked any more — verified 2026-07-28 on the deployment page.** Vercel's own message:
+
+> The deployment was previously blocked because **am9comm-4318 did not have contributing access to the
+> project on Vercel**. The GitHub account previously linked to am9comm-4318 is now linked to
+> **plucore**. plucore is a member of your team. **The deployment can be redeployed.**
+
+So the BLOCKED state on `dpl_EpLurrVaqQ9HSSaNxg1V3CvLhghw` (commit `e5290d1`, 2026-05-31) was a
+`seatBlock` with `blockCode: COMMIT_AUTHOR_REQUIRED` — Vercel refuses to build a commit whose git author
+is not a seated team member. The identity has since been relinked, and the block is self-clearing on the
+next deploy. Nothing to fix in Vercel settings.
+
+**Note the side effect of it having been blocked:** production has served the 2026-05-19 build for ~70
+days. A blocked deploy does not take a site down — it leaves the previous READY deployment live, which is
+why the poller kept being billed. `grep-staging` has the same blocked commit but no custom domain, and
+logged 70 invocations against grepiq's 52,042. The custom domain is the entire difference.
+
+---
+
+## C3. Billing-entitlement monitoring — RECOMMENDED, not built
+
+Every demotion in the 2026-07-28 incident was invisible until the founder read the Partner Dashboard by
+hand. Three options were considered; the recommendation is the third, with the second as a cheap extra.
+
+| Option | Catches | Cost | Verdict |
+|---|---|---|---|
+| Weekly Vercel cron reconciling all merchants vs Partner API | both directions | a cron slot + Vercel invocations + a deploy; Hobby allows once-daily only | ❌ most expensive, and adds load to the binding resource |
+| `sentry.captureMessage` in the demote path | only demotions **we perform** | ~2 lines | ✅ worth doing anyway |
+| **Extend `scripts/weekly-health.sh` with a Partner-API entitlement reconcile** | **both directions, regardless of cause** | **zero infra, zero Vercel usage** | ✅ **RECOMMENDED** |
+
+**Why the script wins.** It runs on the founder's machine, costs no Vercel invocations (the binding
+constraint), needs no deploy or cron slot, and — critically — it detects the *state* ("Shopify says
+paying, we say free") rather than the *event*. A demote alert would have caught Wanok, but would miss a
+merchant who paid and was **never** entitled in the first place, e.g. if `billing.confirm` never ran.
+State beats event here.
+
+The logic already exists and is proven: the audit that found this incident is in the session scratchpad
+as `entitlement-audit.mjs`. Productionising it means pulling the Partner API event pagination + the
+latest-event-per-charge rollup into `weekly-health.sh` (or a sibling `scripts/entitlement-audit.mjs`
+invoked by it) and failing loudly on any row in the `PAYING BUT NOT ENTITLED` class.
+
+Two thresholds for the script to alert on:
+- **any** merchant in `PAYING BUT NOT ENTITLED` → act immediately, a customer is unserved.
+- **any** merchant `ENTITLED BUT NOT PAYING` that is not a known test store → investigate, revenue leak.
+
+Add the 2-line Sentry capture in the demote path too — it gives a real-time signal that a demotion
+happened at all, which is the thing that was completely silent.
+
+---
+
 ## D. September list — carried over, not urgent
 
 ### D1. `scans_remaining` refund is not gated on the decrement happening

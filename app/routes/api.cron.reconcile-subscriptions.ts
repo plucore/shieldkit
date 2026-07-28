@@ -96,13 +96,25 @@ async function run(request: Request) {
     );
   }
 
-  // ── 2. Fetch active paid merchants with a stored subscription gid ───────────
-  // No subscription gid → nothing to look up. Free tier rows are excluded by
-  // the PAID_TIERS filter.
+  // ── 2. Fetch every merchant with a stored subscription gid ─────────────────
+  //
+  // Deliberately NOT restricted to PAID_TIERS (widened 2026-07-28). This job
+  // used to only walk merchants we already believed were paid, which made it
+  // structurally incapable of fixing the failure that actually happened: a
+  // merchant wrongly demoted to `free` was excluded by the tier filter, so the
+  // only job that could restore them never looked at them again.
+  //
+  // Now it walks anything carrying a charge id and reconciles in BOTH
+  // directions — demote a paid row Shopify says is finished, and RE-PROMOTE a
+  // free row Shopify says is still active. A missing charge id is still
+  // skipped, because there is nothing to look up.
+  //
+  // Direction of failure is a deliberate choice: over-entitling on a Partner
+  // API misread is recoverable on the next pass, under-entitling loses a
+  // paying customer. Fail toward access.
   const { data: merchants, error: fetchError } = await supabase
     .from("merchants")
-    .select("id, shopify_domain, tier, shopify_subscription_id")
-    .in("tier", PAID_TIERS as readonly string[])
+    .select("id, shopify_domain, tier, shopify_subscription_id, billing_cycle")
     .is("uninstalled_at", null)
     .not("shopify_subscription_id", "is", null);
 
@@ -124,12 +136,121 @@ async function run(request: Request) {
   let demoted = 0;
   let skippedUnknown = 0;
   let stillActive = 0;
+  let repromoted = 0;
+  let alreadyFree = 0;
+  let lookupErrors = 0;
   const demotedDomains: string[] = [];
   const skippedDomains: string[] = [];
+  const repromotedDomains: string[] = [];
 
   for (const m of merchants) {
     const subGid = m.shopify_subscription_id as string;
-    const sub = await getActiveSubscriptionByChargeId(subGid);
+    // Does OUR DB currently believe this merchant is entitled? Drives which
+    // direction of correction applies below.
+    const entitledNow = (PAID_TIERS as readonly string[]).includes(m.tier);
+
+    // A thrown Partner API error must not abort the whole pass — one bad row
+    // would otherwise leave every merchant after it unreconciled. Treat a throw
+    // exactly like status="unknown": skip this row, keep going.
+    let sub: Awaited<ReturnType<typeof getActiveSubscriptionByChargeId>>;
+    try {
+      sub = await getActiveSubscriptionByChargeId(subGid);
+    } catch (err) {
+      lookupErrors += 1;
+      sentry.captureException(err, {
+        tags: { area: "reconcile-subscriptions", branch: "partner_api_lookup" },
+        extra: { shop: m.shopify_domain, subscription: subGid },
+      });
+      console.error(
+        `[cron/reconcile-subscriptions] Partner API threw for ${m.shopify_domain} — skipping row, continuing pass: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      continue;
+    }
+
+    // ── RE-PROMOTE: Shopify says active, our DB says free ────────────────────
+    // This is the recovery path for the 2026-07-28 incident, where a superseded
+    // -subscription cancellation demoted a live $29/mo customer. Runs BEFORE the
+    // demote branch so an active subscription is never re-evaluated for demotion.
+    if (sub.status === "active" && !entitledNow) {
+      // Never grant paid access on a TEST charge — those are development-store
+      // charges where no money moves, and doing so is what puts phantom paid
+      // rows in the tier counts.
+      if (sub.test === true) {
+        console.warn(
+          `[cron/reconcile-subscriptions] ${m.shopify_domain} has an ACTIVE but TEST charge ${subGid} — not re-promoting.`,
+        );
+        alreadyFree += 1;
+        continue;
+      }
+      if (!sub.tier || sub.tier === "free") {
+        console.warn(
+          `[cron/reconcile-subscriptions] ${m.shopify_domain} active charge ${subGid} maps to tier=${sub.tier} — nothing to restore.`,
+        );
+        alreadyFree += 1;
+        continue;
+      }
+
+      const { error: promoteError } = await supabase
+        .from("merchants")
+        .update({
+          tier: sub.tier,
+          billing_cycle: sub.cycle ?? m.billing_cycle ?? null,
+          subscription_started_at: sub.activatedAt ?? null,
+          shopify_subscription_id: subGid,
+          scans_remaining: null, // null = unlimited on every paid tier
+        })
+        .eq("id", m.id);
+
+      if (promoteError) {
+        console.error(
+          `[cron/reconcile-subscriptions] failed to RE-PROMOTE ${m.shopify_domain}: ${promoteError.message}`,
+        );
+        continue;
+      }
+
+      repromoted += 1;
+      repromotedDomains.push(m.shopify_domain);
+      // Loud on purpose: a re-promote means something previously stripped a
+      // paying merchant's access, and that root cause deserves attention even
+      // though this pass has papered over the symptom.
+      sentry.captureMessage(
+        `reconcile-subscriptions RE-PROMOTED ${m.shopify_domain} — Partner API says active but DB had tier=${m.tier}`,
+        "warning",
+      );
+      console.log(
+        `[cron/reconcile-subscriptions] RE-PROMOTED ${m.shopify_domain} to tier=${sub.tier} cycle=${sub.cycle} (was tier=${m.tier})`,
+      );
+
+      // Re-assert their per-shop products/* subscriptions, which a demotion
+      // would have torn down via removeProductWebhooks.
+      try {
+        const ensure = await ensureProductWebhooks(m.shopify_domain);
+        if (ensure.errors.length) {
+          console.warn(
+            `[cron/reconcile-subscriptions] ensureProductWebhooks errors for re-promoted ${m.shopify_domain}: ${ensure.errors.join("; ")}`,
+          );
+        }
+      } catch (err) {
+        sentry.captureException(err, {
+          tags: { area: "reconcile-subscriptions", branch: "repromote_ensure_webhooks" },
+          extra: { shop: m.shopify_domain },
+        });
+      }
+      continue;
+    }
+
+    // ── Already free and Shopify agrees it is finished → nothing to do ───────
+    // Load-bearing guard. Widening the query to include free rows means a free
+    // row carrying a stale cancelled charge id now reaches this loop every day.
+    // Without this branch it would fall into the demote block below and rewrite
+    // `scans_remaining: 1` on every pass — a daily free-scan refill, i.e. an
+    // unlimited-free-scan farm on any merchant who ever cancelled.
+    if (!entitledNow) {
+      alreadyFree += 1;
+      continue;
+    }
 
     // FAIL-SAFE: never demote on uncertainty.
     if (sub.status === "unknown") {
@@ -149,7 +270,11 @@ async function run(request: Request) {
           tier: "free",
           billing_cycle: null,
           subscription_started_at: null,
-          shopify_subscription_id: null,
+          // shopify_subscription_id DELIBERATELY PRESERVED — see the matching
+          // note in webhooks.app_subscriptions.update.tsx. Nulling it here would
+          // re-erase the key this very job filters on, so a demotion that later
+          // turns out to be wrong could never be undone. The `entitledNow`
+          // guard above is what stops a preserved id causing repeat demotes.
           scans_remaining: 1,
           scans_reset_at: new Date().toISOString(),
         })
@@ -222,9 +347,13 @@ async function run(request: Request) {
   return json({
     checked: merchants.length,
     demoted,
+    repromoted,
     skipped_unknown: skippedUnknown,
     still_active: stillActive,
+    already_free: alreadyFree,
+    lookup_errors: lookupErrors,
     demoted_domains: demotedDomains,
+    repromoted_domains: repromotedDomains,
     skipped_domains: skippedDomains,
   });
 }

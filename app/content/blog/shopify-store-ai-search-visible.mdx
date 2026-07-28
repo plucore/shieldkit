@@ -42,7 +42,7 @@ Out of the box, Shopify's product JSON-LD includes the basic Schema.org fields b
 
 **Manual (low-volume catalogs):** edit each product's metafields in Shopify Admin to add `gtin`, `mpn`, `brand`, etc. Then update your theme's product.liquid to emit these fields in the JSON-LD block. Doable for stores with under 50 SKUs.
 
-**Theme-level (medium catalogs):** install a theme block that auto-enriches the JSON-LD from product metafields. ShieldKit's Shield Max tier ships this as a theme extension, drop the block into your product template, configure the metafield mappings once, and every product page emits enriched schema automatically.
+**Theme-level (medium catalogs):** install a theme block that auto-enriches the JSON-LD from product metafields. ShieldKit's Monitoring plan ships this as a theme extension, drop the block into your product template, configure the metafield mappings once, and every product page emits enriched schema automatically.
 
 **Feed-level (large catalogs):** for stores with thousands of SKUs, the right answer is enriching the Google Merchant Center feed directly via Shopify's Google channel app + custom metafields. The downside: this only helps Google. AI engines crawl your storefront, not your GMC feed.
 
@@ -68,7 +68,7 @@ Out of the box, Shopify's product JSON-LD includes the basic Schema.org fields b
 - [Sitemap](https://coolsocks.com/sitemap.xml)
 ```
 
-You can host this manually as a custom Shopify page (set the URL handle to `llms-txt` and set `Content-Type` via app proxy), or install ShieldKit's Shield Max tier, which serves it automatically at `yourstore.com/apps/llms-txt`.
+You can host this manually as a custom Shopify page (set the URL handle to `llms-txt` and set `Content-Type` via app proxy), or install ShieldKit's Monitoring plan, which serves it automatically at `yourstore.com/apps/llms-txt`.
 
 ## AI Bot Allow/Block Decisions
 
@@ -86,7 +86,7 @@ You don't have to allow every AI bot. Each major AI engine has a distinct crawle
 
 Most merchants want to allow all of these, AI traffic is increasingly buy-intent. But there are valid reasons to block specific bots: training-only crawlers (Google-Extended, Anthropic-AI for training) without allowing real-time fetch, blocking bots from competitive geographies, or blocking high-volume crawlers that hammer your origin.
 
-ShieldKit's Shield Max includes a UI for allow/block decisions, you check the boxes, we generate the matching `robots.txt` snippet for you to paste into your theme. For DIY, edit `theme.liquid` (or your `robots.txt.liquid` if your theme has one) and add `User-agent: GPTBot` blocks as needed.
+ShieldKit's Monitoring plan includes a UI for allow/block decisions, you check the boxes, we generate the matching `robots.txt` snippet for you to paste into your theme. For DIY, edit `theme.liquid` (or your `robots.txt.liquid` if your theme has one) and add `User-agent: GPTBot` blocks as needed.
 
 ## Organization and WebSite Schema
 
@@ -96,7 +96,7 @@ The homepage JSON-LD that establishes your brand identity to AI engines. Two blo
 
 **WebSite schema:** name, url, potentialAction (the search URL template). This lets AI engines link directly into your store search when a user asks "find me a wool sweater on coolsocks.com."
 
-Most Shopify themes don't emit these. Shield Max ships theme blocks that drop into your homepage template and auto-populate from your store settings; for DIY, paste hand-written JSON-LD into a custom Liquid block on the homepage.
+Most Shopify themes don't emit these. ShieldKit's Monitoring plan ships theme blocks that drop into your homepage template and auto-populate from your store settings; for DIY, paste hand-written JSON-LD into a custom Liquid block on the homepage.
 
 ## Putting It Together
 
@@ -108,6 +108,6 @@ If you want your Shopify store to be visible in 2026's AI search landscape:
 4. Add Organization and WebSite JSON-LD to your homepage.
 5. Configure AI bot allow/block decisions in robots.txt.
 
-If you'd rather not hand-roll all of this, ShieldKit's [Shield Max tier](/#pricing) ($39/month) covers all five through theme blocks and an app proxy, drop the blocks into your theme, configure once, done. The first AI-referred sale typically pays for the year.
+If you'd rather not hand-roll all of this, ShieldKit's [Monitoring plan](/#pricing) covers all five through theme blocks and an app proxy, drop the blocks into your theme, configure once, done. The first AI-referred sale typically pays for the year.
 
 For the GMC compliance side of the equation (still important, Google Shopping isn't going anywhere), see the [12-point Shopify checklist](/blog/gmc-suspension-shopify-checklist) or run a [free public scan](/scan).

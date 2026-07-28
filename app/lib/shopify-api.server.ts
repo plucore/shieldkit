@@ -176,12 +176,15 @@ export async function getShopInfo(
 export async function getShopPolicies(
   executor: GraphQLExecutor
 ): Promise<ShopPoliciesResult> {
-  const empty: ShopPoliciesResult = {
+  // `available: false` — we have no answer. Callers MUST degrade rather than
+  // treat this as "the shop has no policies". See ShopPoliciesResult.available.
+  const unavailable: ShopPoliciesResult = {
     REFUND_POLICY: null,
     PRIVACY_POLICY: null,
     TERMS_OF_SERVICE: null,
     SHIPPING_POLICY: null,
     all: [],
+    available: false,
   };
 
   try {
@@ -197,17 +200,34 @@ export async function getShopPolicies(
       };
     }
 
-    const result = await executeWithRetry<RawPolicies>(
+    let result = await executeWithRetry<RawPolicies>(
       executor,
       "getShopPolicies",
       SHOP_POLICIES_QUERY
     );
 
-    if (result.errors?.length) {
+    // executeWithRetry covers TRANSPORT failures, but a GraphQL response that
+    // carries `errors` and no `shop` was previously just logged and allowed to
+    // fall through to an empty (= "no policies") result. That is the exact path
+    // that fabricated four criticals. Retry once, then report unavailable.
+    const noData = (r: typeof result) => !r.data?.shop?.shopPolicies;
+    if (result.errors?.length || noData(result)) {
       console.error(
-        "[ShopifyAPI] getShopPolicies GraphQL errors:",
-        JSON.stringify(result.errors, null, 2)
+        "[ShopifyAPI] getShopPolicies GraphQL errors (retrying once):",
+        JSON.stringify(result.errors ?? "no data", null, 2)
       );
+      await new Promise((r) => setTimeout(r, 600));
+      result = await executeWithRetry<RawPolicies>(
+        executor,
+        "getShopPolicies:retry",
+        SHOP_POLICIES_QUERY
+      );
+      if (noData(result)) {
+        console.error(
+          "[ShopifyAPI] getShopPolicies UNAVAILABLE after retry — returning available:false so callers degrade instead of reporting missing policies."
+        );
+        return unavailable;
+      }
     }
 
     const rawPolicies = result.data?.shop?.shopPolicies ?? [];
@@ -230,10 +250,13 @@ export async function getShopPolicies(
       TERMS_OF_SERVICE: byType.TERMS_OF_SERVICE ?? null,
       SHIPPING_POLICY:  byType.SHIPPING_POLICY  ?? null,
       all: policies,
+      // We got a real answer from Shopify. An empty `policies` array here
+      // genuinely means the shop has configured no policies.
+      available: true,
     };
   } catch (err) {
     console.error("[ShopifyAPI] getShopPolicies unexpected error:", err);
-    return empty;
+    return unavailable;
   }
 }
 

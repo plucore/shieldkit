@@ -108,6 +108,142 @@ minute.
 
 ---
 
+## C2. grepiq middleware matcher fix — DIFFERENT REPO, deploys are unblocked
+
+**Not this repo.** Code lives at `github.com/plucore/foxtap`, checked out locally at
+`/Users/am/Projects/Grep`. Filed here only so it is not lost.
+
+**Problem.** An external once-per-minute poller hits `https://grepiq.com/` — 43,200 invocations/month,
+~56% of the Vercel team's function invocations and an estimated ~30% of Fluid Active CPU (the binding
+Hobby resource). The page itself is free: `x-vercel-cache: HIT`, `age: ~69 days`,
+`x-nextjs-prerender: 1`. What costs is `src/proxy.ts` — Next.js 16 Routing Middleware, which runs
+**before** the CDN cache is consulted, on every request, and performs
+`await supabase.auth.getUser()` each time.
+
+**Surgical fix.** Add `/` (and any other purely public prerendered marketing route) to the matcher's
+negative lookahead so the middleware never runs for it. Current matcher already excludes
+`_next/static`, `_next/image`, `favicon.ico`, `r/`, `api/`, `auth/callback` and image extensions — it
+just does not exclude the landing page. The landing page is fully prerendered and needs no auth check,
+so excluding it is behaviour-neutral. Keeps the product working; no pausing, no domain removal.
+
+**Deploys are NOT blocked any more — verified 2026-07-28 on the deployment page.** Vercel's own message:
+
+> The deployment was previously blocked because **am9comm-4318 did not have contributing access to the
+> project on Vercel**. The GitHub account previously linked to am9comm-4318 is now linked to
+> **plucore**. plucore is a member of your team. **The deployment can be redeployed.**
+
+So the BLOCKED state on `dpl_EpLurrVaqQ9HSSaNxg1V3CvLhghw` (commit `e5290d1`, 2026-05-31) was a
+`seatBlock` with `blockCode: COMMIT_AUTHOR_REQUIRED` — Vercel refuses to build a commit whose git author
+is not a seated team member. The identity has since been relinked, and the block is self-clearing on the
+next deploy. Nothing to fix in Vercel settings.
+
+**Note the side effect of it having been blocked:** production has served the 2026-05-19 build for ~70
+days. A blocked deploy does not take a site down — it leaves the previous READY deployment live, which is
+why the poller kept being billed. `grep-staging` has the same blocked commit but no custom domain, and
+logged 70 invocations against grepiq's 52,042. The custom domain is the entire difference.
+
+---
+
+## C3. Billing-entitlement monitoring — RECOMMENDED, not built
+
+Every demotion in the 2026-07-28 incident was invisible until the founder read the Partner Dashboard by
+hand. Three options were considered; the recommendation is the third, with the second as a cheap extra.
+
+| Option | Catches | Cost | Verdict |
+|---|---|---|---|
+| Weekly Vercel cron reconciling all merchants vs Partner API | both directions | a cron slot + Vercel invocations + a deploy; Hobby allows once-daily only | ❌ most expensive, and adds load to the binding resource |
+| `sentry.captureMessage` in the demote path | only demotions **we perform** | ~2 lines | ✅ worth doing anyway |
+| **Extend `scripts/weekly-health.sh` with a Partner-API entitlement reconcile** | **both directions, regardless of cause** | **zero infra, zero Vercel usage** | ✅ **RECOMMENDED** |
+
+**Why the script wins.** It runs on the founder's machine, costs no Vercel invocations (the binding
+constraint), needs no deploy or cron slot, and — critically — it detects the *state* ("Shopify says
+paying, we say free") rather than the *event*. A demote alert would have caught Wanok, but would miss a
+merchant who paid and was **never** entitled in the first place, e.g. if `billing.confirm` never ran.
+State beats event here.
+
+The logic already exists and is proven: the audit that found this incident is in the session scratchpad
+as `entitlement-audit.mjs`. Productionising it means pulling the Partner API event pagination + the
+latest-event-per-charge rollup into `weekly-health.sh` (or a sibling `scripts/entitlement-audit.mjs`
+invoked by it) and failing loudly on any row in the `PAYING BUT NOT ENTITLED` class.
+
+Two thresholds for the script to alert on:
+- **any** merchant in `PAYING BUT NOT ENTITLED` → act immediately, a customer is unserved.
+- **any** merchant `ENTITLED BUT NOT PAYING` that is not a known test store → investigate, revenue leak.
+
+Add the 2-line Sentry capture in the demote path too — it gives a real-time signal that a demotion
+happened at all, which is the thing that was completely silent.
+
+---
+
+## S1. STRATEGY — compliance has a completion state, and it is priced as a subscription
+
+**Not a bug. Do not build against this yet — the premise needs a clean measurement first (see the
+sequencing note at the end).**
+
+### The observation
+
+`sbnjen-ee.myshopify.com` is the single best engagement in ShieldKit's history:
+
+- 15 scans over three months — more than any other merchant
+- compliance score 60.00 → **83.33**
+- every critical resolved; only two warnings left (incomplete refund policy, vague shipping policy)
+- used the AI policy generator
+- paid $39/mo for 36 days
+- **cancelled 2026-06-14 — then ran another scan on 2026-07-17, a month later, as a free user**
+
+They did not leave unhappy. They left **finished**. And they still find the product useful enough to
+come back to — just not to pay for.
+
+### Why this generalises
+
+The three genuine cancellations (`kjzvkq-6q`, `hbhkfy-gy`, `cq3dar-gv`) all ended at **day 3–6**: after
+the first charge, before the second. That is the shape of a merchant who bought to solve a specific
+problem, solved it, and left. It is rational behaviour against the current offer.
+
+The product's core value — "tell me what is wrong and how to fix it" — is consumed once. The recurring
+value on offer today is "check again", which is worth far less, and v4 removed the one feature that
+would have made recurrence automatic (the weekly auto-scan and its digest). Three blog posts were still
+advertising that digest as of 2026-07-28; it never sent a single email. So the subscription has been
+selling a promise the product stopped making.
+
+Note also the **retired one-time model converted at the same price point**: three settled
+`AppOneTimeSale` transactions at $29 (2026-04-15, 04-25, 05-04) from the model shipped in `374dc39` and
+removed by the Managed Pricing migration `68bf618`. $29 one-time and $29/month are the same first
+payment; only the second differs.
+
+### Options, in the order I would test them
+
+**1. Make the recurring value real and visible (keep the subscription).**
+Restore automated re-scanning and — this is the part that matters — *notify on regression*. The pitch
+becomes "we watch for the thing that got you suspended coming back", which is genuinely recurring.
+Cost: it reintroduces scheduled scan load, which is the most CPU-expensive thing the app does, on a
+Vercel Hobby plan whose binding resource is Active CPU (62% of 4h). Sequence it after the enrichment
+reconcile work in §A/§B or it will not fit.
+
+**2. Sell the fix as a one-time purchase, keep monitoring as the optional subscription.**
+Matches observed behaviour: pay once to get clean, subscribe only if you want to stay watched. Lowest
+risk to conversion (which is not the broken metric) and highest honesty about what is consumed once.
+Downside: MRR becomes lumpy, and Shopify's one-time charge flow is a different billing path than the
+Managed Pricing plan the app is now built around.
+
+**3. Reprice the subscription to what recurrence is actually worth.**
+If monitoring alone is the recurring product, $29/mo may be above its value. Cheapest to test, but it
+optimises the wrong end — the first-week experience, not the price, is what lost the three cancellers.
+
+### Sequencing — why not now
+
+Every genuine cancellation happened while the scanner was intermittently reporting four
+Google-suspension-level criticals that did not exist (see `docs/churn-post-mortem-2026-07-28.md`, and
+the fixes shipped 2026-07-28). **Retention has never been measured on a cohort that saw a product
+telling the truth.** Any packaging decision made on the current data is fitted to noise.
+
+**Precondition before acting on this item:** a cohort of merchants who installed after 2026-07-28,
+with (a) no `scan_data_availability` degraded marker on their scans, and (b) no implausible-collapse
+alarm fired. Measure their day-7 and day-30 retention. Then choose between the three options above
+with real numbers.
+
+---
+
 ## D. September list — carried over, not urgent
 
 ### D1. `scans_remaining` refund is not gated on the decrement happening

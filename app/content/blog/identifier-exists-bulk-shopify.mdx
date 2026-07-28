@@ -69,7 +69,7 @@ Matrixify scales to 50,000+ products in a single import and gives detailed error
 
 ## Step-by-step bulk method 3, automation app
 
-ShieldKit's Shield Max tier includes a bulk identifier auto-filler. The tool scans your catalog, detects products without GTINs/MPNs/brand, and groups them into "should set `identifier_exists=false`" vs "should populate brand+MPN" buckets based on category and vendor heuristics. For the first bucket, it writes the metafield in bulk; for the second, it surfaces the products for manual review.
+ShieldKit's Monitoring plan includes a bulk identifier auto-filler. The tool scans your catalog, detects products without GTINs/MPNs/brand, and groups them into "should set `identifier_exists=false`" vs "should populate brand+MPN" buckets based on category and vendor heuristics. For the first bucket, it writes the metafield in bulk; for the second, it surfaces the products for manual review.
 
 Caveat: write access for this tool is gated on the `write_products` Shopify scope, which is currently in App Store re-review. The detection and preview UI work today, it's a useful diagnostic even if you do the actual writes via Matrixify. Run a [free compliance scan](/scan) to see what the auto-filler would target.
 

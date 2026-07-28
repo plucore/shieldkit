@@ -131,5 +131,60 @@ if [ "$LOGROWS" -ge 400000 ]; then
   echo "    this table. Run the prune plan in docs/september-backlog.md §A."
   ALERT=1
 fi
-[ "$ALERT" = "0" ] && echo "  All clear. Nothing to do."
+[ "$ALERT" = "0" ] && echo "  All clear on queue/telemetry."
 echo
+
+# ── Billing entitlement reconcile ────────────────────────────────────────────
+# STATE-based, not event-based, and that distinction is the whole point. An
+# alert fired at the moment of a demotion would have caught the 2026-07-25
+# incident, but it would MISS a merchant who paid and was never entitled at all
+# (e.g. billing.confirm never ran). Comparing the two systems' current state
+# catches every cause, including ones we have not thought of.
+#
+# Requires SHOPIFY_PARTNER_* in .env. Skips cleanly if absent so the queue
+# section above still works on a machine without Partner credentials.
+if grep -qE '^[[:space:]]*SHOPIFY_PARTNER_API_TOKEN=' .env 2>/dev/null; then
+  echo "Billing entitlement reconcile (Shopify Partner API vs merchants table)"
+  echo "─────────────────────────────────────────────────────────────"
+  if AUDIT=$(node scripts/entitlement-audit.mjs --json 2>/dev/null); then
+    AUDIT_RC=0
+  else
+    AUDIT_RC=$?
+  fi
+
+  if [ -z "$AUDIT" ]; then
+    echo "  ERROR — audit produced no output. Run it directly to see why:"
+    echo "    node scripts/entitlement-audit.mjs"
+  else
+    python3 - "$AUDIT" <<'PY'
+import json, sys
+d = json.loads(sys.argv[1])
+pne, enp = d["paying_not_entitled"], d["entitled_not_paying"]
+print(f"  merchants reconciled          {d['merchants']:>8}")
+print(f"  shops that ever paid          {d['shops_paid_ever']:>8}")
+print(f"  PAYING BUT NOT ENTITLED       {len(pne):>8}")
+print(f"  entitled but not paying       {len(enp):>8}")
+print(f"  frozen (self-heal on return)  {len(d['frozen']):>8}")
+print("─────────────────────────────────────────────────────────────")
+if pne:
+    print("  ACT NOW — these merchants are PAYING and have NO ACCESS:")
+    for r in pne:
+        print(f"    {r['shop']}  {r['charge']}")
+    print("    Restore tier/billing_cycle/subscription_started_at/")
+    print("    shopify_subscription_id and set scans_remaining=NULL.")
+if enp:
+    print("  REVENUE LEAK — entitled in our DB, not paying in Shopify:")
+    for r in enp:
+        print(f"    {r['shop']}  tier={r['tier']}  {r['charge']}")
+    print("    (A known dev/test store here is expected. Anything else is not.)")
+if d["test_charge_entitled"]:
+    print("  PHANTOM PAID — entitled on a TEST charge (no money moves):")
+    for s in d["test_charge_entitled"]:
+        print(f"    {s}")
+if not pne and not enp and not d["test_charge_entitled"]:
+    print("  All clear. Every paying merchant has access.")
+PY
+  fi
+  [ "$AUDIT_RC" != "0" ] && echo "  (exit $AUDIT_RC — a paying merchant is unentitled)"
+  echo
+fi

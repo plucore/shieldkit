@@ -23,7 +23,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   PLAN_NAME_TO_TIER,
@@ -75,9 +75,16 @@ describe("v4 plan reference data", () => {
     expect((PLAN_NAME_TO_CYCLE as Record<string, unknown>)["Recovery"]).toBeUndefined();
   });
 
-  it("Monitoring is priced at $49/mo and $390/yr (annual discounted 2026-06)", () => {
-    expect(PLANS.monitoring_monthly.monthly).toBe(49);
-    expect(PLANS.monitoring_annual.annual).toBe(390);
+  // CORRECTED 2026-07-28. This test previously asserted 49/390 — the values the
+  // code declared, which NEVER matched a real charge. Verified against the
+  // Partner API: every real (test:false) Monitoring activation bills $29.00
+  // (cq3dar-gv 2026-07-07, sex-eshop 2026-07-12, 9973f3-3 2026-07-25), and the
+  // only annual charge that has ever existed is $290 (ygxib5-9s 2026-05-18).
+  // Price history: $30 (pre-v4) → $39 → $29, the last change landing between
+  // 2026-06-17 and 2026-07-07.
+  it("Monitoring is priced at $29/mo and $290/yr (verified vs Partner API)", () => {
+    expect(PLANS.monitoring_monthly.monthly).toBe(29);
+    expect(PLANS.monitoring_annual.annual).toBe(290);
   });
 
   it("PLANS no longer exposes a recovery_annual entry", () => {
@@ -86,13 +93,13 @@ describe("v4 plan reference data", () => {
 
   it("TIER_GROUPS has one group ('monitoring') at the current price", () => {
     expect(Object.keys(TIER_GROUPS)).toEqual(["monitoring"]);
-    expect(TIER_GROUPS.monitoring.monthlyPrice).toBe(49);
-    expect(TIER_GROUPS.monitoring.annualPrice).toBe(390);
+    expect(TIER_GROUPS.monitoring.monthlyPrice).toBe(29);
+    expect(TIER_GROUPS.monitoring.annualPrice).toBe(290);
   });
 
   it("annualSavings reports the monthly-vs-annual gap", () => {
-    // 49×12 = 588, minus 390 = 198.
-    expect(annualSavings()).toBe(198);
+    // 29×12 = 348, minus 290 = 58.
+    expect(annualSavings()).toBe(58);
   });
 
   it("PAID_FEATURES is the single canonical paid feature list", () => {
@@ -118,34 +125,184 @@ describe("v4 plan reference data", () => {
 
 describe("cycleFromChargeAmount — Partner API cycle resolution (2026-06 collapse)", () => {
   // Post-collapse, "Monitoring" monthly + annual share ONE plan name, so the
-  // Partner API path can no longer read cycle from the name. It reads the
-  // charged amount instead: $49 → monthly, $390 → annual. This is the case the
-  // whole billing-hardening task hinges on.
-  it("an annual Monitoring charge ($390) resolves to 'annual'", () => {
-    expect(cycleFromChargeAmount("monitoring", 390)).toBe("annual");
-  });
-
-  it("a monthly Monitoring charge ($49) resolves to 'monthly'", () => {
-    expect(cycleFromChargeAmount("monitoring", 49)).toBe("monthly");
+  // Partner API path cannot read cycle from the name and must use the amount.
+  //
+  // REWRITTEN 2026-07-28. The old version asserted 49 → monthly / 390 → annual
+  // and, critically, that an unmatched amount returns null. Both were wrong in a
+  // way that hid a real defect: because the constants never matched a real
+  // charge, EVERY live charge fell through to null, and the caller's
+  // PLAN_NAME_TO_CYCLE fallback maps the collapsed "Monitoring" name to
+  // "monthly" unconditionally — so a real ANNUAL subscriber would have been
+  // silently recorded as monthly.
+  it("resolves the real live prices exactly", () => {
+    expect(cycleFromChargeAmount("monitoring", 29)).toBe("monthly");
+    expect(cycleFromChargeAmount("monitoring", 290)).toBe("annual");
   });
 
   it("disambiguates grandfathered tiers by their own price points", () => {
-    // Shield Max Annual is ALSO $390/yr — but it's tier 'pro', resolved from
-    // the plan name first, so the amount lookup is scoped and never collides
-    // with Monitoring annual.
+    // Shield Max Annual is $390/yr — tier 'pro', resolved from the plan name
+    // first, so the amount lookup is scoped and never collides with Monitoring.
     expect(cycleFromChargeAmount("pro", 39)).toBe("monthly");
     expect(cycleFromChargeAmount("pro", 390)).toBe("annual");
     expect(cycleFromChargeAmount("shield", 14)).toBe("monthly");
     expect(cycleFromChargeAmount("shield", 140)).toBe("annual");
   });
 
-  it("returns null (→ caller falls back, never guesses) for unknown amounts/tiers", () => {
-    expect(cycleFromChargeAmount("monitoring", 12345)).toBeNull(); // discount/proration/FX
-    expect(cycleFromChargeAmount("free", 49)).toBeNull(); // no price points
-    expect(cycleFromChargeAmount("recovery", 390)).toBeNull(); // no price points
-    expect(cycleFromChargeAmount(null, 390)).toBeNull();
+  // The robustness property: correct cycle even when the constants are stale,
+  // which is the failure mode that actually occurred. These amounts match no
+  // declared price point.
+  it("falls back STRUCTURALLY on an unknown amount instead of returning null", () => {
+    // A price rise: still obviously monthly, well under 6x the monthly price.
+    expect(cycleFromChargeAmount("monitoring", 49)).toBe("monthly");
+    expect(cycleFromChargeAmount("monitoring", 39)).toBe("monthly");
+    // A discounted / promotional annual: an order of magnitude up, so annual.
+    expect(cycleFromChargeAmount("monitoring", 199)).toBe("annual");
+    expect(cycleFromChargeAmount("monitoring", 390)).toBe("annual");
+    expect(cycleFromChargeAmount("monitoring", 12345)).toBe("annual");
+  });
+
+  it("survives the exact historical staleness that caused the bug", () => {
+    // Constants said 49/390 while reality billed 29/290. Under the OLD exact-
+    // match-or-null logic both real amounts returned null. They must not now.
+    expect(cycleFromChargeAmount("monitoring", 29)).not.toBeNull();
+    expect(cycleFromChargeAmount("monitoring", 290)).not.toBeNull();
+  });
+
+  it("returns null only when there is genuinely no cycle to infer", () => {
+    expect(cycleFromChargeAmount("free", 29)).toBeNull(); // tier has no price points
+    expect(cycleFromChargeAmount("recovery", 290)).toBeNull(); // tier has no price points
+    expect(cycleFromChargeAmount(null, 290)).toBeNull();
     expect(cycleFromChargeAmount("monitoring", null)).toBeNull();
     expect(cycleFromChargeAmount("monitoring", Number.NaN)).toBeNull();
+    // $0 carries no cycle: free plans (incl. Shopify's localised "Gratuit",
+    // "Gratis", "Grátis", "Gratuito", "Kostenlos" variants) and test charges.
+    expect(cycleFromChargeAmount("monitoring", 0)).toBeNull();
+    expect(cycleFromChargeAmount("monitoring", -5)).toBeNull();
+  });
+});
+
+// ─── Public pricing surfaces must DERIVE from PLANS, never hardcode ──────────
+// The landing page advertised $49/mo + $390/yr + "Save $198/yr" in four places
+// while Shopify charged $29 — 69% above the real price, on the highest-traffic
+// public surface the product has, for weeks. It drifted because the numbers were
+// string literals with no link to billing.
+describe("public marketing surfaces cannot drift from PLANS", () => {
+  const landing = readFileSync(
+    join(process.cwd(), "app", "routes", "_index", "route.tsx"),
+    "utf8",
+  );
+
+  it("the landing page imports its prices from plans.ts", () => {
+    expect(landing).toMatch(
+      /import\s*\{[^}]*\bPLANS\b[^}]*\}\s*from\s*["'][^"']*lib\/billing\/plans["']/,
+    );
+    expect(landing).toMatch(/\bannualSavings\b/);
+  });
+
+  it("the landing page hardcodes NO ShieldKit plan price", () => {
+    // Strip comments — the file explains the old wrong numbers in prose.
+    const code = landing
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split("\n")
+      .filter((l) => !l.trim().startsWith("//"))
+      .join("\n");
+    // Any dollar-amount literal that looks like a plan price is a regression.
+    // Free is "$0" and is legitimately fixed, so it is exempt.
+    const literals = code.match(/["'`]\$\d[\d,]*(?:\.\d+)?/g) ?? [];
+    const offenders = literals.filter((s) => !/^["'`]\$0$/.test(s));
+    expect(offenders).toEqual([]);
+    // And the specific historical wrong values must never reappear anywhere.
+    for (const stale of ["$49", "$390", "$449", "$198"]) {
+      expect(code).not.toContain(stale);
+    }
+  });
+
+  it("evergreen blog copy carries no plan price and no retired tier name", () => {
+    // Blog posts are prerendered and long-lived, so an embedded price is
+    // guaranteed to go stale. Three posts advertised "Shield Pro ($14/month)"
+    // and "Shield Max ($39/month)" — tiers that no longer exist — and two
+    // promised an email digest that never sent a single message.
+    const dir = join(process.cwd(), "app", "content", "blog");
+    for (const file of readdirSync(dir).filter((f) => f.endsWith(".mdx"))) {
+      const body = readFileSync(join(dir, file), "utf8");
+      for (const dead of ["Shield Pro", "Shield Max", "Recovery tier"]) {
+        expect(body, `${file} references retired tier "${dead}"`).not.toContain(dead);
+      }
+      // "$14/month" / "$39/month" / "$49/mo" style plan pricing.
+      expect(body, `${file} hardcodes a plan price`).not.toMatch(
+        /\$\d+(?:\.\d+)?\s*\/?\s*(?:month|mo|year|yr)\b/i,
+      );
+      // The digest was deleted in v4 and never sent an email.
+      expect(body, `${file} promises an email digest`).not.toMatch(
+        /emails? you a digest|digest of changes/i,
+      );
+    }
+  });
+});
+
+// ─── Regression guards for the 2026-07-28 entitlement-loss incident ──────────
+// A superseded-subscription cancellation demoted a live $29/mo customer
+// (9973f3-3.myshopify.com / Wanok Cosmetics), and FROZEN — a recoverable state —
+// was treated as terminal, demoting two more paying merchants.
+describe("app_subscriptions/update must not destroy a live entitlement", () => {
+  const src = readFileSync(
+    join(process.cwd(), "app", "routes", "webhooks.app_subscriptions.update.tsx"),
+    "utf8",
+  );
+  // Strip comments: the file documents the old broken behaviour in prose, and a
+  // naive match would hit the explanation rather than the code.
+  const code = src
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split("\n")
+    .filter((l) => !l.trim().startsWith("*") && !l.trim().startsWith("//"))
+    .join("\n");
+
+  it("FROZEN is NOT terminal — a freeze is recoverable, not a cancellation", () => {
+    expect(code).toMatch(
+      /TERMINAL_STATUSES\s*=\s*new Set\(\[\s*"CANCELLED",\s*"EXPIRED",\s*"DECLINED",?\s*\]\)/,
+    );
+    expect(code).not.toMatch(/TERMINAL_STATUSES[\s\S]{0,120}"FROZEN"/);
+  });
+
+  it("FROZEN is handled explicitly and leaves entitlement intact", () => {
+    // Must short-circuit BEFORE the demote block, not fall through to it.
+    const frozenIdx = code.indexOf('status === "FROZEN"');
+    const demoteIdx = code.indexOf("TERMINAL_STATUSES.has(status)");
+    expect(frozenIdx).toBeGreaterThan(-1);
+    expect(demoteIdx).toBeGreaterThan(-1);
+    expect(frozenIdx).toBeLessThan(demoteIdx);
+  });
+
+  it("an UNFROZEN merchant is re-entitled (arrives as status=ACTIVE)", () => {
+    // There is no "UNFROZEN" webhook status — UNFROZEN is a Partner API event
+    // type that surfaces here as a plain ACTIVE. So the requirement is that the
+    // ACTIVE branch unconditionally restores the paid tier and unlimited scans.
+    const activeIdx = code.indexOf('status === "ACTIVE"');
+    expect(activeIdx).toBeGreaterThan(-1);
+    const activeBlock = code.slice(activeIdx, code.indexOf("TERMINAL_STATUSES.has(status)"));
+    expect(activeBlock).toMatch(/scans_remaining:\s*null/);
+    expect(activeBlock).toMatch(/shopify_subscription_id:\s*admin_graphql_api_id/);
+    expect(activeBlock).toMatch(/\btier\b/);
+  });
+
+  it("demote is gated on the event matching the TRACKED subscription id", () => {
+    const demoteIdx = code.indexOf("TERMINAL_STATUSES.has(status)");
+    const block = code.slice(demoteIdx);
+    // Reads the stored id...
+    expect(block).toMatch(/select\(\s*["'][^"']*shopify_subscription_id/);
+    // ...and refuses to demote when it is absent or does not match.
+    expect(block).toMatch(/stored\s*!==\s*admin_graphql_api_id/);
+    expect(block).toMatch(/if\s*\(\s*!stored\s*\)/);
+    // The guard must precede the UPDATE it protects.
+    expect(block.indexOf("stored !== admin_graphql_api_id")).toBeLessThan(
+      block.indexOf('tier: "free"'),
+    );
+  });
+
+  it("fails CLOSED — an unreadable merchant row must not trigger a demote", () => {
+    const block = code.slice(code.indexOf("TERMINAL_STATUSES.has(status)"));
+    expect(block).toMatch(/readErr/);
+    expect(block.indexOf("readErr")).toBeLessThan(block.indexOf('tier: "free"'));
   });
 });
 

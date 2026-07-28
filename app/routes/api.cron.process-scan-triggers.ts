@@ -42,14 +42,27 @@ import { sentry } from "../lib/sentry.server";
 // TIME_BUDGET_MS below — BATCH_SIZE only caps the query so a huge backlog
 // doesn't pull an enormous result set into memory.
 //
-// History: 1 → 10 (2026-06-26) → 100 (2026-07-28). The 10 was sized for "the
-// legit paid backlog is tiny now", which stopped being true when a paying
-// merchant with a large catalog upgraded on 2026-07-12. At 10/invocation ×
-// 4 GitHub Actions runs/day = 40 rows/day against a ~600/day inbound rate, the
-// queue accumulated a 3,358-row backlog reaching back to 2026-07-13 — i.e. the
-// paying customer's enrichment was ~14 days stale and falling further behind
-// daily.
-const BATCH_SIZE = 100;
+// History: 1 → 10 (2026-06-26) → 100 → 150 (both 2026-07-28). The 10 was sized
+// for "the legit paid backlog is tiny now", which stopped being true when a
+// paying merchant with a large catalog upgraded on 2026-07-12. At 10/invocation
+// × 4 GitHub Actions runs/day = 40 rows/day against a ~290/day inbound rate,
+// the queue accumulated a 3,358-row backlog reaching back to 2026-07-13 — i.e.
+// the paying customer's enrichment was ~14 days stale and falling behind daily.
+//
+// 100 → 150 is MEASURED, not guessed. A live run of the 100-row batch against
+// production returned {elapsed_ms: 27472, timed_out: false, unclaimed: 0,
+// errors: 0} — so 100 rows cost 27.5s of the 45s budget, i.e. ~275ms/row wall
+// clock, and the BATCH SIZE was the binding cap rather than the clock. 150 rows
+// projects to ~41s, still inside the budget with ~4s of headroom, and the
+// wall-clock guard truncates cleanly if a slow shop pushes it over (unclaimed
+// rows simply stay unprocessed for the next run). That lifts drain capacity from
+// ~500 to ~750 rows/day, taking the backlog burn-down from ~16 days to ~7.
+//
+// Do NOT raise this further without re-measuring. At ~275ms/row the 45s budget
+// tops out near 160 rows, so 150 is close to the ceiling; more throughput needs
+// a higher ENRICH_CONCURRENCY (watch Shopify's per-shop cost limit) or more
+// invocations per day, not a bigger batch.
+const BATCH_SIZE = 150;
 
 // Wall-clock guard. Vercel Hobby hard-kills a function at 60s; a kill mid-batch
 // loses the unmarked rows' work (they stay unprocessed, so it is safe, just

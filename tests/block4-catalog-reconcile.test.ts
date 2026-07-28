@@ -431,6 +431,28 @@ describe("the cron route is gated and shaped correctly", () => {
     expect(src).toMatch(/not_in_walked_catalog/);
   });
 
+  it("never starts a merchant it cannot finish, and says which it skipped", () => {
+    // The first production run hit 57.7s of the 60s ceiling with three merchants.
+    // A merchant silently omitted from the results would read as "nothing to do".
+    expect(src).toMatch(/ROUTE_BUDGET_MS/);
+    expect(src).toMatch(/not_reached/);
+    expect(src).toMatch(/notReached\.push\(m\.shopify_domain\)/);
+  });
+
+  it("a truncated walk can never report a passing verdict", () => {
+    // Same defect class as Block 1: products the walk never read are
+    // indistinguishable from products it decided need nothing.
+    expect(src).toMatch(/inconclusive_truncated_walk/);
+    expect(src).toMatch(/opts\.truncated\s*\n?\s*\?\s*"inconclusive_truncated_walk"/);
+    expect(src).toMatch(/fail_unexplained_gap/);
+  });
+
+  it("raises the per-shop budget for a single-shop call", () => {
+    // How a large catalog gets a complete one-pass walk instead of truncating.
+    expect(src).toMatch(/SINGLE_SHOP_BUDGET_MS/);
+    expect(src).toMatch(/onlyShop \? SINGLE_SHOP_BUDGET_MS : MULTI_SHOP_BUDGET_MS/);
+  });
+
   it("names the one real regression: event latency becomes cycle latency", () => {
     expect(src).toMatch(/event-latency/);
     expect(src).toMatch(/cycle-latency/);

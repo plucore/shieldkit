@@ -42,6 +42,17 @@
  *   after=<cursor>         resume a truncated walk (single-shop only)
  *   max_pages=<n>          bound the walk
  *   enqueue_cap=<n>        cap rows inserted in enqueue mode, default 500
+ *   budget_ms=<n>          per-shop wall-clock budget, default 25s multi-shop
+ *
+ * WALL CLOCK IS THE BINDING CONSTRAINT, NOT THE RATE LIMIT. The first production
+ * observe run took 57.7s for three merchants against the 60s Hobby ceiling, and
+ * sex-eshop's 7,685-product walk truncated at 29 of 31 pages — on a laptop the
+ * same walk finished 31 pages in 36.1s, so Vercel's iad1 round trip to Shopify is
+ * materially slower (~1.42s/page vs ~1.16s). Hence: an OVERALL route budget as
+ * well as a per-shop one, merchants walked cheapest-catalog-first, and any
+ * merchant not reached reported explicitly as `not_reached` rather than silently
+ * omitted. A single-shop call raises the per-shop budget automatically, which is
+ * how a large catalog gets a complete single-pass walk.
  *
  * Auth: bearer CRON_SECRET, checked inside run() — never the HTTP verb. Vercel
  * Cron invokes with GET, GitHub Actions with POST; both delegate here. Do not
@@ -59,6 +70,23 @@ const WEBHOOK_SAW_OUTCOMES = ["enqueued", "skip_dedup", "skip_already_queued"];
 
 const DEFAULT_WINDOW_HOURS = 24;
 const DEFAULT_ENQUEUE_CAP = 500;
+
+/**
+ * Stop starting new merchants at this point. Leaves ~12s of the 60s ceiling for
+ * the in-flight shop to wind down at its own budget, its parity query, and the
+ * response — measured against a first run that reached 57.7s.
+ */
+const ROUTE_BUDGET_MS = 48_000;
+
+/** Per-shop budget when several merchants share one invocation. */
+const MULTI_SHOP_BUDGET_MS = 22_000;
+
+/**
+ * Per-shop budget when the caller named a single shop. Nothing else competes for
+ * the invocation, so a large catalog can complete in one pass: sex-eshop's 31
+ * pages measured ~44s at Vercel's observed 1.42s/page.
+ */
+const SINGLE_SHOP_BUDGET_MS = 50_000;
 
 function json<T>(body: T, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -85,6 +113,13 @@ interface ParityReport {
   webhook_only: number;
   webhook_only_by_reason: Record<string, number>;
   webhook_only_unexplained: string[];
+  /**
+   * The gate verdict for this shop. A truncated walk can never be `pass`: the
+   * products it never read are indistinguishable from products it decided need
+   * nothing, which is the same "could not look read as a factual negative"
+   * defect Block 1 removed from the scanner.
+   */
+  verdict: "pass" | "inconclusive_truncated_walk" | "fail_unexplained_gap";
   /** Needs work but nobody edited it — the coverage the webhooks never had. */
   reconcile_only: number;
 }
@@ -133,8 +168,44 @@ async function run(request: Request) {
   const scopeOk = (process.env.SCOPES ?? "").includes("write_products");
 
   const results: Array<Record<string, unknown>> = [];
+  const notReached: string[] = [];
 
-  for (const m of merchants) {
+  // Cheapest catalog first, so a shared invocation completes as many WHOLE walks
+  // as it can instead of burning its whole budget truncating the largest one.
+  // schema_enrichments row count is the only catalog-size proxy available without
+  // an Admin API call; shops with none sort first, which is also where the
+  // never-enriched merchants are.
+  const sizeHint = new Map<string, number>();
+  try {
+    const { data } = await supabase
+      .from("schema_enrichments")
+      .select("merchant_id")
+      .in(
+        "merchant_id",
+        merchants.map((m: { id: string }) => m.id),
+      );
+    for (const row of data ?? []) {
+      const k = String(row.merchant_id);
+      sizeHint.set(k, (sizeHint.get(k) ?? 0) + 1);
+    }
+  } catch {
+    // Ordering is an optimisation, never a correctness requirement.
+  }
+  const ordered = [...merchants].sort(
+    (a, b) => (sizeHint.get(a.id) ?? 0) - (sizeHint.get(b.id) ?? 0),
+  );
+
+  const perShopBudget =
+    Number(url.searchParams.get("budget_ms")) ||
+    (onlyShop ? SINGLE_SHOP_BUDGET_MS : MULTI_SHOP_BUDGET_MS);
+
+  for (const m of ordered) {
+    // Never START a shop we cannot plausibly finish inside the ceiling. A
+    // silently-omitted merchant would read as "nothing to do" for that shop.
+    if (Date.now() - startedAt > ROUTE_BUDGET_MS) {
+      notReached.push(m.shopify_domain);
+      continue;
+    }
     try {
       const rec = await reconcileCatalog({
         shopDomain: m.shopify_domain,
@@ -143,6 +214,10 @@ async function run(request: Request) {
         after: onlyShop ? after : null,
         enqueueCap,
         maxPages,
+        timeBudgetMs: Math.max(
+          5_000,
+          Math.min(perShopBudget, ROUTE_BUDGET_MS - (Date.now() - startedAt)),
+        ),
       });
 
       const parity = await buildParityReport({
@@ -150,6 +225,7 @@ async function run(request: Request) {
         windowHours,
         needsWork: rec.needsWork,
         noWork: rec.noWork,
+        truncated: rec.truncated,
       });
 
       results.push({
@@ -185,6 +261,9 @@ async function run(request: Request) {
     mode,
     scope_ok: scopeOk,
     merchants: merchants.length,
+    // Non-empty means this invocation did not cover every paid merchant. Re-run,
+    // or call per shop with ?shop=. Never treat an absent shop as clean.
+    not_reached: notReached,
     elapsed_ms: Date.now() - startedAt,
     results,
   });
@@ -201,6 +280,7 @@ async function buildParityReport(opts: {
   windowHours: number;
   needsWork: ReconciledProduct[];
   noWork: ReconciledProduct[];
+  truncated: boolean;
 }): Promise<ParityReport> {
   const cutoff = new Date(Date.now() - opts.windowHours * 3600_000).toISOString();
 
@@ -241,7 +321,13 @@ async function buildParityReport(opts: {
     }
   }
 
+  const unexplainedCount = byReason["not_in_walked_catalog"] ?? 0;
   return {
+    verdict: opts.truncated
+      ? "inconclusive_truncated_walk"
+      : unexplainedCount > 0
+        ? "fail_unexplained_gap"
+        : "pass",
     window_hours: opts.windowHours,
     webhook_saw: webhookSaw.size,
     reconcile_needs_work: needs.size,

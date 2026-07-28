@@ -73,12 +73,20 @@ interface AppSubscriptionPayload {
   };
 }
 
-const TERMINAL_STATUSES = new Set([
-  "CANCELLED",
-  "EXPIRED",
-  "DECLINED",
-  "FROZEN",
-]);
+/**
+ * Statuses that genuinely end an entitlement.
+ *
+ * FROZEN WAS REMOVED 2026-07-28 and must not be re-added. A freeze is a
+ * RECOVERABLE state — Shopify freezes an app subscription when the shop itself
+ * is frozen or a payment fails, and emits an unfreeze when it clears. Treating
+ * it as terminal permanently stripped paying merchants:
+ *   0yzffh-vw  FROZEN 2026-06-02 on a $39 Shield Max      — never unfrozen, demoted
+ *   ygxib5-9s  FROZEN 2026-06-15 on a $290 Monitoring Annual — never unfrozen, demoted
+ *   sbnjen-ee  FROZEN 2026-06-08 → UNFROZEN 2026-06-12    — under-entitled 4 days
+ * A frozen shop cannot use the app anyway, so leaving the entitlement in place
+ * costs nothing and cannot be abused; wrongly revoking it costs a customer.
+ */
+const TERMINAL_STATUSES = new Set(["CANCELLED", "EXPIRED", "DECLINED"]);
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { payload, topic, shop } = await authenticate.webhook(request);
@@ -95,6 +103,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   // Ignore PENDING — fires before merchant has approved; nothing to persist.
   if (status === "PENDING") return new Response();
+
+  // FROZEN is explicitly a no-op, not a fall-through. Leaving the entitlement
+  // intact is deliberate (see TERMINAL_STATUSES above). When the freeze clears,
+  // Shopify redelivers this webhook with status=ACTIVE, so the ACTIVE branch
+  // below re-entitles the merchant automatically — that is the UNFROZEN
+  // handling. There is no "UNFROZEN" webhook status; UNFROZEN exists only as a
+  // Partner API *event type*, which surfaces here as a plain ACTIVE.
+  if (status === "FROZEN") {
+    console.warn(
+      `[${topic}] FROZEN for ${shop} sub=${admin_graphql_api_id} — entitlement intentionally LEFT INTACT (recoverable state, not a cancellation)`,
+    );
+    return new Response();
+  }
 
   if (status === "ACTIVE") {
     const tier = PLAN_NAME_TO_TIER[name as PlanName];
@@ -134,12 +155,65 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   if (TERMINAL_STATUSES.has(status)) {
+    // ── SUBSCRIPTION-IDENTITY GUARD (added 2026-07-28) ──────────────────────
+    //
+    // Only demote if this terminal event is for the subscription we are
+    // ACTUALLY TRACKING. Without this check the handler demoted on a terminal
+    // event for ANY subscription the shop had ever held.
+    //
+    // How that cost a real customer: Shopify Managed Pricing supersedes a plan
+    // by cancelling the old subscription and activating the new one IN THE SAME
+    // SECOND. Wanok Cosmetics (9973f3-3.myshopify.com), 2026-07-25:
+    //   12:36:12  ACTIVATED  charge 67847061719  "Free"        0.00 USD
+    //   12:39:20  ACTIVATED  charge 67847094487  "Monitoring"  29.00 USD  <- upgrade
+    //   12:39:20  CANCELED   charge 67847061719  "Free"        0.00 USD   <- superseded
+    // The CANCELED for the now-superseded FREE charge processed last and wiped
+    // a live $29/mo entitlement at 12:39:22.64. Their Monitoring subscription
+    // was never cancelled and is still active in Shopify today.
+    //
+    // A missing stored id is also NOT grounds to demote: if we are not tracking
+    // a subscription there is nothing to cancel, and demoting on that basis is
+    // what turns a stale event into data loss.
+    const { data: row, error: readErr } = await supabase
+      .from("merchants")
+      .select("shopify_subscription_id, tier")
+      .eq("shopify_domain", shop)
+      .maybeSingle();
+
+    if (readErr) {
+      // Fail CLOSED: never demote on an unverified read. A missed demotion is
+      // recoverable by the reconciler; a wrong demotion is a lost customer.
+      console.error(
+        `[${topic}] Could not read merchant for ${shop} — SKIPPING demote (fail-closed): ${readErr.message}`,
+      );
+      return new Response();
+    }
+
+    const stored = row?.shopify_subscription_id ?? null;
+    if (!stored) {
+      console.warn(
+        `[${topic}] ${status} for ${shop} sub=${admin_graphql_api_id} but no tracked subscription id — NOT demoting.`,
+      );
+      return new Response();
+    }
+    if (stored !== admin_graphql_api_id) {
+      console.warn(
+        `[${topic}] ${status} for ${shop} is for sub=${admin_graphql_api_id} but we track sub=${stored} — SUPERSEDED/STALE event, NOT demoting.`,
+      );
+      return new Response();
+    }
+
     const { error } = await supabase
       .from("merchants")
       .update({
         tier: "free",
         billing_cycle: null,
         subscription_started_at: null,
+        // TODO(item 3d, awaiting approval): this NULL is what erases the only
+        // key reconcile-subscriptions filters on, so a demoted merchant cannot
+        // self-heal. Left as-is for now because changing it is inert without
+        // the matching reconciler change, and that pair needs sign-off. The
+        // identity guard above is what actually prevents WRONG demotions.
         shopify_subscription_id: null,
         scans_remaining: 1,
         scans_reset_at: new Date().toISOString(),

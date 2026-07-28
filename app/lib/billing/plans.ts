@@ -78,7 +78,13 @@ export const PLANS = {
   // plan to pick anymore.
   monitoring_monthly: {
     name: "Monitoring",
-    monthly: 49,
+    // $29.00 USD — VERIFIED against the Partner API on 2026-07-28. Every real
+    // (test:false) Monitoring activation bills 29.0: cq3dar-gv 2026-07-07,
+    // sex-eshop 2026-07-12, 9973f3-3 2026-07-25.
+    // Price history: $30 (pre-v4) → $39 → $29. The $39 → $29 change happened
+    // between 2026-06-17 (hbhkfy-gy @ 39.0) and 2026-07-07 (cq3dar-gv @ 29.0).
+    // This constant previously read 49, which NEVER matched a real charge.
+    monthly: 29,
     interval: "EVERY_30_DAYS",
   },
   // Retained as the annual-PRICE source ($390) + to reconcile pre-collapse
@@ -87,7 +93,11 @@ export const PLANS = {
   // cycleFromChargeAmount(). Do NOT treat this name as a live pickable plan.
   monitoring_annual: {
     name: "Monitoring Annual",
-    annual: 390,
+    // $290.00 USD — the ONLY annual charge that has ever existed in the Partner
+    // API is ygxib5-9s @ 290.0 on 2026-05-18. This previously read 390, which
+    // never matched a real charge and additionally collided with the
+    // grandfathered Shield Max Annual price of 390.
+    annual: 290,
     interval: "ANNUAL",
   },
 
@@ -193,17 +203,57 @@ const TIER_PRICE_POINTS: Partial<
   },
 };
 
+/**
+ * Multiple of the monthly price at or above which a charge is read as annual.
+ *
+ * Every plan ShieldKit has ever sold discounts annual to exactly 10x monthly
+ * (29/290, 14/140, 39/390), so the real gap is 10x. 6x sits well clear of any
+ * plausible monthly price while staying below any plausible annual one, which
+ * is what makes the structural fallback below tolerant of the constants above
+ * drifting out of date by up to 6x before it can misread a cycle.
+ */
+const ANNUAL_RATIO_THRESHOLD = 6;
+
 export function cycleFromChargeAmount(
   tier: Tier | null | undefined,
   amount: number | null | undefined,
 ): "monthly" | "annual" | null {
   if (tier == null || amount == null || !Number.isFinite(amount)) return null;
+  // A zero/negative charge carries no cycle information: free plans (including
+  // Shopify's localised "Gratuit"/"Gratis"/… variants) and test charges bill 0.
+  if (amount <= 0) return null;
+
   const prices = TIER_PRICE_POINTS[tier];
   if (!prices) return null;
-  // Check annual first as a defensive tiebreak (no tier currently has equal
-  // monthly/annual prices, but prefer the higher-value reading if that changes).
+
+  // ── 1. Exact match on a known price point — highest confidence ────────────
+  // Annual first as a defensive tiebreak if the two ever coincide.
   if (prices.annual != null && amount === prices.annual) return "annual";
   if (prices.monthly != null && amount === prices.monthly) return "monthly";
+
+  // ── 2. No exact match → decide STRUCTURALLY, never return null here ───────
+  //
+  // This branch exists because returning null on an unmatched amount is what
+  // made this function useless in practice. The constants above were wrong for
+  // the app's entire paid history (49/390 declared vs 29/290 actually charged),
+  // so every real charge fell through to null, and the caller's
+  // PLAN_NAME_TO_CYCLE fallback mapped the collapsed single "Monitoring" name
+  // to "monthly" unconditionally — meaning an ANNUAL subscriber would have been
+  // silently recorded as monthly. Nobody would have noticed.
+  //
+  // The structural test does not depend on the constants being current, only on
+  // annual being much larger than monthly — which is true of any sane pricing
+  // and survives promos, proration, FX and price rises.
+  if (prices.monthly != null && prices.monthly > 0) {
+    return amount >= prices.monthly * ANNUAL_RATIO_THRESHOLD
+      ? "annual"
+      : "monthly";
+  }
+  if (prices.annual != null && prices.annual > 0) {
+    return amount >= prices.annual / ANNUAL_RATIO_THRESHOLD
+      ? "annual"
+      : "monthly";
+  }
   return null;
 }
 

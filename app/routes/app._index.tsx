@@ -36,6 +36,7 @@ import { authenticate } from "../shopify.server";
 import { getActiveSubscriptionByChargeId } from "../lib/billing/partner-api.server";
 import { hasPaidAccess } from "../lib/billing/plans";
 import { supabase } from "../supabase.server";
+import { ensureProductWebhooks } from "../lib/webhooks/product-webhooks.server";
 import { runComplianceScan } from "../lib/compliance-scanner.server";
 import {
   generatePolicy,
@@ -618,6 +619,26 @@ export const action = async ({ request }: ActionFunctionArgs) => {
               scans_remaining: null,
             })
             .eq("id", merchant.id);
+
+          // Provision products/* alongside the entitlement. This branch used to
+          // grant paid access and stop, leaving provisioning to the daily
+          // reconcile-subscriptions self-heal — up to 24h in which a merchant is
+          // paying and enrichment discovery is dead. Awaited because this action
+          // already runs post-mount off the render path, so ~1s is free; it never
+          // throws, so a failure cannot break the self-heal response.
+          try {
+            const ensure = await ensureProductWebhooks(shopDomain);
+            if (ensure.errors.length) {
+              console.warn(
+                `[self-heal] ensureProductWebhooks errors for ${shopDomain}: ${ensure.errors.join("; ")}`,
+              );
+            }
+          } catch (err) {
+            console.error(
+              `[self-heal] ensureProductWebhooks threw for ${shopDomain}:`,
+              err instanceof Error ? err.message : err,
+            );
+          }
 
           return new Response(
             JSON.stringify({

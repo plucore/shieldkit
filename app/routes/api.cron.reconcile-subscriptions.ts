@@ -112,6 +112,58 @@ async function run(request: Request) {
   // Direction of failure is a deliberate choice: over-entitling on a Partner
   // API misread is recoverable on the next pass, under-entitling loses a
   // paying customer. Fail toward access.
+    // ── ALARM: entitled but INVISIBLE to this reconciler ──────────────────────
+  //
+  // This job filters on `shopify_subscription_id IS NOT NULL`, because a NULL id
+  // gives it nothing to look up. That makes a paid row with a NULL id permanently
+  // invisible HERE — it will never be demoted, never re-promoted, and never get
+  // the still-active `ensureProductWebhooks` self-heal below. It is the one
+  // entitlement state nothing in the system converges on, so it has to be
+  // reported rather than reconciled.
+  //
+  // The founder's dev store lives in this state legitimately and forever: its
+  // charges are all `test: true`, so there is no Partner API charge to track and
+  // no id to store. Alarming on it daily would train the alarm to be ignored,
+  // which is worse than not having one — so it is exempt BY NAME, with the reason,
+  // and still counted in the response so it stays visible without being noisy.
+  const PROVISIONING_ALARM_EXEMPT = new Set<string>([
+    // test-only charges → no Partner API charge id exists to store
+    "shieldkit-test-stor.myshopify.com",
+  ]);
+
+  let unreconcilableExempt = 0;
+  const unreconcilablePaid: string[] = [];
+  try {
+    const { data: orphanPaid, error: orphanErr } = await supabase
+      .from("merchants")
+      .select("shopify_domain, tier")
+      .is("uninstalled_at", null)
+      .is("shopify_subscription_id", null)
+      .neq("tier", "free");
+    if (orphanErr) throw new Error(orphanErr.message);
+    for (const row of orphanPaid ?? []) {
+      if (PROVISIONING_ALARM_EXEMPT.has(row.shopify_domain as string)) {
+        unreconcilableExempt += 1;
+      } else {
+        unreconcilablePaid.push(`${row.shopify_domain} (tier=${row.tier})`);
+      }
+    }
+    if (unreconcilablePaid.length > 0) {
+      sentry.captureMessage(
+        `reconcile-subscriptions: ${unreconcilablePaid.length} paid merchant(s) have NO shopify_subscription_id and are invisible to every reconciler — ` +
+          `${unreconcilablePaid.join(", ")}. Fix: find the charge in the Partner API and write shopify_subscription_id, or demote if they are not actually paying.`,
+        "warning",
+      );
+      console.error(
+        `[cron/reconcile-subscriptions] UNRECONCILABLE PAID ROWS: ${unreconcilablePaid.join(", ")}`,
+      );
+    }
+  } catch (err) {
+    sentry.captureException(err, {
+      tags: { area: "reconcile-subscriptions", branch: "unreconcilable_alarm" },
+    });
+  }
+
   const { data: merchants, error: fetchError } = await supabase
     .from("merchants")
     .select("id, shopify_domain, tier, shopify_subscription_id, billing_cycle")
@@ -346,6 +398,9 @@ async function run(request: Request) {
 
   return json({
     checked: merchants.length,
+    // Always reported, alarmed on only when non-exempt — see the alarm block above.
+    unreconcilable_paid: unreconcilablePaid,
+    unreconcilable_exempt: unreconcilableExempt,
     demoted,
     repromoted,
     skipped_unknown: skippedUnknown,

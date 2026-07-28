@@ -638,3 +638,78 @@ describe("cursor persistence — coverage, not just latency", () => {
     }
   });
 });
+
+describe("the products/UPDATE switch is durable, not a one-off deletion", () => {
+  const src = read("app", "lib", "webhooks", "product-webhooks.server.ts");
+
+  it("separates topics we MANAGE from topics we WANT", () => {
+    expect(src).toMatch(/const MANAGED_TOPICS = \["PRODUCTS_CREATE", "PRODUCTS_UPDATE"\] as const/);
+    expect(src).toMatch(/const DESIRED_TOPICS = \["PRODUCTS_CREATE"\] as const/);
+  });
+
+  it("ensureProductWebhooks CONVERGES — it tears down a managed topic no longer wanted", () => {
+    // Without this, deleting the subscription by hand would be undone by the next
+    // ensureProductWebhooks call (afterAuth, billing confirm, or the daily cron at
+    // 04:00 UTC) and the revert would be SILENT.
+    const idx = src.indexOf("Converge DOWN first");
+    expect(idx).toBeGreaterThan(-1);
+    const block = src.slice(idx, idx + 1200);
+    expect(block).toMatch(/for \(const topic of MANAGED_TOPICS\)/);
+    expect(block).toMatch(/DESIRED_TOPICS as readonly string\[\]\)\.includes\(topic\)\) continue/);
+    expect(block).toMatch(/DELETE_MUTATION/);
+    expect(block).toMatch(/result\.removed\.push\(topic\)/);
+    // ...and it must run BEFORE the create loop, or a create could race the delete.
+    expect(idx).toBeLessThan(src.indexOf("for (const topic of DESIRED_TOPICS)"));
+  });
+
+  it("creates only DESIRED topics", () => {
+    expect(src).toMatch(/for \(const topic of DESIRED_TOPICS\) \{/);
+    expect(src).not.toMatch(/for \(const topic of PRODUCT_TOPICS\)/);
+  });
+
+  it("still LISTS both topics, or it could never see what to tear down", () => {
+    const listIdx = src.indexOf("const LIST_QUERY");
+    expect(src.slice(listIdx, listIdx + 400)).toMatch(/PRODUCTS_CREATE, PRODUCTS_UPDATE/);
+  });
+
+  it("removeProductWebhooks can be scoped to specific topics", () => {
+    expect(src).toMatch(/topics\?: readonly string\[\]/);
+    expect(src).toMatch(/\(!topics \|\| topics\.includes\(n\.topic\)\)/);
+  });
+
+  it("PRODUCTS_CREATE is kept, and the reason is recorded", () => {
+    // A brand-new product is the one case where the reconcile's cycle latency is
+    // visible to a merchant, and it carries no write-echo.
+    expect(src).toMatch(/PRODUCTS_CREATE is DELIBERATELY KEPT/);
+    expect(src).toMatch(/8,173/); // the echo measurement that decided it
+  });
+});
+
+describe("entitlement provisioning lands with the entitlement", () => {
+  it("the app_subscriptions/update ACTIVE branch provisions", () => {
+    const src = read("app", "routes", "webhooks.app_subscriptions.update.tsx");
+    expect(src).toMatch(/ensureProductWebhooks\(shop\)/);
+    // Awaited, not `void` — a serverless container can freeze on response and
+    // silently drop a floating promise.
+    expect(src).toMatch(/const ensure = await ensureProductWebhooks\(shop\)/);
+  });
+
+  it("dashboard selfHealBilling provisions on drift", () => {
+    const src = read("app", "routes", "app._index.tsx");
+    expect(src).toMatch(/const ensure = await ensureProductWebhooks\(shopDomain\)/);
+  });
+
+  it("the unreconcilable-entitlement alarm exists and exempts the dev store by name", () => {
+    // tier != 'free' AND shopify_subscription_id IS NULL is invisible to every
+    // reconciler. The dev store lives there legitimately and forever (test-only
+    // charges), and alarming on it daily would train the alarm to be ignored.
+    const src = read("app", "routes", "api.cron.reconcile-subscriptions.ts");
+    expect(src).toMatch(/PROVISIONING_ALARM_EXEMPT/);
+    expect(src).toMatch(/shieldkit-test-stor\.myshopify\.com/);
+    expect(src).toMatch(/\.is\("shopify_subscription_id", null\)\s*\n?\s*\.neq\("tier", "free"\)/);
+    expect(src).toMatch(/unreconcilable_paid: unreconcilablePaid/);
+    expect(src).toMatch(/unreconcilable_exempt: unreconcilableExempt/);
+    // Alarms only on the non-exempt set.
+    expect(src).toMatch(/if \(unreconcilablePaid\.length > 0\)/);
+  });
+});

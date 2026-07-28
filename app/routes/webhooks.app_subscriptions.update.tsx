@@ -45,6 +45,7 @@
 import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
+import { ensureProductWebhooks } from "../lib/webhooks/product-webhooks.server";
 import { sentry } from "../lib/sentry.server";
 import {
   PLAN_NAME_TO_TIER,
@@ -150,6 +151,33 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       console.error(
         `[${topic}] Failed to activate plan "${name}" for ${shop}: ${error.message}`,
       );
+      return new Response();
+    }
+
+    // Provision the per-shop products/* subscriptions IN THE SAME BREATH as the
+    // entitlement. Until 2026-07-29 this branch wrote the paid tier and stopped,
+    // leaving provisioning to the daily reconcile-subscriptions self-heal — a
+    // window of up to 24h in which a merchant is paying and enrichment discovery
+    // is dead. Wanok Cosmetics spent three days in the equivalent gap because the
+    // daily cron had never actually run (the GET/POST bug), so the backstop it
+    // relied on did not exist.
+    //
+    // Awaited, not fire-and-forget: the serverless container can freeze the moment
+    // the response is returned, which would silently drop a `void` promise. It is
+    // 2-3 Shopify calls (~1s) inside Shopify's webhook budget, and
+    // ensureProductWebhooks never throws.
+    try {
+      const ensure = await ensureProductWebhooks(shop);
+      if (ensure.errors.length) {
+        console.warn(
+          `[${topic}] ensureProductWebhooks errors for ${shop}: ${ensure.errors.join("; ")}`,
+        );
+      }
+    } catch (err) {
+      sentry.captureException(err, {
+        tags: { area: "webhook.app_subscriptions", branch: "ensure_product_webhooks" },
+        extra: { shop, tier },
+      });
     }
 
     return new Response();

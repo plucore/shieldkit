@@ -31,9 +31,37 @@
 import { createAdminClient } from "../shopify-api.server";
 import { sentry } from "../sentry.server";
 
-// The two topics this module owns. Shopify's WebhookSubscriptionTopic enum
-// values (NOT the dotted topic strings used in shopify.app.toml).
-const PRODUCT_TOPICS = ["PRODUCTS_CREATE", "PRODUCTS_UPDATE"] as const;
+// The topics this module MANAGES — i.e. every topic it will create, update, or
+// tear down. Membership here means "we own this subscription", not "we want it".
+const MANAGED_TOPICS = ["PRODUCTS_CREATE", "PRODUCTS_UPDATE"] as const;
+
+/**
+ * The topics we actually WANT subscribed. `ensureProductWebhooks` converges a
+ * shop onto exactly this set: it creates what is missing and DELETES any managed
+ * topic that is no longer wanted.
+ *
+ * PRODUCTS_UPDATE was removed 2026-07-29. Enrichment discovery moved to the
+ * catalog reconcile (api.cron.reconcile-catalog), which reads the whole catalog
+ * 250 products per page and decides need from live metafields — so it finds
+ * products nobody edited, which the webhook never could. Over 7 days the webhook
+ * path surfaced 33% of the products that actually needed work; over 24h, 2%.
+ *
+ * The decisive measurement was not the coverage gap though: enriching the two
+ * paying catalogs generated 8,173 products/update deliveries straight back at us,
+ * exactly 1:1 with the writes, every one of which could only discover it had
+ * nothing to do. Every metafieldsSet fires the webhook we subscribe to.
+ *
+ * PRODUCTS_CREATE is DELIBERATELY KEPT. A brand-new product is the one case where
+ * the reconcile's cycle latency is visible to a merchant who just added something
+ * and immediately looks at it, and it carries no write-echo — we never write to a
+ * product we have not seen before.
+ *
+ * CONVERGENCE IS THE POINT. Deleting a subscription by hand without changing this
+ * list would have been undone by the next ensureProductWebhooks call — afterAuth,
+ * the billing confirm, or the daily reconcile-subscriptions cron at 04:00 UTC —
+ * and the revert would have been silent.
+ */
+const DESIRED_TOPICS = ["PRODUCTS_CREATE"] as const;
 
 /**
  * The ONLY payload field this app's handler reads.
@@ -62,7 +90,7 @@ const PRODUCT_TOPICS = ["PRODUCTS_CREATE", "PRODUCTS_UPDATE"] as const;
  * subscription does not pick this up on its own (see the update path below).
  */
 const DESIRED_INCLUDE_FIELDS = ["id"] as const;
-type ProductTopic = (typeof PRODUCT_TOPICS)[number];
+type ProductTopic = (typeof MANAGED_TOPICS)[number];
 
 interface WebhookEndpointNode {
   id: string;
@@ -193,6 +221,8 @@ export interface EnsureProductWebhooksResult {
   existing: string[];
   /** Existing subscriptions whose includeFields were narrowed in place. */
   updated: string[];
+  /** Managed topics that are no longer wanted and were torn down. */
+  removed: string[];
   errors: string[];
 }
 
@@ -211,6 +241,7 @@ export async function ensureProductWebhooks(
     created: [],
     existing: [],
     updated: [],
+    removed: [],
     errors: [],
   };
   const target = targetCallbackUrl();
@@ -262,7 +293,33 @@ export async function ensureProductWebhooks(
     );
   }
 
-  for (const topic of PRODUCT_TOPICS) {
+  // Converge DOWN first: tear down any managed topic we no longer want. Without
+  // this, removing a topic from DESIRED_TOPICS would only stop NEW subscriptions
+  // and leave every existing merchant subscribed indefinitely.
+  for (const topic of MANAGED_TOPICS) {
+    if ((DESIRED_TOPICS as readonly string[]).includes(topic)) continue;
+    const stale = existingByTopic.get(topic);
+    if (!stale) continue;
+    try {
+      const del = await executor<DeleteResponse>(DELETE_MUTATION, { id: stale.id });
+      const errs = del.data?.webhookSubscriptionDelete.userErrors ?? [];
+      if (del.errors?.length || errs.length > 0) {
+        const msg = [
+          ...(del.errors ?? []).map((e) => e.message),
+          ...errs.map((e) => e.message),
+        ].join("; ");
+        result.errors.push(`remove ${topic}: ${msg}`);
+      } else {
+        result.removed.push(topic);
+      }
+    } catch (err) {
+      result.errors.push(
+        `remove ${topic}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  for (const topic of DESIRED_TOPICS) {
     if (alreadyTargeted.has(topic)) {
       result.existing.push(topic);
       // An EXISTING subscription does not inherit a change to
@@ -369,6 +426,11 @@ export interface RemoveProductWebhooksResult {
  */
 export async function removeProductWebhooks(
   shopDomain: string,
+  /**
+   * Restrict the teardown to these topics. Omitted = every managed topic, which
+   * is what the demote path wants. The Block 4 switch passes PRODUCTS_UPDATE only.
+   */
+  topics?: readonly string[],
 ): Promise<RemoveProductWebhooksResult> {
   const result: RemoveProductWebhooksResult = { deleted: [], errors: [] };
   const target = targetCallbackUrl();
@@ -405,7 +467,10 @@ export async function removeProductWebhooks(
     return result;
   }
 
-  const toDelete = nodes.filter((n) => n.endpoint?.callbackUrl === target);
+  const toDelete = nodes.filter(
+    (n) =>
+      n.endpoint?.callbackUrl === target && (!topics || topics.includes(n.topic)),
+  );
 
   for (const node of toDelete) {
     try {

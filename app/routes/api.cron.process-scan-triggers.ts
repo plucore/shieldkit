@@ -49,7 +49,11 @@
 
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { supabase } from "../supabase.server";
-import { createAdminClient } from "../lib/shopify-api.server";
+import {
+  createAdminClient,
+  executeWithRetry,
+  type GraphQLExecutor,
+} from "../lib/shopify-api.server";
 import { enrichProductMetafields } from "../lib/enrichment/gtin-enrichment.server";
 import { hasPaidAccess, PAID_TIERS } from "../lib/billing/plans";
 import { sentry } from "../lib/sentry.server";
@@ -96,6 +100,22 @@ const TIME_BUDGET_MS = 45_000;
 // refill rate for calls this cheap.
 const ENRICH_CONCURRENCY = 5;
 
+/**
+ * How many times a product may be re-enqueued after an "unavailable" result
+ * before we stop and report it. Bounds the retry so a permanently-broken product
+ * cannot cycle forever, while a transient throttle still gets three chances
+ * across separate invocations (each with a fresh rate-limit bucket).
+ */
+const MAX_ENRICH_ATTEMPTS = 3;
+
+/**
+ * Consecutive unavailable results that mean "this shop is rate limiting us".
+ * Measured 2026-07-28: at concurrency 24 a shop served ~624 enrichments in 51s
+ * and then failed continuously. Admitting more rows in that state just converts
+ * a transient throttle into thousands of deferred rows.
+ */
+const UNAVAILABLE_STREAK_LIMIT = 25;
+
 function json<T>(body: T, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -108,7 +128,12 @@ interface TriggerRow {
   merchant_id: string;
   trigger_type: string;
   trigger_at: string;
-  payload: { product_gid?: string; numeric_product_id?: string } | null;
+  payload: {
+    product_gid?: string;
+    numeric_product_id?: string;
+    /** Re-enqueue counter, set only on rows deferred after an unavailable result. */
+    attempt?: number;
+  } | null;
   // Embedded via the merchants!inner join in the drain SELECT. The join
   // restricts the queue head to PAID, still-installed merchants, so a free /
   // demoted merchant's rows can never reach (and wedge) the drainer.
@@ -188,7 +213,23 @@ async function run(request: Request) {
   }
 
   if (!rows || rows.length === 0) {
-    return json({ enrichments_processed: 0, legacy_skipped: 0, triggers_processed: 0 });
+    // Same key set as the working path below. An empty-queue response that used
+    // a DIFFERENT shape is how a burn-down script silently misreads "done".
+    return json({
+      timed_out: false,
+      backed_off: false,
+      unclaimed: 0,
+      elapsed_ms: Date.now() - startedAt,
+      enrichments_succeeded: 0,
+      enrichments_not_found: 0,
+      enrichments_deferred_unavailable: 0,
+      enrichments_write_rejected: 0,
+      requeued: 0,
+      requeue_exhausted: 0,
+      legacy_skipped: 0,
+      triggers_processed: 0,
+      errors: 0,
+    });
   }
 
   const triggerRows = (rows ?? []) as unknown as TriggerRow[];
@@ -198,7 +239,15 @@ async function run(request: Request) {
   const enrichmentRows = triggerRows.filter((r) => r.trigger_type === "enrichment");
   const legacyRows = triggerRows.filter((r) => r.trigger_type !== "enrichment");
 
-  let enrichmentsProcessed = 0;
+  // Honest counters. `enrichmentsProcessed` used to count ATTEMPTS — it was
+  // incremented on the ok:false path too — so the 2026-07-28 burn-down reported
+  // "7,471 processed, 0 errors" while ~5,800 of those had silently failed.
+  let succeeded = 0;
+  let notFound = 0;
+  let deferredUnavailable = 0;
+  let writeRejected = 0;
+  let requeued = 0;
+  let requeueExhausted = 0;
   let legacySkipped = 0;
   let errors = 0;
   let triggersProcessed = 0;
@@ -224,11 +273,21 @@ async function run(request: Request) {
   // budget instead of being killed mid-flight at 60s.
   let cursor = 0;
   let timedOut = false;
+  // A run of consecutive unavailable results means the shop is rate limiting us.
+  // Continuing to admit rows converts a transient throttle into thousands of
+  // deferred rows and makes the throttle worse. Stop admitting and let the next
+  // invocation pick up the re-enqueued work.
+  let unavailableStreak = 0;
+  let backedOff = false;
 
   const worker = async (): Promise<void> => {
     for (;;) {
       if (Date.now() - startedAt > timeBudgetMs) {
         timedOut = true;
+        return;
+      }
+      if (unavailableStreak >= UNAVAILABLE_STREAK_LIMIT) {
+        backedOff = true;
         return;
       }
       const index = cursor++;
@@ -256,6 +315,47 @@ async function run(request: Request) {
       const admin = await createAdminClient(merchant.shopify_domain);
       const adminLike = makeAdminLike(admin);
       const result = await enrichProductMetafields(adminLike, productGid);
+
+      // "Could not" is not "done". A throttle, a 401, a transport failure or a
+      // data-less GraphQL body all surface as unavailable — the product still
+      // needs the work. Advance the queue row (so one bad shop can never wedge
+      // the head, the 2026-05 poison-pill lesson) but RE-ENQUEUE the product so
+      // the work is deferred rather than discarded. Bounded by `attempt` so a
+      // permanently-failing product cannot loop forever.
+      if (result.unavailable) {
+        deferredUnavailable += 1;
+        unavailableStreak += 1;
+        const attempt = Number(row.payload?.attempt ?? 0) + 1;
+        if (attempt <= MAX_ENRICH_ATTEMPTS) {
+          const { error: reErr } = await supabase.from("pending_scan_triggers").insert({
+            merchant_id: row.merchant_id,
+            trigger_type: "enrichment",
+            payload: { product_gid: productGid, numeric_product_id: numericId, attempt },
+          });
+          if (reErr) {
+            errors += 1;
+            sentry.captureException(new Error(`requeue failed: ${reErr.message}`), {
+              tags: { area: "process-scan-triggers", branch: "requeue" },
+              extra: { shop: merchant.shopify_domain, product_gid: productGid },
+            });
+          } else {
+            requeued += 1;
+          }
+        } else {
+          requeueExhausted += 1;
+          sentry.captureMessage(
+            `enrichment gave up after ${MAX_ENRICH_ATTEMPTS} unavailable attempts: ${merchant.shopify_domain} ${productGid} — ${result.error}`,
+            "warning",
+          );
+        }
+        if (await markProcessed([row.id])) triggersProcessed += 1;
+        return;
+      }
+
+      unavailableStreak = 0;
+      if (result.ok) succeeded += 1;
+      else if (result.error === "product_not_found") notFound += 1;
+      else writeRejected += 1;
 
       // Write the dedup anchor whenever the product was successfully EXAMINED,
       // not only when fields were actually written.
@@ -293,7 +393,6 @@ async function run(request: Request) {
         }
       }
 
-      enrichmentsProcessed++;
     } catch (err) {
       errors++;
       sentry.captureException(err, {
@@ -327,9 +426,20 @@ async function run(request: Request) {
     // non-zero unclaimed count means the queue is still growing faster than
     // this cadence drains it.
     timed_out: timedOut,
+    // True means the shop was rate limiting us and this run stopped early on
+    // purpose. Unclaimed rows are untouched; deferred ones were re-enqueued.
+    backed_off: backedOff,
     unclaimed: Math.max(0, enrichmentRows.length - cursor),
     elapsed_ms: Date.now() - startedAt,
-    enrichments_processed: enrichmentsProcessed,
+    // enrichments_succeeded is the ONLY number that means work landed. The four
+    // below it must be read together — a run with a high deferred count did far
+    // less than its row count suggests.
+    enrichments_succeeded: succeeded,
+    enrichments_not_found: notFound,
+    enrichments_deferred_unavailable: deferredUnavailable,
+    enrichments_write_rejected: writeRejected,
+    requeued,
+    requeue_exhausted: requeueExhausted,
     legacy_skipped: legacySkipped,
     triggers_processed: triggersProcessed,
     errors,
@@ -377,15 +487,16 @@ type ShopifyAdminLike = {
   ) => Promise<{ json: () => Promise<unknown> }>;
 };
 
-function makeAdminLike(
-  executor: (
-    query: string,
-    variables?: Record<string, unknown>,
-  ) => Promise<unknown>,
-): ShopifyAdminLike {
+function makeAdminLike(executor: GraphQLExecutor): ShopifyAdminLike {
   return {
     graphql: async (query, options) => {
-      const result = await executor(query, options?.variables);
+      // Through executeWithRetry, NOT the bare executor. createAdminClient
+      // returns a raw fetch wrapper with no rate-limit handling, so every
+      // THROTTLED reply went straight back to the enricher un-retried — which is
+      // how a burst turned into ~5,800 silently discarded products. This adds
+      // the exponential backoff (500/1000/2000ms) the rest of the app already
+      // uses, and logs cost on every response.
+      const result = await executeWithRetry(executor, "enrichProductMetafields", query, options?.variables);
       return { json: async () => result };
     },
   };

@@ -26,9 +26,16 @@ JSON_MODE=0
 [ "${1:-}" = "--json" ] && JSON_MODE=1
 
 # ── env ──────────────────────────────────────────────────────────────────────
+# Strips surrounding whitespace and either quote style. Deliberately not
+# `source .env` — that would execute whatever is in the file.
+_getenv() {
+  grep -E "^[[:space:]]*$1=" .env 2>/dev/null | head -1 | cut -d= -f2- \
+    | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+          -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/"
+}
 if [ -f .env ]; then
-  SUPABASE_URL=$(grep -E '^\s*SUPABASE_URL=' .env | head -1 | cut -d= -f2- | tr -d '"'"'"' \r')
-  SERVICE_KEY=$(grep -E '^\s*SUPABASE_SERVICE_ROLE_KEY=' .env | head -1 | cut -d= -f2- | tr -d '"'"'"' \r')
+  SUPABASE_URL=$(_getenv SUPABASE_URL)
+  SERVICE_KEY=$(_getenv SUPABASE_SERVICE_ROLE_KEY)
 fi
 SUPABASE_URL="${SUPABASE_URL:-}"
 SERVICE_KEY="${SERVICE_KEY:-}"
@@ -45,11 +52,15 @@ q() { # q <path> -> total count from Content-Range
     -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" \
     -H "Prefer: count=exact" -H "Range: 0-0" \
     "$SUPABASE_URL/rest/v1/$1" \
-  | tr -d '\r' | awk -F'/' '/^content-range:/ {print $2}'
+  | tr -d '\r' | awk -F'/' 'tolower($0) ~ /^content-range:/ {print $2}'
 }
 
-ISO_1D=$(python3 -c "import datetime;print((datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(days=1)).isoformat())")
-ISO_7D=$(python3 -c "import datetime;print((datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(days=7)).isoformat())")
+# Must end in `Z`, not `+00:00`. An unencoded `+` in a query string is decoded
+# as a SPACE, which makes PostgREST reject the timestamp and return no
+# content-range — silently yielding an empty count rather than an error.
+_ago() { python3 -c "import datetime,sys;print((datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(days=int(sys.argv[1]))).strftime('%Y-%m-%dT%H:%M:%SZ'))" "$1"; }
+ISO_1D=$(_ago 1)
+ISO_7D=$(_ago 7)
 
 BACKLOG=$(q "pending_scan_triggers?select=id&processed_at=is.null")
 INBOUND_24H=$(q "pending_scan_triggers?select=id&trigger_at=gte.$ISO_1D")

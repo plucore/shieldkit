@@ -150,6 +150,63 @@ async function fetchPage(
   }
 }
 
+/**
+ * MIRROR of app/lib/checks/public-scanner.server.ts — keep the two in sync.
+ *
+ * `fetch?.status === 200 ? html : null` collapsed a genuine 404 with a
+ * rate-limit / 5xx / timeout, so any storefront behind a bot-challenge produced
+ * fabricated "Missing … Policy" criticals. Only `absent` may become a finding.
+ */
+type FetchAvailability = "ok" | "absent" | "unavailable";
+
+function classifyFetch(
+  r: { status: number; html: string } | null
+): FetchAvailability {
+  if (!r) return "unavailable";
+  if (r.status === 404 || r.status === 410) return "absent";
+  if (r.status >= 200 && r.status < 300) return "ok";
+  return "unavailable";
+}
+
+/** One bounded retry, only for the `unavailable` class. A 404 is definitive. */
+async function fetchPageChecked(
+  url: string,
+  timeoutMs = 10_000
+): Promise<{
+  page: { status: number; html: string } | null;
+  availability: FetchAvailability;
+}> {
+  let page = await fetchPage(url, timeoutMs);
+  let availability = classifyFetch(page);
+  if (availability === "unavailable") {
+    await new Promise((r) => setTimeout(r, 600));
+    page = await fetchPage(url, timeoutMs);
+    availability = classifyFetch(page);
+  }
+  return { page, availability };
+}
+
+function degradeUnverifiable(r: CheckResult, what: string): CheckResult {
+  return {
+    ...r,
+    passed: true,
+    severity: "info",
+    scorable: false,
+    title: `${r.title.split(" — ")[0]} — Not Checked`,
+    description:
+      `Could not load the ${what} (rate-limited, unreachable, or timed out), so ` +
+      `this was not checked and is excluded from the score.`,
+    fix_instruction: "Re-run the scan.",
+    raw_data: {
+      ...r.raw_data,
+      degraded: true,
+      degraded_reason: "storefront_fetch_unavailable",
+      original_severity: r.severity,
+      original_passed: r.passed,
+    },
+  };
+}
+
 async function fetchJson<T>(url: string, timeoutMs = 10_000): Promise<T | null> {
   try {
     const res = await fetch(url, {
@@ -1085,9 +1142,9 @@ async function main(): Promise<void> {
     fetchPage(`${storeUrl}/pages/about-us`).then(
       (r) => (r && r.status === 200 ? r : fetchPage(`${storeUrl}/pages/about`))
     ),
-    fetchPage(`${storeUrl}/policies/shipping-policy`),
-    fetchPage(`${storeUrl}/policies/privacy-policy`),
-    fetchPage(`${storeUrl}/policies/terms-of-service`),
+    fetchPageChecked(`${storeUrl}/policies/shipping-policy`),
+    fetchPageChecked(`${storeUrl}/policies/privacy-policy`),
+    fetchPageChecked(`${storeUrl}/policies/terms-of-service`),
     fetchJson<{ products: Array<{ handle: string }> }>(
       `${storeUrl}/products.json?limit=5`
     ),
@@ -1122,13 +1179,13 @@ async function main(): Promise<void> {
     ),
     safeCheck("shipping_policy", () =>
       checkShippingPolicy(
-        shippingFetch?.status === 200 ? (shippingFetch.html ?? null) : null
+        shippingFetch.availability === "ok" ? shippingFetch.page!.html : null
       )
     ),
     safeCheck("privacy_and_terms", () =>
       checkPrivacyAndTerms(
-        privacyFetch?.status === 200 ? (privacyFetch.html ?? null) : null,
-        termsFetch?.status === 200 ? (termsFetch.html ?? null) : null
+        privacyFetch.availability === "ok" ? privacyFetch.page!.html : null,
+        termsFetch.availability === "ok" ? termsFetch.page!.html : null
       )
     ),
     safeCheck("checkout_transparency", () =>
@@ -1148,7 +1205,29 @@ async function main(): Promise<void> {
     safeCheck("page_speed", () => checkPageSpeed(storeUrl)),
   ]);
 
-  printReport(storeUrl, results);
+  // Degrade any check whose source page could not be FETCHED. Only a genuine
+  // 404 (`absent`) may be reported as a finding — see classifyFetch above.
+  const degradeWhat: Record<string, FetchAvailability> = {
+    shipping_policy: shippingFetch.availability,
+    // privacy_and_terms reads two pages; degrade only if BOTH were unavailable.
+    privacy_and_terms:
+      privacyFetch.availability === "unavailable" &&
+      termsFetch.availability === "unavailable"
+        ? "unavailable"
+        : "ok",
+  };
+  const finalResults = results.map((r) =>
+    degradeWhat[r.check_name] === "unavailable"
+      ? degradeUnverifiable(
+          r,
+          r.check_name === "shipping_policy"
+            ? "shipping policy page"
+            : "privacy and terms pages"
+        )
+      : r
+  );
+
+  printReport(storeUrl, finalResults);
 }
 
 main().catch((err) => {

@@ -372,10 +372,50 @@ export async function getProducts(
  * @param executor GraphQL executor
  * @param maxTotal Maximum total pages to fetch. Default 100.
  */
+/**
+ * getPages with an explicit availability signal.
+ *
+ * `pages` is the FALLBACK source for the refund / shipping / privacy checks, and
+ * those checks say "not found in Settings → Policies **or as a Shopify Page**".
+ * When this fetch silently returned `[]` on failure, that sentence asserted a
+ * fact about Pages that were never fetched — the same "failed fetch read as a
+ * factual negative" defect as getShopPolicies.
+ *
+ * It also opened a divergence when getShopPolicies gained a bounded retry on
+ * 2026-07-28: a blip the policies retry survives but this one does not yields
+ * `policies.available === true` with `pages: []`, and the orchestrator's degrade
+ * gate — which keyed only off the policies flag — let an un-degraded CRITICAL
+ * through. Hence the matching retry and flag here.
+ */
+export async function getPagesWithAvailability(
+  executor: GraphQLExecutor,
+  maxTotal = 100
+): Promise<{ pages: Page[]; available: boolean }> {
+  const first = await getPagesInner(executor, maxTotal);
+  if (first.available) return first;
+  // One bounded retry, mirroring getShopPolicies.
+  await new Promise((r) => setTimeout(r, 600));
+  const second = await getPagesInner(executor, maxTotal);
+  if (!second.available) {
+    console.error(
+      "[ShopifyAPI] getPages UNAVAILABLE after retry — returning available:false so callers degrade instead of reporting policies missing from Pages."
+    );
+  }
+  return second;
+}
+
+/** Back-compat wrapper: same signature as before, availability discarded. */
 export async function getPages(
   executor: GraphQLExecutor,
   maxTotal = 100
 ): Promise<Page[]> {
+  return (await getPagesWithAvailability(executor, maxTotal)).pages;
+}
+
+async function getPagesInner(
+  executor: GraphQLExecutor,
+  maxTotal = 100
+): Promise<{ pages: Page[]; available: boolean }> {
   const PAGE_SIZE = 50;
 
   try {
@@ -407,11 +447,14 @@ export async function getPages(
         variables
       );
 
-      if (result.errors?.length) {
+      // A GraphQL errors body with no data is NOT "this shop has no pages".
+      // Report unavailable so the caller degrades instead of asserting absence.
+      if (result.errors?.length || !result.data?.pages) {
         console.error(
-          "[ShopifyAPI] getPages GraphQL errors:",
-          JSON.stringify(result.errors, null, 2)
+          "[ShopifyAPI] getPages GraphQL errors / no data:",
+          JSON.stringify(result.errors ?? "no data", null, 2)
         );
+        return { pages: allPages, available: false };
       }
 
       const edges = result.data?.pages?.edges ?? [];
@@ -431,9 +474,9 @@ export async function getPages(
       cursor = pageInfo.endCursor;
     }
 
-    return allPages;
+    return { pages: allPages, available: true };
   } catch (err) {
     console.error("[ShopifyAPI] getPages unexpected error:", err);
-    return [];
+    return { pages: [], available: false };
   }
 }

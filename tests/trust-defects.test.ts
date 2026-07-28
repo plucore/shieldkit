@@ -145,9 +145,15 @@ describe("Admin API unavailability must degrade, not fabricate failures", () => 
 
   it("alarms on an implausible score collapse between consecutive scans", () => {
     expect(orch).toMatch(/IMPLAUSIBLE SCORE COLLAPSE/);
-    // >20 point drop OR 0 -> 4+ criticals, the exact fabricated-criticals shape.
+    // >20 point drop OR 0 -> several criticals.
     expect(orch).toMatch(/scoreDrop\s*>\s*20/);
-    expect(orch).toMatch(/prevCrit === 0 && criticalCount >= 4/);
+    // Threshold lowered 4 -> 3 on 2026-07-28: contact_information was demoted to
+    // a 1-of-N warning in July, so a policy-data failure now yields at most THREE
+    // criticals and a `>= 4` arm was unreachable for the very mode it guards.
+    // The reachability bound is asserted behaviourally in
+    // tests/trust-fix-failure-modes.test.ts; here we only pin the shape.
+    expect(orch).toMatch(/prevCrit === 0\s*&&\s*criticalCount >= CRITICAL_JUMP_ALARM/);
+    expect(orch).toMatch(/CRITICAL_JUMP_ALARM\s*=\s*3/);
   });
 
   it("the collapse check can never fail the scan", () => {

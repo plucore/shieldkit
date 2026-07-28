@@ -8,13 +8,21 @@ Copy-paste queries for the two metrics that matter. Written 2026-07-28.
 |---|---|---|
 | When did a shop install? | `merchants.created_at` | **Never `installed_at`.** It was restamped on every token exchange until 2026-07-28. Backfilled to `created_at`, but `created_at` is the source of truth regardless. |
 | Did a shop convert? | PostHog `purchase` ∪ `merchants.subscription_started_at` | The DB alone misses converters whose row was hard-deleted by `shop/redact`. |
-| Did a shop churn? | PostHog `uninstall` (from 2026-07-28) → `install_events` (once live) | `merchants.uninstalled_at` is erased 48h later by the redact cascade. |
+| Did a shop churn? | `install_events` (**live since 2026-07-28 18:20 UTC**) ∪ PostHog `uninstall` (from 2026-07-28) | `merchants.uninstalled_at` is erased 48h later by the redact cascade. |
 | Historical churn before 2026-07-28 | orphaned `leads` rows | Count only, no dates. Do not prune `leads` until `install_events` has replaced it. |
 
 Two counting rules, both learned the hard way:
 
 - **`purchase` double-fires.** `app.billing.confirm.tsx` is a *loader*, so any re-GET of the welcome link re-fires it. Both known converters have exactly 2 events ~30s apart. **Always `uniq(distinct_id)`, never `count()`.**
-- **`install` over-fires on re-auth.** It lives in the same `afterAuth` body that used to clobber `installed_at`. De-noise by joining to `merchants.created_at`.
+- **PostHog `install` over-fires on re-auth.** It lives in the same `afterAuth` body that used to clobber `installed_at`. De-noise by joining to `merchants.created_at`. **`install_events` does NOT have this problem** — its install write is gated on "no live merchant row existed", so it records installs and reinstalls, not token exchanges.
+
+### ⚠️ The 2026-07-28 seam — do not compute pre-seam churn from these tables
+
+`install_events` starts empty. No shop that installed before 2026-07-28 18:20 UTC has an `install` row, and **none can be added.** It is tempting to backfill from `merchants.created_at`; do not. Every merchant who churned before the seam has already been hard-deleted by `shop/redact`, so a backfill would populate the ledger with **survivors only** and every pre-seam cohort would report 0% churn — with authoritative-looking dates. That is precisely the illusion this table exists to end (0 of 54 rows showed churn against ~40 real uninstalls).
+
+So:
+* **Cohorts installing on or after 2026-07-28** — §1c is exact.
+* **Cohorts before that** — installs from `merchants.created_at`, churn count (no dates) from §3's orphan-`leads` floor at ~47% recall. Never divide one by the other and call it a rate.
 
 ---
 
@@ -87,9 +95,9 @@ ORDER BY cohort_month
 
 > Cells where the cohort is younger than the window are structurally optimistic — a July cohort cannot yet have a real D90. Read `pct_alive_d90` only for cohorts at least 90 days old.
 
-### 1c. Postgres — the same curve from `install_events`, once #5 is live
+### 1c. Postgres — the same curve from `install_events` (LIVE)
 
-Preferred over HogQL long-term: it survives PostHog retention limits and joins to tier.
+Preferred over HogQL long-term: it survives PostHog retention limits, joins to tier, and is ours. Valid for cohorts from 2026-07-28 onward only — see the seam note above.
 
 ```sql
 WITH lifecycle AS (
@@ -180,4 +188,14 @@ FROM pending_scan_triggers;
 -- Paid rows that reconcile-subscriptions can never demote (missing sub id).
 SELECT shopify_domain, tier FROM merchants
 WHERE tier <> 'free' AND shopify_subscription_id IS NULL;
+
+-- The ledger is recording. Expect both counts to grow; an install_events uninstall
+-- with no matching PostHog event (or vice versa) means one of the two writers broke.
+SELECT event_type, count(*), min(occurred_at), max(occurred_at)
+FROM install_events GROUP BY 1 ORDER BY 1;
+
+-- THE ONE RULE. Must always return 0 rows. A future 'schema tidy-up' migration
+-- adding an FK here would silently destroy the churn history on the next redact.
+SELECT conname FROM pg_constraint
+WHERE conrelid = 'install_events'::regclass AND contype = 'f';
 ```

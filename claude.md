@@ -285,6 +285,15 @@ Project ref: `bhnpcirhutczdorkhibm`. The Supabase project is named "ShieldKit-De
 All tables have RLS enabled; the app uses the `service_role` key which bypasses RLS. Live shape verified 2026-05-29.
 
 ### Migrations on live DB (most recent first)
+- `20260729???` `catalog_reconcile_state` (Block 4 — per-shop walk cursor; applied 2026-07-29)
+- `20260728175811` `install_events` (§4b — the FK-free churn ledger; applied and wired 2026-07-28)
+- `20260712125011` `atomic_generation_caps_finalize_regen` (SHIELDKIT-2 — `finalize_policy_regen`)
+- `20260712120144` `atomic_generation_caps` (SHIELDKIT-2 — `insert_appeal_letter_if_under_cap`)
+- `20260710114046` `audit_rate_limit_rpc`
+- `20260604065950` `0004_expiring_offline_tokens` (the flag era; flag itself removed 2026-06-26 — see §3)
+- `20260601150914` `grant_service_role_aeo`
+- `20260601060729` `0002_takedown_and_views`
+- `20260601060535` `0001_aeo_schema`
 - `20260528114108` `cascade_fks_for_shop_redact` (cleanup batch §8 — 3 child FKs to `merchants` cascade)
 - `20260528082329` `ai_usage_cap` (v4 §5 — `ai_generations_used`, `ai_generations_reset_at`, `consume_ai_credit()` RPC)
 - `20260528044014` `enrichment_triggers` (v3 sweep Fix 9)
@@ -295,7 +304,9 @@ All tables have RLS enabled; the app uses the `service_role` key which bypasses 
 - `20260511141953` `add_merchant_shop_metadata`
 - `20260506024035` `phase_7_quick_wins_and_monitoring`
 
-Local migration files in `supabase/migrations/` are timestamped `20260527192823..20260528160000`; Supabase reassigns versions on push.
+Local migration files in `supabase/migrations/` are timestamped `20260527192823..20260728120000`; Supabase reassigns versions on push (the local `install_events` file is dated `20260728120000`, the live version is `20260728175811`).
+
+> The three `aeo`/`takedown` migrations created **no objects in the `public` schema** — a live inventory on 2026-07-28 returned exactly the 14 tables documented below and no views. Treat them as inert history, not as undocumented tables.
 
 ### Table: `sessions`
 Shopify OAuth session storage. Custom `SupabaseSessionStorage` adapter.
@@ -370,6 +381,10 @@ Atomic per-scan appeal-letter cap. `RETURNS TABLE(accepted BOOLEAN, letter_id UU
 
 ### Function: `finalize_policy_regen(p_merchant_id UUID, p_type TEXT, p_body TEXT)` (SHIELDKIT-2)
 Atomic per-type policy regeneration cap. `RETURNS TABLE(claimed BOOLEAN)`. A single conditional `UPDATE` that **both** writes `generated_policies[p_type] = p_body` AND flips `policy_regen_used[p_type] = true`, guarded by `WHERE regen not yet used AND a base policy exists` — returns one row when claimed, zero rows when another regen already won (the loser is rejected, its output discarded). Called AFTER generation (**claim-after**), so a crash before it leaves the regen unspent and two concurrent regens can't both win. Replaced an earlier claim-before pair (`claim_policy_regen` / `release_policy_regen`, now dropped).
+
+### §4b. Why `install_events` is FK-free
+
+See the §11 doctrine bullet "Churn must never be stored only on the `merchants` row" and the header of `supabase/migrations/20260728120000_install_events.sql`. Short version: all 7 pre-existing child tables declare `REFERENCES merchants(id) ON DELETE CASCADE`, which is precisely why not one of them survived to record any churn. A future "schema tidy-up" migration adding an FK to `install_events` would silently destroy the history on the next redact. The standing check is `SELECT conname FROM pg_constraint WHERE conrelid='install_events'::regclass AND contype='f'` — it must always return zero rows.
 
 ### §4a. 🔴 OPEN BUG: `app_subscriptions/update` demotes on a SUPERSEDED subscription id
 
@@ -478,6 +493,46 @@ Enrichment queue (v4 — the scan-class trigger types are vestigial; only `enric
 | `payload` | JSONB | For `trigger_type='enrichment'`: `{ product_gid, numeric_product_id }` |
 
 Indexes: `idx_pending_scans_unprocessed (merchant_id, processed_at) WHERE processed_at IS NULL`; `uq_pending_scan_triggers_week (merchant_id, trigger_type, week_iso) WHERE week_iso IS NOT NULL` (partial unique).
+
+### Table: `install_events` (2026-07-28)
+
+Append-only merchant lifecycle ledger. **The only durable churn record this app has.** See §4b for why it exists and the rule that governs it.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | BIGSERIAL PK | |
+| `shop_domain` | TEXT NOT NULL | The durable identity — survives the merchant row by design |
+| `event_type` | TEXT NOT NULL | CHECK `('install','uninstall','redact')` |
+| `tier` | TEXT | Plan tier at the moment of the event. NULL when unknown. This is what makes free-churn vs paid-churn separable. |
+| `merchant_id` | UUID | **NOT a foreign key.** Unconstrained on purpose — dangles once the merchant is redacted. |
+| `occurred_at` | TIMESTAMPTZ NOT NULL DEFAULT now() | |
+| `metadata` | JSONB NOT NULL DEFAULT '{}'::jsonb | e.g. `{reinstall, previous_uninstalled_at}` on install, `{merchant_row_existed}` on redact |
+
+Indexes: `idx_install_events_shop (shop_domain, occurred_at DESC)`, `idx_install_events_type_time (event_type, occurred_at)`. RLS enabled (service_role bypasses).
+
+Writers, all via `recordInstallEvent()` in `app/lib/install-events.server.ts` (never throws; failures go to Sentry):
+- `afterAuth` → `install`, **gated on "no live merchant row existed"** so the ledger records installs and reinstalls, not the token exchanges afterAuth also fires on.
+- `webhooks.app.uninstalled.tsx` → `uninstall`, with the tier, before the soft-delete.
+- `webhooks.shop.redact.tsx` → `redact`, **before the hard delete** (after it the tier is unknowable), in its own try/catch so it can never block a GDPR deletion Shopify will not retry.
+
+**No PII.** The table is designed to outlive `shop/redact`, so it stores only a business identifier, the event, a timestamp and the tier. Do not add email/owner/address columns; hash `shop_domain` if a stricter posture is ever needed.
+
+**The 2026-07-28 seam.** The ledger starts empty and pre-seam installs **must not be backfilled from `merchants.created_at`** — every pre-seam churner was already hard-deleted, so a backfill would load survivors only and report 0% churn for every old cohort with authoritative-looking dates. That is the exact illusion the table exists to end. `docs/churn-and-conversion-queries.md` §1c is valid for cohorts from 2026-07-28 forward; earlier periods get the orphan-`leads` floor (~47% recall, no dates).
+
+### Table: `catalog_reconcile_state` (2026-07-29)
+
+One row per shop. The resume cursor for the catalog enrichment reconcile.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `shop_domain` | TEXT PK | FK-free, same reasoning as `install_events` |
+| `cursor` | TEXT | Resume point for the in-progress cycle. NULL = start at the beginning |
+| `cycle_started_at` | TIMESTAMPTZ | A cycle older than 24h restarts instead of resuming |
+| `last_completed_at` | TIMESTAMPTZ | **The only timestamp that licenses "the whole catalog has been seen since then."** The parity verdict reads it |
+| `pages_walked_this_cycle`, `products_seen_this_cycle` | INT | Accumulated across a cycle's invocations, reset on completion |
+| `updated_at` | TIMESTAMPTZ NOT NULL DEFAULT now() | |
+
+**Why it is load-bearing, not an optimisation.** A large catalog does not fit in one 60s invocation: sex-eshop's 7,685 products take ~45s over 31 pages, against a 22s per-shop budget when merchants share a run. Without a persisted cursor the walk restarts at page 1 every cycle, so it reads roughly the first 15 pages **forever** and never reaches the tail — not late, never — and every individual run reports success. A failed read or write of this table degrades to "start from the beginning": a repeated walk, never skipped catalog.
 
 ### Table: `webhook_failures`
 Audit + retry-queue for webhook deliveries whose side-effect writes failed. Currently only `app/uninstalled` writes here.
@@ -621,6 +676,7 @@ On first scan, shop owner email collected via GraphQL (`shop { email }`) and ups
 | `api.scan.ts` | `/api/scan` | POST | Authenticated scan endpoint. Rate-limited + atomic quota. Returns full scan JSON. GET → 405. |
 | `api.cron.process-scan-triggers.ts` | `/api/cron/process-scan-triggers` | **GET + POST** | Drains the queue. `BATCH_SIZE=100` rows selected, bounded by `TIME_BUDGET_MS=45000` and drained by a pool of `ENRICH_CONCURRENCY=5`. GitHub Actions every 6h + Vercel Cron daily 12:00 UTC. Bearer `CRON_SECRET`. |
 | `api.cron.reconcile-subscriptions.ts` | `/api/cron/reconcile-subscriptions` | **GET + POST** | Vercel Cron daily 04:00 UTC. Walks paid merchants, queries Partner API, demotes on terminal status. Never demotes on `unknown`. |
+| `api.cron.reconcile-catalog.ts` | `/api/cron/reconcile-catalog` | **GET + POST** | Block 4. Walks each paid merchant's catalog 250 products/page and decides enrichment need from the paged data — no per-product round trip. `mode=observe` (default) writes nothing; `mode=enqueue` inserts `pending_scan_triggers` rows. Resumes from `catalog_reconcile_state.cursor`. Also emits the parity report vs `enrichment_webhook_log`. Bearer `CRON_SECRET`. GH Actions `reconcile-catalog-observe.yml` every 6h, pinned to `observe` on schedule. |
 | `api.cron.reconcile-installs.ts` | `/api/cron/reconcile-installs` | **GET + POST** | Vercel Cron daily 03:00 UTC. Probes Shopify Admin API for still-installed merchants. **Strictly NON-DESTRUCTIVE since 2026-06-26** — a 401/403 records a non-persisted `auth_stale` signal only. It NEVER writes `uninstalled_at`, NEVER deletes sessions, and NEVER writes `webhook_failures`. |
 
 > **Cron HTTP method — read before touching a cron route.** Vercel Cron invokes a scheduled path with **GET**, which React Router dispatches to the `loader`. All three routes were previously POST-only behind a 405 loader, so **the Vercel crons had never executed** — `process-scan-triggers` ran only because `.github/workflows/process-scan-triggers.yml` passes `--request POST`, and `reconcile-subscriptions` (the only code path that demotes a cancelled subscription) had never run at all. Fixed 2026-07-28: each route exports a thin `loader` and `action` that both delegate to a shared `run(request)`. **Authorisation is the bearer `CRON_SECRET` check inside `run()`, never the HTTP verb** — do not "restore" a method guard.
@@ -749,6 +805,10 @@ Singleton (dev caches on `global` for hot-reload survival). `service_role` key �
 * **`scans_remaining` preserved on reinstall** (v4 cleanup §6) — afterAuth's upsert never includes `scans_remaining` in the payload. First install: DB DEFAULT 1. Reinstall: preserved (typically 0 post-scan). Prevents free-scan farming. Regression test in `tests/bug-fixes.test.ts` asserts the payload never includes the column.
 * **All child FKs to `merchants` CASCADE** (v4 cleanup §8) — `enrichment_webhook_log`, `llms_txt_requests`, `pending_scan_triggers` were `ON DELETE NO ACTION` and silently broke GDPR `shop/redact` for any merchant who had ever triggered enrichment / served llms.txt / queued a scan trigger. Migration `20260528160000_cascade_fks_for_shop_redact.sql` made them CASCADE.
 * **Webhook reliability** — `app/uninstalled` records `webhook_failures` rows on Supabase write errors. **There is no cron backstop**: `reconcile-installs` is non-destructive and never writes `uninstalled_at`. `webhook_failures` being empty means "no Supabase write ever errored", NOT "no webhook ever failed" — it is not a delivery log.
+* **An unbounded Supabase `.select()` is a bug on any table that can exceed 1,000 rows** (2026-07-28, learned three times in one day). PostgREST silently caps a response at 1,000 rows — no error, no flag. It bit the Block 4 parity read (reported 777 distinct products where the window held 4,250 rows / 2,941 distinct, making the gate look **cleaner** than the data supported), the reconcile's catalog-size hint, and the reconcile's `alreadyQueued` read (which re-enqueued everything past row 1,000 and inflated the enrichment queue from ~4,700 to 15,559 duplicate rows). **Paginate with `.range(offset, offset + PAGE - 1)`, stop on a short page, and report the row count actually read.** When an incomplete read would cause a bad write, suppress the write rather than proceed on a partial view (see `enqueue_suppressed`). Remaining unbounded reads are on `merchants` (55 rows) and per-scan `violations` (~12) — safe by size, not by construction.
+* **A Shopify THROTTLED reply is HTTP 200 with `errors[]` and NO `data`** (2026-07-28). Never read `json?.data?.X` and treat undefined as a fact about the store. That single collapse silently discarded ~5,800 products of a paying merchant's enrichment: the read returned `product_not_found` for a rate limit, and the write returned `ok: true` with a populated `written` list for fields it never wrote — then wrote a `schema_enrichments` anchor claiming success, which also suppressed the product from the dedup meant to retry it. `EnrichmentResult.unavailable` now means "could not look / could not write"; `product_not_found` is returned **only** when `data` is present and `product` is explicitly null. Background callers must route through `executeWithRetry` (`createAdminClient` returns a bare fetch wrapper with no rate-limit handling), defer unavailable work by re-enqueueing with a bounded `attempt` counter rather than consuming the queue row, and report SUCCESSES rather than attempts.
+* **Measured Shopify enrichment concurrency (2026-07-28):** concurrency 5 → 183 succeeded/46s; 10 → 384/47s, zero deferrals; 16 → 278 + 28 deferred. **10 is the sustainable ceiling**; the earlier "24 is linear" reading was an artefact of the broken counters, where failures looked like speed. Drainer defaults stay 150/5/45s; `?batch=`, `?concurrency=`, `?budget_ms=` are bounded operator overrides for burn-down only.
+* **The catalog reconcile must NOT dedup against `schema_enrichments`** (2026-07-28). The webhook path has to, because it only knows a product was *edited*. The reconcile reads live metafields off the catalog page, so an anchor can only ever override ground truth — and did: ~838 products carried anchors claiming success while still needing work, and a dedup would have classified exactly those as `dedup_fresh` and refused to re-enqueue the work the anchor was wrong about. Re-enqueue pressure is bounded by the pending-queue check instead, which is self-limiting with no clock involved.
 * **Churn must never be stored only on the `merchants` row** (audit 2026-07-28) — `webhooks.shop.redact.tsx:45-48` hard-deletes the merchant 48h after uninstall and all 7 child FKs CASCADE, so `uninstalled_at` has a 48-hour half-life and a point-in-time query can essentially never observe it. ~40 real uninstalls left no trace this way; they were only reconstructable from orphaned `leads` rows (that table has no FK, which is the sole reason it survived). Durable churn goes to PostHog (`uninstall` event) and to the FK-free `install_events` ledger. **Never add a foreign key to `install_events`, and never prune `leads` on redact until `install_events` has replaced it as the historical record.**
 * **GTIN enrichment off the webhook hot path** — webhook enqueues `trigger_type='enrichment'`; drainer runs the work with the 60s function ceiling instead of the ~5s webhook ACK window.
 * **Billing self-heal off the critical render path** — moved to a post-mount action so dashboard paint doesn't block on Partner API latency.

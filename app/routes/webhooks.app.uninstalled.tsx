@@ -3,6 +3,7 @@ import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
 import { sentry } from "../lib/sentry.server";
 import { captureEvent } from "../lib/analytics.server";
+import { recordInstallEvent } from "../lib/install-events.server";
 
 /**
  * app/uninstalled
@@ -45,6 +46,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     // Tier lookup is decoration on the event, never a reason to lose it.
   }
   await captureEvent(shop, "uninstall", { tier: churnTier });
+
+  // THE durable churn record. Written BEFORE the DB mutations below for the same
+  // reason captureEvent is: in 48h shop/redact hard-deletes the merchants row and
+  // cascades away everything else, so this row and the PostHog event are all that
+  // will remain. No FK, so the cascade cannot reach it.
+  await recordInstallEvent({
+    shopDomain: shop,
+    eventType: "uninstall",
+    tier: churnTier,
+  });
 
   // Delete all OAuth sessions for this shop. Safe to run on duplicate delivery.
   const { error: sessionError } = await supabase

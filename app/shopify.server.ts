@@ -11,6 +11,7 @@ import { hasPaidAccess } from "./lib/billing/plans";
 import { ensureProductWebhooks } from "./lib/webhooks/product-webhooks.server";
 import { sentry } from "./lib/sentry.server";
 import { captureEvent } from "./lib/analytics.server";
+import { recordInstallEvent } from "./lib/install-events.server";
 
 const sessionStorage = new SupabaseSessionStorage();
 
@@ -78,6 +79,29 @@ const shopify = shopifyApp({
       // first INSERT still stamps it correctly; omitting it here is exactly
       // what makes it immutable afterwards. `created_at` is the independent
       // cross-check — nothing in the codebase writes it.
+      // Read the PRE-upsert state, purely so the lifecycle ledger can tell a
+      // genuine (re)install from a routine offline-token exchange — afterAuth
+      // fires on both and cannot distinguish them from the session alone. Must
+      // happen before the upsert below, which clears uninstalled_at. Best-effort:
+      // on failure priorRow stays null and we record the install anyway, because
+      // a duplicate install row is recoverable and a missing one is not.
+      type PriorMerchantRow = {
+        id: string;
+        uninstalled_at: string | null;
+        tier: string | null;
+      };
+      let priorRow: PriorMerchantRow | null = null;
+      try {
+        const { data } = await supabase
+          .from("merchants")
+          .select("id, uninstalled_at, tier")
+          .eq("shopify_domain", session.shop)
+          .maybeSingle();
+        priorRow = (data as PriorMerchantRow | null) ?? null;
+      } catch {
+        // Decoration on the ledger row, never a reason to fail OAuth.
+      }
+
       const { error } = await supabase.from("merchants").upsert(
         {
           shopify_domain: session.shop,
@@ -105,6 +129,30 @@ const shopify = shopifyApp({
       // or down. shopify_plan/country are not handy here (they'd need an Admin
       // API roundtrip and are null on first install), so they're omitted.
       await captureEvent(session.shop, "install");
+
+      // Durable lifecycle ledger — the install half of the churn record.
+      // install_events has NO foreign key to merchants, so unlike every other
+      // child table it survives the shop/redact cascade 48h after uninstall.
+      //
+      // Gated on "no live row existed" so the ledger records INSTALLS rather than
+      // token exchanges: afterAuth also fires on every re-auth, and unfiltered
+      // rows would make install counts meaningless. A reinstall of a
+      // soft-deleted row (uninstalled_at set) is a genuine install and IS
+      // recorded, tagged so churn-then-return is visible.
+      if (!priorRow || priorRow.uninstalled_at !== null) {
+        await recordInstallEvent({
+          shopDomain: session.shop,
+          eventType: "install",
+          tier: priorRow?.tier ?? "free",
+          merchantId: priorRow?.id ?? null,
+          metadata: {
+            reinstall: !!priorRow,
+            ...(priorRow?.uninstalled_at
+              ? { previous_uninstalled_at: priorRow.uninstalled_at }
+              : {}),
+          },
+        });
+      }
 
       // Reinstall coverage: products/* webhooks are per-shop (not app-level)
       // and only provisioned for paid merchants. A reinstall of an existing

@@ -219,3 +219,40 @@ curl -sS -H "Authorization: Bearer $CRON_SECRET" \
 `.github/workflows/reconcile-catalog-observe.yml` are pinned to `observe`
 unconditionally, so no default or input can turn the parallel run into a writer.
 `enqueue` requires a manual dispatch — and your approval.
+
+---
+
+## 8. Addendum, 2026-07-29 — the strongest argument for the switch was measured by accident
+
+Enriching the two catalogs generated **8,173 `products/update` webhook deliveries
+back at us** — exactly 1:1 with the products written. Every `metafieldsSet` write
+makes Shopify fire the very webhook we subscribe to.
+
+```
+22:00 hour   6,281 deliveries   100% skip_dedup
+23:00 hour   1,892 deliveries   100% skip_dedup
+total        8,173              stopped 23:07:15Z, none since
+```
+
+**It is not a loop** — every single delivery hit `skip_dedup` against
+`schema_enrichments`, nothing was re-enqueued, and the backlog stayed at 0. But it
+is a 1:1 amplification: **every unit of enrichment work costs a second serverless
+invocation whose only possible outcome is to discover it has nothing to do.**
+
+Three consequences:
+
+1. **This dominated the compute cost of the burn-down.** 8,173 short invocations
+   against 49 drainer invocations and 15 reconcile invocations. The expensive part
+   was not the work — it was the echo of the work.
+2. **Removing `products/update` eliminates it entirely.** The switch is therefore
+   *net negative* on compute, not a cost. Nothing in the parity comparison in §1
+   makes the case as strongly as this does.
+3. **It is invisible in normal operation** because enrichment normally trickles.
+   It only became measurable because ~8,000 writes happened in 40 minutes. Any
+   future bulk write — a re-enrichment, a metafield schema change, a new large
+   merchant — pays the same 1:1 tax for as long as the subscription exists.
+
+Note also that `webhooks.products.update.tsx` still enqueues vestigial
+`trigger_type='product_update'` rows (24h-deduped, no-ops in the drainer). Two are
+sitting unprocessed now. Pure noise; worth deleting the `maybeRecordScanTrigger`
+call when the webhook goes.

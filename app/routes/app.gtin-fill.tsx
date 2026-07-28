@@ -93,21 +93,63 @@ function gidToNumericId(gid: string): string | null {
   return m ? m[1] : null;
 }
 
-// Pull up to 500 products with the fields needed to decide what to write.
-// Stops early once Shopify reports no further pages.
+// Pull up to PAGE_CAP x 50 products with the fields needed to decide what to
+// write, and report HOW the walk ended rather than just what it found.
+//
+// This used to `break` on any falsy `json?.data?.products`. A Shopify THROTTLED
+// reply is HTTP 200 with `errors[]` and no `data`, so a rate limit read as "the
+// catalog ends here" — and the merchant was then shown a confident count, or
+// "Nothing to write", for a catalog the walk never finished reading. Same root
+// defect as the scanner's fetch failures (Block 1) and the drainer's throttle
+// blindness (60df4cd), on the one button a merchant presses expecting certainty.
+const PAGE_CAP = 10;
+const PAGE_SIZE = 50;
+
+type CandidateWalk = {
+  products: CandidateProduct[];
+  /** The walk ended because Shopify said there were no more pages. */
+  complete: boolean;
+  /** The walk stopped because a page could not be read. */
+  unavailable: boolean;
+  /** The walk stopped at PAGE_CAP with more catalog still to read. */
+  hitPageCap: boolean;
+  error?: string;
+};
+
 async function fetchEnrichmentCandidates(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   adminGraphql: (q: string, opts?: { variables?: Record<string, unknown> }) => Promise<any>,
-): Promise<CandidateProduct[]> {
+): Promise<CandidateWalk> {
   const out: CandidateProduct[] = [];
   let cursor: string | null = null;
-  for (let page = 0; page < 10; page++) {
+  for (let page = 0; page < PAGE_CAP; page++) {
     const res = await adminGraphql(ENRICHMENT_CANDIDATES_QUERY, {
-      variables: { first: 50, after: cursor },
+      variables: { first: PAGE_SIZE, after: cursor },
     });
     const json = await res.json();
-    const conn = json?.data?.products;
-    if (!conn) break;
+
+    // "Could not read this page" is not "there are no more products".
+    if (json?.errors?.length || !json?.data) {
+      return {
+        products: out,
+        complete: false,
+        unavailable: true,
+        hitPageCap: false,
+        error:
+          json?.errors?.map((e: { message: string }) => e.message).join("; ").slice(0, 300) ??
+          "no data in response",
+      };
+    }
+    const conn = json.data.products;
+    if (!conn) {
+      return {
+        products: out,
+        complete: false,
+        unavailable: true,
+        hitPageCap: false,
+        error: "products connection missing from response",
+      };
+    }
     for (const { node } of conn.edges as Array<{ node: {
       id: string; title: string; vendor: string | null;
       variants: { edges: Array<{ node: { sku: string | null; barcode: string | null } }> };
@@ -125,10 +167,15 @@ async function fetchEnrichmentCandidates(
         metafields: mf,
       });
     }
-    if (!conn.pageInfo?.hasNextPage) break;
+    if (!conn.pageInfo?.hasNextPage) {
+      return { products: out, complete: true, unavailable: false, hitPageCap: false };
+    }
     cursor = conn.pageInfo.endCursor;
   }
-  return out;
+  // Fell out of the loop with more pages available: a real cap, reported as one.
+  // A merchant with a 7,685-product catalog was previously told the run was
+  // finished after 500.
+  return { products: out, complete: false, unavailable: false, hitPageCap: true };
 }
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -213,6 +260,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
 interface ActionResult {
   ok: boolean;
+  /** True when the candidate walk stopped at the page cap with catalog left. */
+  catalogTruncated?: boolean;
   error?: string;
   processed: number;
   succeeded: number;
@@ -264,7 +313,25 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     /* shop name fallback only — non-fatal */
   }
 
-  const candidates = await fetchEnrichmentCandidates(admin.graphql);
+  const walk = await fetchEnrichmentCandidates(admin.graphql);
+  const candidates = walk.products;
+
+  // A walk that could not be completed must never be reported as a finished pass.
+  // Bail before writing anything: acting on a partial candidate list and then
+  // showing a success count is how a merchant concludes their catalog is fixed
+  // when it is not.
+  if (walk.unavailable) {
+    return {
+      ok: false,
+      error:
+        "We could not finish reading your catalog just now (Shopify rate limit or a temporary error), " +
+        "so nothing was written. Nothing in your store changed — please try again in a minute.",
+      processed: 0,
+      succeeded: 0,
+      failed: 0,
+      errors: [],
+    } satisfies ActionResult;
+  }
 
   // Filter to products this intent actually has work for. Skip anything the
   // merchant has already opted out of via custom.identifier_exists=false.
@@ -337,7 +404,23 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       const res = await admin.graphql(METAFIELDS_SET_MUTATION, {
         variables: { metafields: inputs },
       });
-      const json = await res.json();
+      const json = (await res.json()) as {
+        data?: { metafieldsSet?: { userErrors?: Array<{ field: string[] | null; message: string }> } };
+        errors?: Array<{ message: string }>;
+      };
+
+      // The false success. A throttled mutation returns HTTP 200 with no `data`,
+      // so `?? []` produced an empty userErrors list, chunkErrored stayed false,
+      // and `succeeded += chunk.length` reported writes that never happened —
+      // straight to the merchant, as a number they trust.
+      if (json?.errors?.length || !json?.data?.metafieldsSet) {
+        chunkErrored = true;
+        const msg =
+          json?.errors?.map((e) => e.message).join("; ").slice(0, 200) ??
+          "Shopify returned no result for this batch";
+        for (const p of chunk) errors.push({ productId: p.id, message: msg });
+      }
+
       const userErrors: Array<{ field: string[] | null; message: string }> =
         json?.data?.metafieldsSet?.userErrors ?? [];
       if (userErrors.length > 0) {
@@ -401,6 +484,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   const result: ActionResult = {
     ok: failed === 0,
+    // Surfaced so a capped walk is never read as a finished catalog.
+    catalogTruncated: walk.hitPageCap,
     processed: target.length,
     succeeded,
     failed,
@@ -508,9 +593,25 @@ export default function GtinFillPage() {
 
       {actionData?.ok && actionData.succeeded > 0 && (
         <s-section>
-          <s-banner tone="success" heading="Enrichment complete">
-            Wrote metafields for {actionData.succeeded} product
+          <s-banner
+            tone={actionData.catalogTruncated ? "warning" : "success"}
+            heading={
+              actionData.catalogTruncated
+                ? "Part of your catalog is done"
+                : "Enrichment complete"
+            }
+          >
+            Wrote details for {actionData.succeeded} product
             {actionData.succeeded === 1 ? "" : "s"}.
+            {actionData.catalogTruncated ? (
+              <>
+                {" "}
+                This run covers the first {PAGE_CAP * PAGE_SIZE} products only —
+                your catalog is larger than one run can handle. Run it again to
+                continue, or leave it to us: ShieldKit works through the rest of
+                your catalog automatically in the background.
+              </>
+            ) : null}
           </s-banner>
         </s-section>
       )}

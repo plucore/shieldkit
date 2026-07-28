@@ -2,6 +2,7 @@ import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
 import { sentry } from "../lib/sentry.server";
+import { recordInstallEvent } from "../lib/install-events.server";
 
 /**
  * GDPR: shop/redact
@@ -34,6 +35,31 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   // left outside the try/catch below: an unauthenticated request should 401,
   // not be ACKed as a completed redaction.
   const { shop } = await authenticate.webhook(request);
+
+  // Record the redact BEFORE deleting anything. Once the DELETE below runs, the
+  // merchant row and every cascaded child is gone — including the tier — so this
+  // is the last moment the fact is knowable. Distinguishing 'redact' from
+  // 'uninstall' also surfaces a redact that arrives with no preceding uninstall,
+  // i.e. a delivery we missed, which would otherwise be silent.
+  let redactTier: string | null = null;
+  try {
+    const { data: row } = await supabase
+      .from("merchants")
+      .select("id, tier")
+      .eq("shopify_domain", shop)
+      .maybeSingle();
+    redactTier = (row?.tier as string | undefined) ?? null;
+    await recordInstallEvent({
+      shopDomain: shop,
+      eventType: "redact",
+      tier: redactTier,
+      merchantId: (row?.id as string | undefined) ?? null,
+      metadata: { merchant_row_existed: !!row },
+    });
+  } catch {
+    // Never let the ledger write block a GDPR deletion — Shopify does not retry
+    // shop/redact, so the delete below is the compliance-critical path.
+  }
 
   try {
     // Direct delete by shop domain — no existence assumption. delete().eq() of

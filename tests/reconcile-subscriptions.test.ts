@@ -86,9 +86,58 @@ describe("api.cron.reconcile-subscriptions.ts — file shape", () => {
     expect(src).toMatch(/tier:\s*"free"/);
     expect(src).toMatch(/billing_cycle:\s*null/);
     expect(src).toMatch(/subscription_started_at:\s*null/);
-    expect(src).toMatch(/shopify_subscription_id:\s*null/);
     expect(src).toMatch(/scans_remaining:\s*1/);
     expect(src).toMatch(/scans_reset_at:/);
+  });
+
+  // INVERTED 2026-07-28. This previously required the demote to NULL
+  // shopify_subscription_id. That NULL was the bug: it erased the only column
+  // this job filters on, so a merchant wrongly demoted (as happened to a live
+  // $29/mo customer) became permanently invisible to the one job that could
+  // restore them.
+  it("demote must PRESERVE shopify_subscription_id so a bad demote can self-heal", () => {
+    const code = src
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split("\n")
+      .filter((l) => !l.trim().startsWith("//") && !l.trim().startsWith("*"))
+      .join("\n");
+    expect(code).not.toMatch(/shopify_subscription_id:\s*null/);
+  });
+
+  it("walks ALL merchants with a charge id, not just already-paid ones", () => {
+    // The tier filter is what made recovery impossible: a wrongly-demoted
+    // merchant sits at tier='free' and was therefore excluded.
+    expect(src).not.toMatch(/\.in\(\s*["']tier["']\s*,\s*PAID_TIERS/);
+    expect(src).toMatch(/\.not\(\s*["']shopify_subscription_id["']\s*,\s*["']is["']\s*,\s*null\s*\)/);
+  });
+
+  it("guards against re-demoting an already-free row every pass", () => {
+    // Widening the query means a free row with a stale cancelled charge id is
+    // now visited daily. Without this guard it would fall into the demote block
+    // and rewrite scans_remaining: 1 on every run — a daily free-scan refill.
+    expect(src).toMatch(/entitledNow/);
+    const guardIdx = src.indexOf("if (!entitledNow)");
+    const demoteIdx = src.indexOf('tier: "free"');
+    expect(guardIdx).toBeGreaterThan(-1);
+    expect(guardIdx).toBeLessThan(demoteIdx);
+  });
+
+  it("re-promotes a free row the Partner API still reports as active", () => {
+    expect(src).toMatch(/sub\.status === "active" && !entitledNow/);
+    expect(src).toMatch(/scans_remaining:\s*null/);
+    // Must refuse a TEST charge — no money moves on those.
+    expect(src).toMatch(/sub\.test === true/);
+    // And must be loud, because a re-promote means something stripped a payer.
+    expect(src).toMatch(/captureMessage/);
+  });
+
+  it("a thrown Partner API error skips the row without aborting the pass", () => {
+    expect(src).toMatch(/lookupErrors/);
+    expect(src).toMatch(/branch:\s*"partner_api_lookup"/);
+    // try/catch must wrap the lookup, and the catch must `continue`.
+    const tryIdx = src.indexOf("getActiveSubscriptionByChargeId(subGid)");
+    const after = src.slice(tryIdx);
+    expect(after.slice(0, 700)).toMatch(/continue;/);
   });
 
   it("notes the Hobby-tier scaling ceiling", () => {
@@ -292,10 +341,12 @@ describe("reconcile-subscriptions action — runtime behavior", () => {
       tier: "free",
       billing_cycle: null,
       subscription_started_at: null,
-      shopify_subscription_id: null,
       scans_remaining: 1,
     });
     expect(updateCalls[0].patch.scans_reset_at).toBeDefined();
+    // The charge id must SURVIVE the demote so this job can re-check it and
+    // re-promote if the demotion turns out to have been wrong (2026-07-28).
+    expect(updateCalls[0].patch).not.toHaveProperty("shopify_subscription_id");
   });
 
   it("FAIL-SAFE: does NOT demote when Partner API returns status='unknown'", async () => {

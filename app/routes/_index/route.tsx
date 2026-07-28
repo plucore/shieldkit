@@ -14,7 +14,25 @@ import { MarketingButton } from "../../components/marketing/Button";
 import { HeroMock } from "../../components/marketing/HeroMock";
 import { JsonLd } from "../../components/marketing/JsonLd";
 import { SITE } from "../../lib/brand";
+import { PLANS, annualSavings } from "../../lib/billing/plans";
 import marketingStyles from "../../marketing.css?url";
+
+// ─── Prices: DERIVED, never hardcoded ────────────────────────────────────────
+// This page previously hardcoded "$49/mo", "$390/yr" and "Save $198/yr" in four
+// places while Shopify actually charged $29/mo — a public page advertising 69%
+// above the real price, on the highest-traffic surface the product has. Deriving
+// from PLANS means the landing page, the FAQ, the FAQPage JSON-LD and the
+// pricing card can only ever say what billing reconciliation believes.
+//
+// If you change a price, change it in app/lib/billing/plans.ts (and in the
+// Shopify Partner Dashboard, which is the real source of truth for what is
+// charged) — never here.
+const PRICE_MONTHLY = `$${PLANS.monitoring_monthly.monthly}`;
+const PRICE_ANNUAL = `$${PLANS.monitoring_annual.annual}`;
+const PRICE_SAVINGS = `Save $${annualSavings()}/yr`;
+const PAID_PLAN_NAME = PLANS.monitoring_monthly.name;
+/** e.g. "Monitoring ($29/mo or $290/yr)" — used in FAQ prose and JSON-LD. */
+const PAID_PRICE_PHRASE = `${PAID_PLAN_NAME} (${PRICE_MONTHLY}/mo or ${PRICE_ANNUAL}/yr)`;
 
 export const links: LinksFunction = () => [
   { rel: "stylesheet", href: marketingStyles },
@@ -56,8 +74,7 @@ const HOMEPAGE_FAQ: { q: string; aPlain: string }[] = [
   },
   {
     q: "What do I get on the paid plan?",
-    aPlain:
-      "Monitoring ($49/mo or $390/yr) unlocks unlimited on-demand scans, AI-written store policies (refund, shipping, privacy, terms), the GMC re-review appeal letter generator, product data fixes (GTIN/MPN/brand), and AI search visibility (structured data for new products, llms.txt, AI crawler allow/block controls).",
+    aPlain: `${PAID_PRICE_PHRASE} unlocks unlimited on-demand scans, AI-written store policies (refund, shipping, privacy, terms), the GMC re-review appeal letter generator, product data fixes (GTIN/MPN/brand), and AI search visibility (structured data for new products, llms.txt, AI crawler allow/block controls).`,
   },
 ];
 
@@ -355,9 +372,9 @@ function Pricing() {
               tagline="Fix it. Stay compliant. Stay visible."
               badge="Everything unlocked"
               highlight
-              priceMonthly="$49"
-              priceAnnual="$390"
-              annualSavings="Save $198/yr"
+              priceMonthly={PRICE_MONTHLY}
+              priceAnnual={PRICE_ANNUAL}
+              annualSavings={PRICE_SAVINGS}
               features={[
                 "Unlimited on-demand scans",
                 "AI-written store policies + GMC appeal letter",
@@ -533,7 +550,7 @@ function FAQ() {
       q: "What do I get on the paid plan?",
       a: (
         <>
-          Monitoring ($49/mo or $390/yr) unlocks unlimited on-demand
+          {PAID_PRICE_PHRASE} unlocks unlimited on-demand
           scans, AI-written store policies (refund, shipping, privacy,
           terms), the GMC re-review appeal letter generator, product
           data fixes (GTIN/MPN/brand), and AI search visibility

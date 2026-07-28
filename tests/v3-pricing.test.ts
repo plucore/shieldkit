@@ -23,7 +23,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   PLAN_NAME_TO_TIER,
@@ -178,6 +178,65 @@ describe("cycleFromChargeAmount — Partner API cycle resolution (2026-06 collap
     // "Gratis", "Grátis", "Gratuito", "Kostenlos" variants) and test charges.
     expect(cycleFromChargeAmount("monitoring", 0)).toBeNull();
     expect(cycleFromChargeAmount("monitoring", -5)).toBeNull();
+  });
+});
+
+// ─── Public pricing surfaces must DERIVE from PLANS, never hardcode ──────────
+// The landing page advertised $49/mo + $390/yr + "Save $198/yr" in four places
+// while Shopify charged $29 — 69% above the real price, on the highest-traffic
+// public surface the product has, for weeks. It drifted because the numbers were
+// string literals with no link to billing.
+describe("public marketing surfaces cannot drift from PLANS", () => {
+  const landing = readFileSync(
+    join(process.cwd(), "app", "routes", "_index", "route.tsx"),
+    "utf8",
+  );
+
+  it("the landing page imports its prices from plans.ts", () => {
+    expect(landing).toMatch(
+      /import\s*\{[^}]*\bPLANS\b[^}]*\}\s*from\s*["'][^"']*lib\/billing\/plans["']/,
+    );
+    expect(landing).toMatch(/\bannualSavings\b/);
+  });
+
+  it("the landing page hardcodes NO ShieldKit plan price", () => {
+    // Strip comments — the file explains the old wrong numbers in prose.
+    const code = landing
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split("\n")
+      .filter((l) => !l.trim().startsWith("//"))
+      .join("\n");
+    // Any dollar-amount literal that looks like a plan price is a regression.
+    // Free is "$0" and is legitimately fixed, so it is exempt.
+    const literals = code.match(/["'`]\$\d[\d,]*(?:\.\d+)?/g) ?? [];
+    const offenders = literals.filter((s) => !/^["'`]\$0$/.test(s));
+    expect(offenders).toEqual([]);
+    // And the specific historical wrong values must never reappear anywhere.
+    for (const stale of ["$49", "$390", "$449", "$198"]) {
+      expect(code).not.toContain(stale);
+    }
+  });
+
+  it("evergreen blog copy carries no plan price and no retired tier name", () => {
+    // Blog posts are prerendered and long-lived, so an embedded price is
+    // guaranteed to go stale. Three posts advertised "Shield Pro ($14/month)"
+    // and "Shield Max ($39/month)" — tiers that no longer exist — and two
+    // promised an email digest that never sent a single message.
+    const dir = join(process.cwd(), "app", "content", "blog");
+    for (const file of readdirSync(dir).filter((f) => f.endsWith(".mdx"))) {
+      const body = readFileSync(join(dir, file), "utf8");
+      for (const dead of ["Shield Pro", "Shield Max", "Recovery tier"]) {
+        expect(body, `${file} references retired tier "${dead}"`).not.toContain(dead);
+      }
+      // "$14/month" / "$39/month" / "$49/mo" style plan pricing.
+      expect(body, `${file} hardcodes a plan price`).not.toMatch(
+        /\$\d+(?:\.\d+)?\s*\/?\s*(?:month|mo|year|yr)\b/i,
+      );
+      // The digest was deleted in v4 and never sent an email.
+      expect(body, `${file} promises an email digest`).not.toMatch(
+        /emails? you a digest|digest of changes/i,
+      );
+    }
   });
 });
 

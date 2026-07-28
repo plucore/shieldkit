@@ -127,6 +127,24 @@ for (const domain of allDomains) {
 const order = (v) => v.startsWith("***") ? 0 : v.startsWith("PAYING") ? 1 : v.startsWith("ENTITLED") ? 2 : v.startsWith("entitled on") ? 3 : v.startsWith("frozen") ? 4 : 5;
 rows.sort((a, b) => order(a.verdict) - order(b.verdict) || a.domain.localeCompare(b.domain));
 
+// --json: machine-readable summary for scripts/weekly-health.sh. Exit code is
+// 1 when a PAYING merchant is unentitled, so a caller can alert on status alone.
+if (process.argv.includes("--json")) {
+  const payingNotEntitled = rows.filter((r) => r.verdict.startsWith("***") || r.verdict === "PAYING BUT ROW DELETED");
+  const entitledNotPaying = rows.filter((r) => r.verdict === "ENTITLED BUT NOT PAYING");
+  const frozen = rows.filter((r) => r.verdict.startsWith("frozen"));
+  console.log(JSON.stringify({
+    merchants: merchants.length,
+    events: events.length,
+    paying_not_entitled: payingNotEntitled.map((r) => ({ shop: r.domain, charge: r.liveCharge })),
+    entitled_not_paying: entitledNotPaying.map((r) => ({ shop: r.domain, tier: r.ourTier, charge: r.liveCharge })),
+    frozen: frozen.map((r) => ({ shop: r.domain, charge: r.liveCharge })),
+    test_charge_entitled: rows.filter((r) => r.verdict === "entitled on a TEST charge").map((r) => r.domain),
+    shops_paid_ever: [...new Set([...charges.values()].filter((c) => c.amount > 0 && !c.test).map((c) => c.shop))].length,
+  }, null, 2));
+  process.exit(payingNotEntitled.length > 0 ? 1 : 0);
+}
+
 console.log(`Partner API events fetched: ${events.length} | distinct charges: ${charges.size} | shops with events: ${shops.size}`);
 console.log(`merchants rows: ${merchants.length}\n`);
 console.log("=== MISMATCHES AND NOTABLES ===\n");

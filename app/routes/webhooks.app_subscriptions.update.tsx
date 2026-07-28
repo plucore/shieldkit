@@ -45,6 +45,7 @@
 import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
+import { sentry } from "../lib/sentry.server";
 import {
   PLAN_NAME_TO_TIER,
   intervalToCycle,
@@ -209,12 +210,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         tier: "free",
         billing_cycle: null,
         subscription_started_at: null,
-        // TODO(item 3d, awaiting approval): this NULL is what erases the only
-        // key reconcile-subscriptions filters on, so a demoted merchant cannot
-        // self-heal. Left as-is for now because changing it is inert without
-        // the matching reconciler change, and that pair needs sign-off. The
-        // identity guard above is what actually prevents WRONG demotions.
-        shopify_subscription_id: null,
+        // shopify_subscription_id is DELIBERATELY PRESERVED (2026-07-28).
+        //
+        // Nulling it erased the only key reconcile-subscriptions filters on
+        // (`.not("shopify_subscription_id","is",null)`), so a wrongly-demoted
+        // merchant became permanently invisible to the one job that could
+        // restore them — the demote destroyed the key to its own recovery.
+        // Keeping it lets the reconciler re-check the charge with the Partner
+        // API and RE-PROMOTE if Shopify still says active. Retaining a charge
+        // id on a free row is inert on its own: every feature gate reads
+        // `tier` via hasPaidAccess(), never this column.
         scans_remaining: 1,
         scans_reset_at: new Date().toISOString(),
       })
@@ -223,6 +228,18 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     if (error) {
       console.error(
         `[${topic}] Failed to reset to free for ${shop} on status=${status}: ${error.message}`,
+      );
+    } else {
+      // Every demotion in the 2026-07-28 incident was completely silent — the
+      // only reason it was ever found was the founder reading the Partner
+      // Dashboard by hand. A revoked entitlement is a revenue-affecting event
+      // and should never be invisible again, even when it is correct.
+      sentry.captureMessage(
+        `Entitlement REVOKED for ${shop} — status=${status} sub=${admin_graphql_api_id} (was tier=${row?.tier})`,
+        "warning",
+      );
+      console.log(
+        `[${topic}] demoted ${shop} to free — status=${status} sub=${admin_graphql_api_id} (was tier=${row?.tier})`,
       );
     }
   }

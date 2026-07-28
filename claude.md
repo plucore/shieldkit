@@ -20,10 +20,40 @@ ShieldKit is a B2B SaaS Shopify Embedded App that scans Shopify stores for Googl
 
 Two plans only. The Partner Dashboard pricing UI advertises only these:
 
-| Plan | Price | DB tier | Plan-name strings (must match Partner Dashboard) |
+| Plan | Price (LIVE, verified via Partner API 2026-07-28) | DB tier | Plan-name strings (must match Partner Dashboard) |
 |------|-------|---------|---|
-| **Free** | $0 | `'free'` | `"Free"` |
-| **Monitoring** | $49/month or $449/year | `'monitoring'` | `"Monitoring"` (monthly) / `"Monitoring Annual"` (annual) |
+| **Free** | $0 | `'free'` | `"Free"` — plus localised variants Shopify serves per merchant locale: `"Gratuit"`, `"Gratis"`, `"Grátis"`, `"Gratuito"`, `"Kostenlos"` |
+| **Monitoring** | **$29.00 USD/month** | `'monitoring'` | `"Monitoring"` |
+
+> **⚠️ `plans.ts` PRICE CONSTANTS ARE WRONG — verified 2026-07-28.** Every real
+> `SUBSCRIPTION_CHARGE_ACTIVATED` for a Monitoring plan in the Partner API bills
+> **$29.00**: `cq3dar-gv` (2026-07-07), `sex-eshop` (2026-07-12), `9973f3-3` /
+> Wanok (2026-07-25). `app/lib/billing/plans.ts:81` declares `monthly: 49` and
+> `:90` declares `annual: 390`. Neither figure has ever matched a real charge.
+> Observed price history: **$39 → $29** somewhere between 2026-06-17
+> (`hbhkfy-gy` @ 39.0) and 2026-07-07 (`cq3dar-gv` @ 29.0). The only annual
+> charge ever seen is `"Monitoring Annual"` @ **$290.00** (`ygxib5-9s`,
+> 2026-05-18), not $390.
+>
+> **Why this is not cosmetic:** `cycleFromChargeAmount()` (`plans.ts:196-208`)
+> resolves billing_cycle by matching the charge amount against
+> `TIER_PRICE_POINTS`. With monthly pinned at 49 and annual at 390, a real
+> $29 charge matches NEITHER and the function returns `null`; the caller then
+> falls back to `PLAN_NAME_TO_CYCLE`, which maps bare `"Monitoring"` → monthly.
+> So monthly happens to resolve correctly **by accident**. A future annual
+> subscriber on the collapsed single-name plan would resolve to `monthly`,
+> silently, because the amount can no longer discriminate. Fix the constants
+> before selling annual again.
+>
+> **`sex-eshop` is NOT grandfathered** — they pay $29.00, the same as the current
+> price. There is no grandfathered paying merchant: every `pro`/`shield`-tier row
+> is gone (see the tier distribution below).
+
+**Lifetime revenue, Partner API `transactions`, 2026-07-28: $300.00 gross / $290.24 net across 10 transactions.**
+- **3 × `AppOneTimeSale` @ $29.00 → $28.16 net each = $84.48.** This is the "all-time one-time charges" figure in the Partner Dashboard: `nngf4r-d0` (2026-04-15), `bybaanoo` (2026-04-25), `tbgypsysoul` (2026-05-04). They date from the one-time-$29 billing model shipped in `374dc39` (2026-03-31) and removed by the Managed Pricing migration `68bf618` (2026-05-09). **Nothing in the current codebase can create a one-time charge** — do not look for a bug here. This also explains why those merchants carry paid-feature residue (`generated_policies`, `schema_enrichments`) while sitting at `tier='free'`.
+- 7 × `AppSubscriptionSale`: $39 × 4, $14 × 2, $29 × 1.
+- **`cq3dar-gv` was a REAL paying customer**, not a test store: `test: false` on the charge AND a settled `AppSubscriptionSale` of $29.00 → $28.16 net on 2026-07-16. They activated 2026-07-07 and cancelled 2026-07-13. An earlier audit note in this repo guessed 5–10% likely-real; that guess was wrong and is retracted.
+- `sex-eshop` and Wanok have **no settled transaction yet** — their first cycles had not paid out as of 2026-07-28.
 
 **Free tier** — one compliance scan, granted at install via DB DEFAULT, **never refilled**. No monthly reset cron exists in v4. JSON-LD product schema theme extension + step-by-step fix instructions for whatever the first scan finds.
 
@@ -43,7 +73,13 @@ Two plans only. The Partner Dashboard pricing UI advertises only these:
 - `tier='shield'` — old "Shield Pro" ($14/mo or $140/yr). 0 live rows. `hasPaidAccess` returns false — graceful degrade to free-level access without forced demotion.
 - `tier='recovery'` — pre-v4 Recovery plan. 0 live rows. Treated as paid via `hasPaidAccess`.
 
-**Live tier distribution 2026-07-28:** `free=52, monitoring=2, pro=0`. (Was `free=28, monitoring=2, pro=2` on 2026-05-29; the two `pro` rows were demoted to `free`.) **Caveat:** one of the two `monitoring` rows is `shieldkit-test-stor.myshopify.com`, the founder's own dev store, and it has `shopify_subscription_id IS NULL` so `reconcile-subscriptions` can never demote it. Real paying customers = 1. Do not read the tier counts as MRR.
+**Live tier distribution 2026-07-28:** `free=52, monitoring=2, pro=0`. (Was `free=28, monitoring=2, pro=2` on 2026-05-29.) The two `pro` rows were `0yzffh-vw` and `sbnjen-ee` — both demoted; `0yzffh-vw` **wrongly**, on a FROZEN event (§4a).
+
+**Do NOT read the tier counts as MRR — they are wrong in both directions:**
+- One of the two `monitoring` rows is `shieldkit-test-stor.myshopify.com`, the founder's own dev store. Its charges are all `test: true` and it has `shopify_subscription_id IS NULL`, so `reconcile-subscriptions` can never demote it — a permanent phantom.
+- `9973f3-3.myshopify.com` (Wanok Cosmetics, HK) holds an **ACTIVE $29.00 Monitoring subscription in Shopify** (charge `67847094487`, activated 2026-07-25 12:39:20, no cancellation) while sitting at `tier='free'` in this DB. See §4a.
+
+**True position 2026-07-28: 2 real paying merchants (`sex-eshop`, Wanok @ $29 each = $58 MRR), of which one is not being served what they pay for.** The DB reports 2 paid but has the wrong two.
 
 **Source of truth for tier access:** `app/lib/billing/plans.ts`:
 - `hasPaidAccess(tier)` → true when tier ∈ `{ 'monitoring', 'recovery', 'pro' }` (single gate; replaces v3's `hasMonitoringAccess` / `hasRecoveryAccess`).
@@ -183,7 +219,7 @@ All use `authenticate.webhook(request)` which verifies `X-Shopify-Hmac-Sha256`.
 |-------|-----------|-----------|
 | `app/uninstalled` | `webhooks.app.uninstalled.tsx` | Fires `captureEvent(shop, "uninstall", { tier })` FIRST (PostHog is the only churn record that outlives the merchant — see below), then deletes sessions and soft-deletes the merchant. Inserts a `webhook_failures` audit row on Supabase write failure. Always 200. **`reconcile-installs` is NOT a safety net for this** — it never writes `uninstalled_at` (see §7). |
 | `app/scopes_update` | `webhooks.app.scopes_update.tsx` | Updates session scope string. |
-| `app_subscriptions/update` | `webhooks.app_subscriptions.update.tsx` | Pre-April-28 supplementary reconciliation path. Maps plan name → tier + billing_cycle via `PLAN_NAME_TO_TIER` / `PLAN_NAME_TO_CYCLE`. Post-April-28 the Partner API path (the dashboard + billing.confirm self-heal + reconcile-subscriptions cron) is canonical. |
+| `app_subscriptions/update` | `webhooks.app_subscriptions.update.tsx` | Pre-April-28 supplementary reconciliation path. Maps plan name → tier + billing_cycle. **🔴 CONTAINS AN ACTIVE ENTITLEMENT-DESTROYING BUG — see §4a below. Do not treat this handler as safe.** |
 | `products/create`, `products/update` | `webhooks.products.update.tsx` | HMAC + merchant lookup. For paid tiers with `write_products` granted: enqueues a `pending_scan_triggers` row (`trigger_type='enrichment'`, payload `{ product_gid, numeric_product_id }`, dedup'd against `schema_enrichments` and the queue). Returns 200 in <1s. |
 | ~~`themes/update`, `themes/publish`~~ | — | **REMOVED from `shopify.app.toml` entirely** (commit `288329f`, 2026-06-11). The v4 handler was a pure no-op. Webhook topics are not part of App Store scope review, so dropping them was churn-free. Earlier revisions of this file said they were "kept registered" — that is stale. |
 | `customers/data_request` | `webhooks.customers.data_request.tsx` | GDPR. Logs and 200. |
@@ -334,6 +370,45 @@ Atomic per-scan appeal-letter cap. `RETURNS TABLE(accepted BOOLEAN, letter_id UU
 
 ### Function: `finalize_policy_regen(p_merchant_id UUID, p_type TEXT, p_body TEXT)` (SHIELDKIT-2)
 Atomic per-type policy regeneration cap. `RETURNS TABLE(claimed BOOLEAN)`. A single conditional `UPDATE` that **both** writes `generated_policies[p_type] = p_body` AND flips `policy_regen_used[p_type] = true`, guarded by `WHERE regen not yet used AND a base policy exists` — returns one row when claimed, zero rows when another regen already won (the loser is rejected, its output discarded). Called AFTER generation (**claim-after**), so a crash before it leaves the regen unspent and two concurrent regens can't both win. Replaced an earlier claim-before pair (`claim_policy_regen` / `release_policy_regen`, now dropped).
+
+### §4a. 🔴 OPEN BUG: `app_subscriptions/update` demotes on a SUPERSEDED subscription id
+
+Found 2026-07-28 investigating a paying merchant who lost entitlement. **Not yet fixed.**
+
+`webhooks.app_subscriptions.update.tsx:136-147` applies its demote-to-free payload with
+`.eq("shopify_domain", shop)` and **no check that the payload's `admin_graphql_api_id` matches the
+`shopify_subscription_id` currently stored on the row.** Any terminal-status event for *any*
+subscription that shop has ever had will strip a live, paying entitlement.
+
+Shopify's Managed Pricing supersedes a plan by cancelling the old subscription and activating the new
+one **in the same second**. Partner API events for `9973f3-3.myshopify.com` (Wanok Cosmetics):
+
+```
+12:36:12  SUBSCRIPTION_CHARGE_ACTIVATED  charge 67847061719  "Free"        0.00 USD
+12:39:20  SUBSCRIPTION_CHARGE_ACTIVATED  charge 67847094487  "Monitoring"  29.00 USD   <- the upgrade
+12:39:20  SUBSCRIPTION_CHARGE_CANCELED   charge 67847061719  "Free"        0.00 USD    <- kills it
+```
+
+The CANCELED for the superseded **Free** charge processed last and demoted them at
+`scans_reset_at = 12:39:22.64`. There is no cancellation for the Monitoring charge — it is still active.
+
+**Second defect in the same handler: `FROZEN` is in `TERMINAL_STATUSES` (`:76-81`).** A freeze is a
+recoverable payment/shop state, not a cancellation, and Shopify emits `SUBSCRIPTION_CHARGE_UNFROZEN`
+when it clears — which this handler does not handle at all. Confirmed victims: `0yzffh-vw` (FROZEN
+2026-06-02, never unfrozen, demoted) and `ygxib5-9s` (FROZEN 2026-06-15 on a $290 Monitoring Annual,
+demoted). `sbnjen-ee` was demoted on FROZEN 2026-06-08 and silently under-entitled until UNFROZEN on
+2026-06-12.
+
+**The forensic signature of a demotion** — useful because nothing logs it: `scans_reset_at` materially
+later than `created_at`. Only two code paths write that column (this handler and
+`reconcile-subscriptions:153`), **plus** the deleted `api.cron.monthly-reset.ts` which bulk-wrote it
+until `7adea09` (2026-05-28). So clustered identical timestamps before 2026-05-28 are monthly resets,
+**not** demotions; isolated timestamps after it are demotions.
+
+**Neither automated path can self-heal any of this.** `reconcile-subscriptions` filters on
+`.not("shopify_subscription_id", "is", null)` — and the demote payload NULLs that very column, so a
+wrongly-demoted merchant is permanently invisible to the only job that could restore them. Verified:
+the reconciler's first-ever real run on 2026-07-28 checked exactly 1 merchant.
 
 ### Table: `leads`
 Lead collection for retargeting; one row per shop.

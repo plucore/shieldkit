@@ -220,7 +220,7 @@ All use `authenticate.webhook(request)` which verifies `X-Shopify-Hmac-Sha256`.
 | `app/uninstalled` | `webhooks.app.uninstalled.tsx` | Fires `captureEvent(shop, "uninstall", { tier })` FIRST (PostHog is the only churn record that outlives the merchant — see below), then deletes sessions and soft-deletes the merchant. Inserts a `webhook_failures` audit row on Supabase write failure. Always 200. **`reconcile-installs` is NOT a safety net for this** — it never writes `uninstalled_at` (see §7). |
 | `app/scopes_update` | `webhooks.app.scopes_update.tsx` | Updates session scope string. |
 | `app_subscriptions/update` | `webhooks.app_subscriptions.update.tsx` | Pre-April-28 supplementary reconciliation path. Maps plan name → tier + billing_cycle. **🔴 CONTAINS AN ACTIVE ENTITLEMENT-DESTROYING BUG — see §4a below. Do not treat this handler as safe.** |
-| `products/create`, `products/update` | `webhooks.products.update.tsx` | HMAC + merchant lookup. For paid tiers with `write_products` granted: enqueues a `pending_scan_triggers` row (`trigger_type='enrichment'`, payload `{ product_gid, numeric_product_id }`, dedup'd against `schema_enrichments` and the queue). Returns 200 in <1s. |
+| `products/create` (**`products/update` unsubscribed 2026-07-29**) | `webhooks.products.update.tsx` | HMAC + merchant lookup. For paid tiers with `write_products` granted: enqueues a `pending_scan_triggers` row (`trigger_type='enrichment'`, payload `{ product_gid, numeric_product_id }`, dedup'd against `schema_enrichments` and the queue). Returns 200 in <1s. |
 | ~~`themes/update`, `themes/publish`~~ | — | **REMOVED from `shopify.app.toml` entirely** (commit `288329f`, 2026-06-11). The v4 handler was a pure no-op. Webhook topics are not part of App Store scope review, so dropping them was churn-free. Earlier revisions of this file said they were "kept registered" — that is stale. |
 | `customers/data_request` | `webhooks.customers.data_request.tsx` | GDPR. Logs and 200. |
 | `customers/redact` | `webhooks.customers.redact.tsx` | GDPR. 200 (no customer PII stored). |
@@ -760,6 +760,7 @@ Singleton (dev caches on `global` for hot-reload survival). `service_role` key �
 | `scripts/audit-product-webhooks.ts` | Read-only audit of per-shop `products/*` subscriptions. |
 
 **Standalone-script gotcha:** `tsx` is NOT a declared dependency and `dotenv` is only transitive. Run these with `node --experimental-strip-types`, matching the convention `scripts/outbound-scanner.ts` documents — do not assume `npx tsx` works.
+| `scripts/remove-products-update-topic.ts` | Topic-scoped teardown of a shop's `PRODUCTS_UPDATE` subscription. `ensureProductWebhooks` now converges onto `DESIRED_TOPICS` automatically for every shop the daily `reconcile-subscriptions` cron touches, so this is only for shops that cron cannot reach — it filters on `shopify_subscription_id IS NOT NULL`, which permanently excludes the founder's dev store. Idempotent. Run with `npx tsx`. |
 | `scripts/validate-partner-api.ts` | Smoke test for Partner API plumbing. |
 
 ---

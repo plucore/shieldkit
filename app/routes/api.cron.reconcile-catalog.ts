@@ -1,14 +1,23 @@
 /**
  * app/routes/api.cron.reconcile-catalog.ts
  *
- * BLOCK 4 — catalog reconcile, running IN PARALLEL with products/create +
- * products/update before either is switched off.
+ * BLOCK 4 — catalog reconcile. **Since 2026-07-29 this is THE enrichment
+ * discovery path**, not a parallel observer: products/update was unsubscribed on
+ * that date, so nothing else finds a product that needs GTIN/MPN/brand work after
+ * an edit. products/create is still subscribed, so brand-new products are still
+ * picked up within seconds; everything else is picked up on this job's cadence.
  *
- * Default mode is `observe`: it walks each paid merchant's catalog 250 products
- * at a time, decides enrichment need from the paged data alone (no per-product
- * round trip), and **writes nothing anywhere**. It then diffs its conclusions
- * against what the webhook path actually did over the same window, reading
- * `enrichment_webhook_log`. That diff is the gate artefact.
+ * It walks each paid merchant's catalog 250 products at a time and decides
+ * enrichment need from the paged data alone (no per-product round trip), then
+ * enqueues `pending_scan_triggers` rows. `api.cron.process-scan-triggers` remains
+ * the single writer.
+ *
+ * `mode` still defaults to `observe` at the ROUTE level — a bare unauthenticated-
+ * shaped call can never write — and `.github/workflows/reconcile-catalog.yml`
+ * passes `mode=enqueue` explicitly on its schedule. It also diffs its conclusions
+ * against `enrichment_webhook_log` over a window; that diff was the gate artefact
+ * and is now a regression check, though it decays in usefulness as the webhook log
+ * ages out of the window.
  *
  * The parity question this answers is narrow and deliberate. Both paths call the
  * SAME decision function (app/lib/enrichment/enrichment-decision.server.ts), so

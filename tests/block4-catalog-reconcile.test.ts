@@ -713,3 +713,33 @@ describe("entitlement provisioning lands with the entitlement", () => {
     expect(src).toMatch(/if \(unreconcilablePaid\.length > 0\)/);
   });
 });
+
+describe("post-switch: the scheduled reconcile must actually WRITE", () => {
+  it("the scheduled workflow enqueues, it does not observe", () => {
+    // The single most dangerous thing about the switch. products/update is gone,
+    // so a schedule pinned to `observe` would leave enrichment discovery dead
+    // while every run reported success — the §11a pattern applied to a cron.
+    const wf = read(".github", "workflows", "reconcile-catalog.yml");
+    expect(wf).toMatch(/MODE=enqueue/);
+    expect(wf).toMatch(/mode=\$\{MODE\}/);
+    // Only an explicit manual dispatch may downgrade.
+    expect(wf).toMatch(/GITHUB_EVENT_NAME" = "workflow_dispatch" \] && \[ "\$\{INPUT_MODE:-\}" = "observe"/);
+  });
+
+  it("the observe-pinned workflow is gone, not just superseded", () => {
+    // Two workflows on the same concurrency group, one of which writes nothing,
+    // is a coin flip on whether discovery happens.
+    let existed = true;
+    try {
+      read(".github", "workflows", "reconcile-catalog-observe.yml");
+    } catch {
+      existed = false;
+    }
+    expect(existed).toBe(false);
+  });
+
+  it("the ROUTE still defaults to observe, so only an explicit caller writes", () => {
+    const src = read("app", "routes", "api.cron.reconcile-catalog.ts");
+    expect(src).toMatch(/=== "enqueue" \? "enqueue" : "observe"/);
+  });
+});

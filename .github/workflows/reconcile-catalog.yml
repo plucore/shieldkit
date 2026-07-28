@@ -1,0 +1,97 @@
+name: Catalog reconcile
+
+# THE enrichment discovery path, since 2026-07-29.
+#
+# products/update was unsubscribed on that date (Block 4), so this workflow is no
+# longer a parallel observer — it is the ONLY thing that finds products needing
+# GTIN/MPN/brand enrichment after an edit to an existing product. If it stops
+# running, enrichment stops silently. It replaced reconcile-catalog-observe.yml,
+# which was pinned to `observe` and therefore wrote nothing; leaving that pinned
+# after the switch would have left discovery dead while every run reported success.
+#
+# products/create is still subscribed per-shop and still enqueues, so a brand-new
+# product is picked up within seconds. Everything else is picked up on this
+# cadence — worst case ~6h.
+#
+# The run walks each paid merchant's catalog 250 products per page, decides need
+# from the live metafields already carried in the page, and enqueues
+# pending_scan_triggers rows. api.cron.process-scan-triggers remains the single
+# writer. Large catalogs span several runs via the persisted cursor in
+# catalog_reconcile_state; `cycle_complete` and `last_full_catalog_pass` in the
+# response are what tell you the whole catalog has been seen.
+#
+# Cadence is offset 30 minutes from the drainer's `0 */6` so discovery lands
+# shortly before the drain rather than racing it.
+#
+# Manual setup: CRON_SECRET must exist in the repo's Actions secrets (shared with
+# process-scan-triggers.yml).
+#
+# Security notes:
+#   - No user-controlled event payload is consumed. The only inputs are
+#     workflow_dispatch inputs (collaborators only), passed via env: rather than
+#     interpolated into the shell, and re-validated against a strict allowlist
+#     below so neither can inject extra query parameters.
+
+on:
+  schedule:
+    - cron: "30 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "enqueue (default) writes queue rows; observe writes nothing and only reports"
+        required: false
+        default: enqueue
+        type: choice
+        options:
+          - enqueue
+          - observe
+      window_hours:
+        description: "Parity-report window in hours"
+        required: false
+        default: "24"
+
+concurrency:
+  group: reconcile-catalog
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: GET /api/cron/reconcile-catalog
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          INPUT_MODE: ${{ inputs.mode }}
+          INPUT_WINDOW_HOURS: ${{ inputs.window_hours }}
+        run: |
+          set -euo pipefail
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET secret is not set. Add it under Settings -> Secrets and variables -> Actions." >&2
+            exit 1
+          fi
+
+          # Scheduled runs enqueue — that is the whole point post-switch. Only an
+          # explicit manual dispatch can downgrade to observe, for investigation.
+          MODE=enqueue
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "${INPUT_MODE:-}" = "observe" ]; then
+            MODE=observe
+          fi
+
+          # Digits only, so the value cannot carry extra query parameters.
+          WINDOW_HOURS=24
+          case "${INPUT_WINDOW_HOURS:-}" in
+            ''|*[!0-9]*) ;;
+            *) WINDOW_HOURS="$INPUT_WINDOW_HOURS" ;;
+          esac
+
+          HTTP_STATUS=$(curl --silent --show-error --output /tmp/reconcile.json --write-out "%{http_code}" \
+            --max-time 240 \
+            --header "Authorization: Bearer $CRON_SECRET" \
+            "https://shieldkit.vercel.app/api/cron/reconcile-catalog?mode=${MODE}&window_hours=${WINDOW_HOURS}")
+          echo "HTTP $HTTP_STATUS (mode=$MODE window_hours=$WINDOW_HOURS)"
+          cat /tmp/reconcile.json || true
+          echo
+          if [ "$HTTP_STATUS" -ge 400 ]; then
+            exit 1
+          fi

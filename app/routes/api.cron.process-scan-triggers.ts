@@ -29,6 +29,22 @@
  * 6 hours; Vercel Cron daily 12:00 UTC is the safety net.
  *
  * Auth: bearer CRON_SECRET.
+ *
+ * OPERATOR OVERRIDES (2026-07-28, for the Block 4 backlog burn-down):
+ *   ?batch=<n>        rows selected this invocation, capped at 1000
+ *   ?concurrency=<n>  products in flight, capped at 24
+ *   ?budget_ms=<n>    wall-clock budget, capped at 50000
+ *
+ * The DEFAULTS ARE UNCHANGED, so the scheduled cadence keeps exactly its current
+ * CPU and rate-limit profile. These exist because clearing a 9,708-row backlog at
+ * the scheduled 750 rows/day takes ~13 days, and doing it with 65 separate
+ * 150-row invocations pays 65 cold starts of a 1.1MB bundle — on a plan where
+ * Fluid Active CPU is the binding resource. Fewer, larger invocations are
+ * strictly cheaper for the same work.
+ *
+ * `batch` is capped at 1000 for a concrete reason: PostgREST silently caps a
+ * response at 1000 rows, so a larger .limit() would quietly select fewer rows
+ * than requested and the run would under-report what it left behind.
  */
 
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
@@ -124,6 +140,17 @@ async function run(request: Request) {
   // not just the enrichment loop.
   const startedAt = Date.now();
 
+  // Operator overrides. Bounded, and they default to the scheduled values so an
+  // absent or malformed param can never change scheduled behaviour.
+  const params = new URL(request.url).searchParams;
+  const clamp = (raw: string | null, dflt: number, min: number, max: number) => {
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= min ? Math.min(Math.floor(n), max) : dflt;
+  };
+  const batchSize = clamp(params.get("batch"), BATCH_SIZE, 1, 1000);
+  const concurrency = clamp(params.get("concurrency"), ENRICH_CONCURRENCY, 1, 24);
+  const timeBudgetMs = clamp(params.get("budget_ms"), TIME_BUDGET_MS, 5_000, 50_000);
+
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     console.error("[cron/process-scan-triggers] CRON_SECRET env var is not set");
@@ -150,7 +177,7 @@ async function run(request: Request) {
     .is("merchants.uninstalled_at", null)
     .in("merchants.tier", PAID_TIERS as readonly string[])
     .order("trigger_at", { ascending: true })
-    .limit(BATCH_SIZE);
+    .limit(batchSize);
 
   if (fetchErr) {
     console.error(
@@ -200,7 +227,7 @@ async function run(request: Request) {
 
   const worker = async (): Promise<void> => {
     for (;;) {
-      if (Date.now() - startedAt > TIME_BUDGET_MS) {
+      if (Date.now() - startedAt > timeBudgetMs) {
         timedOut = true;
         return;
       }
@@ -286,10 +313,15 @@ async function run(request: Request) {
   };
 
   await Promise.all(
-    Array.from({ length: Math.min(ENRICH_CONCURRENCY, enrichmentRows.length) }, worker),
+    Array.from({ length: Math.min(concurrency, enrichmentRows.length) }, worker),
   );
 
   return json({
+    // Echoed so a burn-down log records the settings each run actually used
+    // rather than the ones the caller believes it asked for.
+    batch_size: batchSize,
+    concurrency,
+    budget_ms: timeBudgetMs,
     // `timed_out` + `unclaimed` make backlog burn-down observable from the
     // cron response alone: a run that keeps reporting timed_out=true with a
     // non-zero unclaimed count means the queue is still growing faster than

@@ -493,3 +493,36 @@ describe("removeProductWebhooks is NOT called from the reconcile path", () => {
     );
   });
 });
+
+describe("drainer operator knobs (Block 4 burn-down)", () => {
+  const src = read("app", "routes", "api.cron.process-scan-triggers.ts");
+
+  it("defaults are unchanged, so the scheduled cadence keeps its CPU profile", () => {
+    expect(src).toMatch(/const BATCH_SIZE = 150/);
+    expect(src).toMatch(/const ENRICH_CONCURRENCY = 5/);
+    expect(src).toMatch(/clamp\(params\.get\("batch"\), BATCH_SIZE, 1, 1000\)/);
+    expect(src).toMatch(/clamp\(params\.get\("concurrency"\), ENRICH_CONCURRENCY, 1, 24\)/);
+  });
+
+  it("batch is capped at 1000 — PostgREST silently caps the response there", () => {
+    // A larger .limit() would quietly select fewer rows than asked for, so the
+    // run would under-report what it left behind.
+    expect(src).toMatch(/PostgREST silently caps a\s*\n?\s*\*? ?response at 1000 rows/);
+    expect(src).toMatch(/\.limit\(batchSize\)/);
+  });
+
+  it("a malformed or absent param falls back to the scheduled default", () => {
+    // Number("") is 0 and Number("abc") is NaN; neither may become the batch size.
+    expect(src).toMatch(/Number\.isFinite\(n\) && n >= min \? Math\.min\(Math\.floor\(n\), max\) : dflt/);
+  });
+
+  it("echoes the settings actually used, not the ones requested", () => {
+    expect(src).toMatch(/batch_size: batchSize/);
+    expect(src).toMatch(/budget_ms: timeBudgetMs/);
+  });
+
+  it("the overrides drive the real loop, not just the response", () => {
+    expect(src).toMatch(/Date\.now\(\) - startedAt > timeBudgetMs/);
+    expect(src).toMatch(/Math\.min\(concurrency, enrichmentRows\.length\)/);
+  });
+});

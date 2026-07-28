@@ -453,6 +453,21 @@ describe("the cron route is gated and shaped correctly", () => {
     expect(src).toMatch(/onlyShop \? SINGLE_SHOP_BUDGET_MS : MULTI_SHOP_BUDGET_MS/);
   });
 
+  it("paginates the webhook log read — PostgREST silently caps at 1,000", () => {
+    // Measured: the first 7-day run read 777 distinct products from a window
+    // holding 4,250 rows / 2,941 distinct. An under-read makes the gate look
+    // CLEANER than it is, because a webhook-only product beyond the cap is never
+    // considered for webhook_only_unexplained.
+    expect(src).toMatch(/\.range\(offset, offset \+ PAGE - 1\)/);
+    expect(src).toMatch(/rows\.length < PAGE/);
+    expect(src).toMatch(/webhook_log_rows_read/);
+  });
+
+  it("a capped or errored log read cannot report a passing verdict either", () => {
+    expect(src).toMatch(/inconclusive_webhook_log_read_incomplete/);
+    expect(src).toMatch(/logReadTruncated \|\| logReadError/);
+  });
+
   it("names the one real regression: event latency becomes cycle latency", () => {
     expect(src).toMatch(/event-latency/);
     expect(src).toMatch(/cycle-latency/);

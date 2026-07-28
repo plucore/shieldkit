@@ -106,6 +106,8 @@ export async function action({ request }: ActionFunctionArgs) {
 interface ParityReport {
   window_hours: number;
   webhook_saw: number;
+  /** Rows actually read from enrichment_webhook_log, so an under-read is visible. */
+  webhook_log_rows_read: number;
   reconcile_needs_work: number;
   /** Products both paths agree need work. */
   agreed: number;
@@ -119,7 +121,11 @@ interface ParityReport {
    * nothing, which is the same "could not look read as a factual negative"
    * defect Block 1 removed from the scanner.
    */
-  verdict: "pass" | "inconclusive_truncated_walk" | "fail_unexplained_gap";
+  verdict:
+    | "pass"
+    | "inconclusive_truncated_walk"
+    | "inconclusive_webhook_log_read_incomplete"
+    | "fail_unexplained_gap";
   /** Needs work but nobody edited it — the coverage the webhooks never had. */
   reconcile_only: number;
 }
@@ -284,16 +290,44 @@ async function buildParityReport(opts: {
 }): Promise<ParityReport> {
   const cutoff = new Date(Date.now() - opts.windowHours * 3600_000).toISOString();
 
+  // PAGINATED, and the pagination is load-bearing. PostgREST caps an unbounded
+  // .select() at 1,000 rows, silently. The first 7-day run read 777 distinct
+  // products where the table actually holds 4,250 rows / 2,941 distinct — and an
+  // under-read of webhook_saw makes the gate look CLEANER than it is, because a
+  // webhook-only product beyond the cap is never even considered for
+  // webhook_only_unexplained. Exactly the "we could not look, reported as a
+  // factual negative" defect, on the instrument rather than the subject. The 24h
+  // window happened to sit under the cap (829 rows), so that verdict was correct
+  // by luck, not by construction.
   const webhookSaw = new Set<string>();
-  const { data, error } = await supabase
-    .from("enrichment_webhook_log")
-    .select("product_id")
-    .eq("merchant_id", opts.merchantId)
-    .in("outcome", WEBHOOK_SAW_OUTCOMES)
-    .gte("created_at", cutoff)
-    .not("product_id", "is", null);
-  if (!error) {
-    for (const row of data ?? []) if (row.product_id) webhookSaw.add(String(row.product_id));
+  const PAGE = 1000;
+  let logRowsRead = 0;
+  let logReadTruncated = false;
+  let logReadError: string | null = null;
+  for (let offset = 0; ; offset += PAGE) {
+    const { data, error } = await supabase
+      .from("enrichment_webhook_log")
+      .select("product_id")
+      .eq("merchant_id", opts.merchantId)
+      .in("outcome", WEBHOOK_SAW_OUTCOMES)
+      .gte("created_at", cutoff)
+      .not("product_id", "is", null)
+      .order("id", { ascending: true })
+      .range(offset, offset + PAGE - 1);
+    if (error) {
+      logReadError = error.message;
+      break;
+    }
+    const rows = data ?? [];
+    logRowsRead += rows.length;
+    for (const row of rows) if (row.product_id) webhookSaw.add(String(row.product_id));
+    if (rows.length < PAGE) break;
+    // Hard stop so a pathological log can never run the invocation into the
+    // ceiling — but say so, because a capped read cannot support a pass.
+    if (offset + PAGE >= 100_000) {
+      logReadTruncated = true;
+      break;
+    }
   }
 
   const needs = new Set(opts.needsWork.map((p) => p.numericProductId));
@@ -325,11 +359,14 @@ async function buildParityReport(opts: {
   return {
     verdict: opts.truncated
       ? "inconclusive_truncated_walk"
-      : unexplainedCount > 0
-        ? "fail_unexplained_gap"
-        : "pass",
+      : logReadTruncated || logReadError
+        ? "inconclusive_webhook_log_read_incomplete"
+        : unexplainedCount > 0
+          ? "fail_unexplained_gap"
+          : "pass",
     window_hours: opts.windowHours,
     webhook_saw: webhookSaw.size,
+    webhook_log_rows_read: logRowsRead,
     reconcile_needs_work: needs.size,
     agreed,
     webhook_only: webhookSaw.size - agreed,

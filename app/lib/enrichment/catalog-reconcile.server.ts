@@ -248,23 +248,53 @@ export async function reconcileCatalog(
   // Already-queued unprocessed enrichment rows, so a second pass before the
   // drainer catches up does not double-enqueue. Same intent as the webhook's
   // skip_already_queued branch, one query instead of one per product.
+  // PAGINATED, and it has to be. PostgREST silently caps a response at 1,000
+  // rows, so an unbounded read of a 4,000-row pending queue saw only the first
+  // 1,000 and re-enqueued everything past it. Four passes during a deploy window
+  // inflated the queue from ~4,700 to 15,559 rows that way — every duplicate a
+  // full Admin API round trip that finds nothing to do. Third instance of this
+  // cap in one day (the parity read, the size hint, and here); treat any
+  // unbounded .select() on a table that can exceed 1,000 rows as a bug.
   const alreadyQueued = new Set<string>();
+  let queuedReadComplete = true;
   try {
-    const { data, error } = await supabase
-      .from("pending_scan_triggers")
-      .select("payload")
-      .eq("merchant_id", opts.merchantId)
-      .eq("trigger_type", "enrichment")
-      .is("processed_at", null);
-    if (error) throw new Error(error.message);
-    for (const row of data ?? []) {
-      const pid = (row.payload as { numeric_product_id?: string } | null)
-        ?.numeric_product_id;
-      if (pid) alreadyQueued.add(String(pid));
+    const PAGE = 1000;
+    for (let offset = 0; ; offset += PAGE) {
+      const { data, error } = await supabase
+        .from("pending_scan_triggers")
+        .select("payload")
+        .eq("merchant_id", opts.merchantId)
+        .eq("trigger_type", "enrichment")
+        .is("processed_at", null)
+        .order("id", { ascending: true })
+        .range(offset, offset + PAGE - 1);
+      if (error) throw new Error(error.message);
+      const rows = data ?? [];
+      for (const row of rows) {
+        const pid = (row.payload as { numeric_product_id?: string } | null)
+          ?.numeric_product_id;
+        if (pid) alreadyQueued.add(String(pid));
+      }
+      if (rows.length < PAGE) break;
+      if (offset + PAGE >= 200_000) {
+        queuedReadComplete = false;
+        break;
+      }
     }
   } catch (err) {
+    queuedReadComplete = false;
     result.errors.push(
       `queued_anchors: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  // An incomplete view of what is already queued can only cause duplicates, so
+  // refuse to enqueue at all rather than pile more work onto a queue we cannot
+  // see. Reporting is unaffected — observe-mode output stays fully accurate.
+  const mayEnqueue = opts.mode === "enqueue" && queuedReadComplete;
+  if (opts.mode === "enqueue" && !queuedReadComplete) {
+    result.errors.push(
+      "enqueue_suppressed: could not read the full pending queue, so enqueuing would duplicate",
     );
   }
 
@@ -344,7 +374,7 @@ export async function reconcileCatalog(
 
       result.needsWork.push(record);
 
-      if (opts.mode === "enqueue" && !alreadyQueued.has(pid)) {
+      if (mayEnqueue && !alreadyQueued.has(pid)) {
         if (!opts.enqueueCap || pending.length < opts.enqueueCap) {
           pending.push({
             merchant_id: opts.merchantId,

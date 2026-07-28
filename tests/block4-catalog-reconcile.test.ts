@@ -56,6 +56,10 @@ vi.mock("../app/supabase.server", () => {
       not: () => c,
       order: () => c,
       limit: () => c,
+      // Must exist: the paginated queue read chains .range(), and a missing
+      // method here would throw, silently exercising the enqueue-suppressed path
+      // instead of the behaviour under test.
+      range: () => c,
       insert: async (rows: Record<string, unknown>[]) => {
         if (insertFails) return { error: { message: "insert boom" } };
         insertedRows.push(...(Array.isArray(rows) ? rows : [rows]));
@@ -535,5 +539,36 @@ describe("drainer operator knobs (Block 4 burn-down)", () => {
   it("the overrides drive the real loop, not just the response", () => {
     expect(src).toMatch(/Date\.now\(\) - startedAt > timeBudgetMs/);
     expect(src).toMatch(/Math\.min\(concurrency, enrichmentRows\.length\)/);
+  });
+});
+
+describe("the pending-queue read is paginated — the third 1,000-row cap in one day", () => {
+  const src = read("app", "lib", "enrichment", "catalog-reconcile.server.ts");
+  const route = read("app", "routes", "api.cron.reconcile-catalog.ts");
+
+  it("paginates alreadyQueued with .range()", () => {
+    // Measured: an unbounded read of a ~4,000-row pending queue saw only the
+    // first 1,000, so four passes during a deploy window inflated the queue from
+    // ~4,700 to 15,559 rows — every duplicate a full Admin API round trip that
+    // finds nothing to do.
+    const idx = src.indexOf("const alreadyQueued");
+    expect(idx).toBeGreaterThan(-1);
+    const block = src.slice(idx, idx + 1600);
+    expect(block).toMatch(/\.range\(offset, offset \+ PAGE - 1\)/);
+    expect(block).toMatch(/rows\.length < PAGE/);
+  });
+
+  it("refuses to enqueue when it could not read the whole queue", () => {
+    // An incomplete view can only cause duplicates. Reporting stays accurate;
+    // only the write is suppressed.
+    expect(src).toMatch(/queuedReadComplete/);
+    expect(src).toMatch(/const mayEnqueue = opts\.mode === "enqueue" && queuedReadComplete/);
+    expect(src).toMatch(/enqueue_suppressed/);
+    expect(src).toMatch(/if \(mayEnqueue && !alreadyQueued\.has\(pid\)\)/);
+  });
+
+  it("the size hint counts instead of pulling rows", () => {
+    expect(route).toMatch(/count: "exact", head: true/);
+    expect(route).not.toMatch(/\.from\("schema_enrichments"\)\s*\n?\s*\.select\("merchant_id"\)/);
   });
 });

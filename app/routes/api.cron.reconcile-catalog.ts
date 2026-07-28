@@ -181,22 +181,24 @@ async function run(request: Request) {
   // schema_enrichments row count is the only catalog-size proxy available without
   // an Admin API call; shops with none sort first, which is also where the
   // never-enriched merchants are.
+  // head:true count per merchant, NOT a row pull. Pulling rows here would hit the
+  // same silent PostgREST 1,000-row cap that inflated the enrichment queue, and
+  // would skew the ordering for exactly the largest catalogs the ordering exists
+  // to protect.
   const sizeHint = new Map<string, number>();
-  try {
-    const { data } = await supabase
-      .from("schema_enrichments")
-      .select("merchant_id")
-      .in(
-        "merchant_id",
-        merchants.map((m: { id: string }) => m.id),
-      );
-    for (const row of data ?? []) {
-      const k = String(row.merchant_id);
-      sizeHint.set(k, (sizeHint.get(k) ?? 0) + 1);
-    }
-  } catch {
-    // Ordering is an optimisation, never a correctness requirement.
-  }
+  await Promise.all(
+    merchants.map(async (m: { id: string }) => {
+      try {
+        const { count } = await supabase
+          .from("schema_enrichments")
+          .select("id", { count: "exact", head: true })
+          .eq("merchant_id", m.id);
+        sizeHint.set(m.id, count ?? 0);
+      } catch {
+        // Ordering is an optimisation, never a correctness requirement.
+      }
+    }),
+  );
   const ordered = [...merchants].sort(
     (a, b) => (sizeHint.get(a.id) ?? 0) - (sizeHint.get(b.id) ?? 0),
   );

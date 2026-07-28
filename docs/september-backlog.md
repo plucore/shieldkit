@@ -175,6 +175,75 @@ happened at all, which is the thing that was completely silent.
 
 ---
 
+## S1. STRATEGY — compliance has a completion state, and it is priced as a subscription
+
+**Not a bug. Do not build against this yet — the premise needs a clean measurement first (see the
+sequencing note at the end).**
+
+### The observation
+
+`sbnjen-ee.myshopify.com` is the single best engagement in ShieldKit's history:
+
+- 15 scans over three months — more than any other merchant
+- compliance score 60.00 → **83.33**
+- every critical resolved; only two warnings left (incomplete refund policy, vague shipping policy)
+- used the AI policy generator
+- paid $39/mo for 36 days
+- **cancelled 2026-06-14 — then ran another scan on 2026-07-17, a month later, as a free user**
+
+They did not leave unhappy. They left **finished**. And they still find the product useful enough to
+come back to — just not to pay for.
+
+### Why this generalises
+
+The three genuine cancellations (`kjzvkq-6q`, `hbhkfy-gy`, `cq3dar-gv`) all ended at **day 3–6**: after
+the first charge, before the second. That is the shape of a merchant who bought to solve a specific
+problem, solved it, and left. It is rational behaviour against the current offer.
+
+The product's core value — "tell me what is wrong and how to fix it" — is consumed once. The recurring
+value on offer today is "check again", which is worth far less, and v4 removed the one feature that
+would have made recurrence automatic (the weekly auto-scan and its digest). Three blog posts were still
+advertising that digest as of 2026-07-28; it never sent a single email. So the subscription has been
+selling a promise the product stopped making.
+
+Note also the **retired one-time model converted at the same price point**: three settled
+`AppOneTimeSale` transactions at $29 (2026-04-15, 04-25, 05-04) from the model shipped in `374dc39` and
+removed by the Managed Pricing migration `68bf618`. $29 one-time and $29/month are the same first
+payment; only the second differs.
+
+### Options, in the order I would test them
+
+**1. Make the recurring value real and visible (keep the subscription).**
+Restore automated re-scanning and — this is the part that matters — *notify on regression*. The pitch
+becomes "we watch for the thing that got you suspended coming back", which is genuinely recurring.
+Cost: it reintroduces scheduled scan load, which is the most CPU-expensive thing the app does, on a
+Vercel Hobby plan whose binding resource is Active CPU (62% of 4h). Sequence it after the enrichment
+reconcile work in §A/§B or it will not fit.
+
+**2. Sell the fix as a one-time purchase, keep monitoring as the optional subscription.**
+Matches observed behaviour: pay once to get clean, subscribe only if you want to stay watched. Lowest
+risk to conversion (which is not the broken metric) and highest honesty about what is consumed once.
+Downside: MRR becomes lumpy, and Shopify's one-time charge flow is a different billing path than the
+Managed Pricing plan the app is now built around.
+
+**3. Reprice the subscription to what recurrence is actually worth.**
+If monitoring alone is the recurring product, $29/mo may be above its value. Cheapest to test, but it
+optimises the wrong end — the first-week experience, not the price, is what lost the three cancellers.
+
+### Sequencing — why not now
+
+Every genuine cancellation happened while the scanner was intermittently reporting four
+Google-suspension-level criticals that did not exist (see `docs/churn-post-mortem-2026-07-28.md`, and
+the fixes shipped 2026-07-28). **Retention has never been measured on a cohort that saw a product
+telling the truth.** Any packaging decision made on the current data is fitted to noise.
+
+**Precondition before acting on this item:** a cohort of merchants who installed after 2026-07-28,
+with (a) no `scan_data_availability` degraded marker on their scans, and (b) no implausible-collapse
+alarm fired. Measure their day-7 and day-30 retention. Then choose between the three options above
+with real numbers.
+
+---
+
 ## D. September list — carried over, not urgent
 
 ### D1. `scans_remaining` refund is not gated on the decrement happening

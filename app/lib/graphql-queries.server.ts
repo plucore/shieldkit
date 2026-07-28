@@ -63,6 +63,24 @@ export interface ShopPoliciesResult {
   SHIPPING_POLICY: ShopPolicy | null;
   /** All policy objects that Shopify actually returned (useful for iteration). */
   all: ShopPolicy[];
+  /**
+   * FALSE when the Admin API call did not yield a usable answer — a throw, or
+   * GraphQL errors with no data (e.g. THROTTLED, or a 401 from a lapsed offline
+   * token). Distinguishes "this shop has no policies" from "we could not read
+   * this shop's policies", which are the same shape but opposite meanings.
+   *
+   * Added 2026-07-28 after a post-mortem: `getShopPolicies()` returned an
+   * all-null result on failure, and the four policy checks read that as
+   * "missing", reporting FOUR criticals on stores that were fine. Three paying
+   * merchants saw their score flip between 91.67 and 58.33 — once 94 minutes
+   * apart — and churned. `critical_count = 4` was the only bucket in the whole
+   * scans table that co-occurred with `shop_info_unavailable` (9/17; 0 of 98
+   * everywhere else).
+   *
+   * RULE: never report a compliance failure derived from a fetch that failed.
+   * Callers must degrade to a non-scorable info result when this is false.
+   */
+  available: boolean;
 }
 
 export interface ProductImage {

@@ -206,8 +206,17 @@ export function findProductSchema(html: string): {
       for (const node of candidates) {
         if (node && typeof node === "object" && !Array.isArray(node)) {
           const t = (node as Record<string, unknown>)["@type"];
-          const isProduct = t === "Product" || (Array.isArray(t) && t.includes("Product"));
-          if (isProduct) {
+          const types = Array.isArray(t) ? t : [t];
+          // ProductGroup is schema.org's type for a variant parent and is what
+          // Shopify's own product template emits for any product WITH VARIANTS.
+          // Matching only "Product" reported "No Product JSON-LD schema found"
+          // on such stores — a false negative that reads to the merchant as
+          // "your products are not set up for Google" when they are. Verified
+          // live on izzyplants.com 2026-07-28: @type ProductGroup with three
+          // Product nodes under hasVariant.
+          const isProductLike =
+            types.includes("Product") || types.includes("ProductGroup");
+          if (isProductLike) {
             productSchema = node as Record<string, unknown>;
             break;
           }
@@ -229,22 +238,39 @@ export function findProductSchema(html: string): {
 export function missingRequiredProductFields(
   productSchema: Record<string, unknown>,
 ): string[] {
+  // A ProductGroup splits the required fields across two levels: the group
+  // carries name/description/brand, and each hasVariant Product carries
+  // image/offers/sku/gtin. Neither level satisfies the requirements alone, so
+  // validating only the top level reported "missing image, missing offers" on
+  // a product whose data was complete — a false positive layered on top of the
+  // ProductGroup false negative fixed in findProductSchema above. Treat the
+  // group and its variants as ONE product: a field is present if it appears on
+  // the group OR on any variant. (Verified live on izzyplants.com 2026-07-28:
+  // description on the group, image + offers on the variants.)
+  const variants: Record<string, unknown>[] = Array.isArray(
+    productSchema["hasVariant"],
+  )
+    ? (productSchema["hasVariant"] as unknown[]).filter(
+        (v): v is Record<string, unknown> =>
+          !!v && typeof v === "object" && !Array.isArray(v),
+      )
+    : [];
+  const levels = [productSchema, ...variants];
+  const presentSomewhere = (field: string) => levels.some((l) => !!l[field]);
+
   const missing: string[] = [];
   for (const field of ["name", "image", "description"] as const) {
-    if (!productSchema[field]) missing.push(field);
+    if (!presentSomewhere(field)) missing.push(field);
   }
 
-  const offers = productSchema["offers"];
-  if (!offers) {
+  const allOffers = levels.flatMap((l) =>
+    l["offers"] ? normalizeOffers(l["offers"]) : [],
+  );
+  if (allOffers.length === 0) {
     missing.push("offers");
   } else {
-    const offerObjs = normalizeOffers(offers);
-    if (offerObjs.length === 0) {
-      missing.push("offers");
-    } else {
-      if (!offerObjs.some(offerHasPrice)) missing.push("offers.price");
-      if (!offerObjs.some(offerHasCurrency)) missing.push("offers.priceCurrency");
-    }
+    if (!allOffers.some(offerHasPrice)) missing.push("offers.price");
+    if (!allOffers.some(offerHasCurrency)) missing.push("offers.priceCurrency");
   }
   return missing;
 }

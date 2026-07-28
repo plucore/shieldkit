@@ -13,6 +13,7 @@ import {
   getPages,
 } from "../shopify-api.server";
 import { supabase } from "../../supabase.server";
+import { sentry } from "../sentry.server";
 import { fetchPublicPage } from "./helpers.server";
 import { safeCheck } from "./safe-check.server";
 import { computeComplianceScore } from "./compliance-score";
@@ -205,8 +206,79 @@ export async function runComplianceScan(
       ]),
     ]);
 
+  // ── DATA-AVAILABILITY DEGRADATION ─────────────────────────────────────────
+  //
+  // RULE: never report a compliance failure derived from a fetch that failed.
+  //
+  // The four checks below read Shopify Settings → Policies (plus shop contact
+  // info) through the Admin API. When that fetch failed, getShopPolicies()
+  // used to return an all-null result indistinguishable from "this shop has no
+  // policies", and all four reported CRITICAL at once. `critical_count = 4` was
+  // the only bucket in the entire scans table that co-occurred with
+  // `shop_info_unavailable` (9 of 17; 0 of 98 in every other bucket). Three
+  // paying merchants watched their score flip between 91.67 and 58.33 — once 94
+  // minutes apart with no change to their store — and churned.
+  //
+  // Rather than thread a flag through four check signatures, the override lives
+  // here in one auditable place: if the upstream data was unavailable, the
+  // check's verdict is replaced with a non-scorable INFO, excluded from both
+  // the numerator and denominator of the score exactly as page_speed already is
+  // when Google's API times out.
+  const degradedChecks: string[] = [];
+  const degradeUnverifiable = (r: CheckResult, what: string): CheckResult => {
+    degradedChecks.push(r.check_name);
+    return {
+      ...r,
+      passed: true, // not a failure — we simply could not look
+      severity: "info",
+      scorable: false, // excluded from BOTH sides of the score
+      title: `${r.title.split(" — ")[0]} — Not Checked`,
+      description:
+        `We could not read your ${what} from Shopify this time, so this was not ` +
+        `checked and has not affected your score. This is on our side, not yours — ` +
+        `it is usually a temporary Shopify API hiccup. Re-run the scan in a few minutes.`,
+      fix_instruction: "No action needed. Re-run the scan.",
+      raw_data: {
+        ...r.raw_data,
+        degraded: true,
+        degraded_reason: "shopify_admin_api_unavailable",
+        original_severity: r.severity,
+        original_passed: r.passed,
+      },
+    };
+  };
+
+  const policiesUnavailable = !shopPolicies.available;
+  const fatalFive: CheckResult[] = fatalFiveResults.map((r) => {
+    if (
+      policiesUnavailable &&
+      (r.check_name === "refund_return_policy" ||
+        r.check_name === "shipping_policy" ||
+        r.check_name === "privacy_and_terms")
+    ) {
+      return degradeUnverifiable(r, "store policies");
+    }
+    // contact_information also loses a signal when shopInfo is null, but it is
+    // 1-of-N across pages + homepage markup, so degrade it only when it FAILED
+    // and its Admin-API input was missing — otherwise a pass stands on its own.
+    if (!shopInfo && !r.passed && r.check_name === "contact_information") {
+      return degradeUnverifiable(r, "store contact details");
+    }
+    return r;
+  });
+
+  if (degradedChecks.length > 0) {
+    sentry.captureMessage(
+      `Scan DEGRADED for ${shopifyDomain} — Admin API unavailable, ${degradedChecks.length} check(s) not scored: ${degradedChecks.join(", ")}`,
+      "warning",
+    );
+    console.warn(
+      `[Scanner] DEGRADED scan for ${shopifyDomain}: ${degradedChecks.join(", ")} could not be verified and were excluded from the score.`,
+    );
+  }
+
   const checkResults: CheckResult[] = [
-    ...fatalFiveResults,
+    ...fatalFive,
     check6,
     check7,
     check8,
@@ -255,7 +327,57 @@ export async function runComplianceScan(
 
   const scanId: string = (scanData as ScanRecord).id;
 
-  // ── 7. Persist: bulk INSERT all 10 violation rows ────────────────────────────
+  // ── 6b. Score-collapse alarm ──────────────────────────────────────────────
+  //
+  // An implausible drop between two consecutive scans of the same store is
+  // almost always ours, not theirs: policies and contact details do not vanish
+  // and reappear. This is the alarm that would have surfaced the 2026 May–June
+  // incident in days instead of after three customers had churned. Non-blocking
+  // and never allowed to fail the scan.
+  try {
+    const { data: prev } = await supabase
+      .from("scans")
+      .select("compliance_score, critical_count, created_at")
+      .eq("merchant_id", merchantId)
+      .neq("id", scanId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (prev) {
+      const prevScore = Number(prev.compliance_score ?? 0);
+      const prevCrit = Number(prev.critical_count ?? 0);
+      const scoreDrop = prevScore - complianceScore;
+      const criticalJump = criticalCount - prevCrit;
+      // Either a >20-point collapse, or 0 criticals turning into 4+ — the exact
+      // signature of the fabricated-criticals bug.
+      if (scoreDrop > 20 || (prevCrit === 0 && criticalCount >= 4)) {
+        sentry.captureMessage(
+          `IMPLAUSIBLE SCORE COLLAPSE for ${shopifyDomain}: ${prevScore} -> ${complianceScore} ` +
+            `(drop ${scoreDrop.toFixed(2)}), criticals ${prevCrit} -> ${criticalCount} ` +
+            `(+${criticalJump}). Previous scan ${prev.created_at}. Suspect a data-availability ` +
+            `failure rather than a real regression — verify before trusting this scan.`,
+          "warning",
+        );
+        console.warn(
+          `[Scanner] IMPLAUSIBLE COLLAPSE ${shopifyDomain}: score ${prevScore}->${complianceScore}, criticals ${prevCrit}->${criticalCount}`,
+        );
+      }
+    }
+  } catch (err) {
+    console.warn(
+      "[Scanner] score-collapse check failed (non-fatal):",
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  // ── 7. Persist: bulk INSERT all violation rows ───────────────────────────────
+  // A synthetic `scan_data_availability` row is the scan-level DEGRADED marker.
+  // Deliberately a violation row rather than a new `scans` column: it needs no
+  // migration, it surfaces in the merchant's checklist so a partial scan is
+  // never silently presented as a full compliance verdict, and it is queryable
+  // for the same forensics that found this bug. A dedicated `scans.degraded`
+  // boolean would be tidier and is queued for the next migration.
   const violationRows = checkResults.map((r) => ({
     scan_id: scanId,
     check_name: r.check_name,
@@ -266,6 +388,22 @@ export async function runComplianceScan(
     fix_instruction: r.fix_instruction,
     raw_data: r.raw_data,
   }));
+
+  if (degradedChecks.length > 0) {
+    violationRows.push({
+      scan_id: scanId,
+      check_name: "scan_data_availability",
+      passed: false,
+      severity: "info",
+      title: "Partial Scan — Some Checks Skipped",
+      description:
+        `We could not reach Shopify for part of this scan, so ${degradedChecks.length} ` +
+        `check(s) were skipped and excluded from your score: ${degradedChecks.join(", ")}. ` +
+        `Your score reflects only what we could actually verify.`,
+      fix_instruction: "Nothing to fix. Re-run the scan in a few minutes for a complete result.",
+      raw_data: { degraded: true, skipped_checks: degradedChecks },
+    });
+  }
 
   const { data: violationsData, error: violationsError } = await supabase
     .from("violations")

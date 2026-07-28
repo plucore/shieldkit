@@ -85,16 +85,22 @@ describe("api.cron.process-scan-triggers (v4 enrichment-only drainer)", () => {
     // has to hold is that the batch is BOUNDED and that a wall-clock guard,
     // not the row count, is what keeps the invocation under the 60s ceiling.
     expect(src).toMatch(/const\s+BATCH_SIZE\s*=\s*\d+/);
-    expect(src).toContain(".limit(BATCH_SIZE)");
+    // The SELECT is bounded by the RESOLVED batch size, which defaults to
+    // BATCH_SIZE. Bounded-ness is the invariant; the 2026-07-28 operator knobs
+    // (?batch=) route through the same variable and are clamped to 1000.
+    expect(src).toContain(".limit(batchSize)");
+    expect(src).toMatch(/clamp\(params\.get\("batch"\), BATCH_SIZE, 1, 1000\)/);
 
-    // The time budget must leave real headroom under Hobby's 60s hard kill.
+    // The time budget must leave real headroom under Hobby's 60s hard kill —
+    // both the default and the operator ceiling.
     const budget = src.match(/const\s+TIME_BUDGET_MS\s*=\s*([\d_]+)/);
     expect(budget).not.toBeNull();
     expect(Number(budget![1].replace(/_/g, ""))).toBeLessThanOrEqual(50_000);
+    expect(src).toMatch(/clamp\(params\.get\("budget_ms"\), TIME_BUDGET_MS, 5_000, 50_000\)/);
 
     // ...and it must actually be enforced inside the drain loop, otherwise it
     // is decoration.
-    expect(src).toMatch(/Date\.now\(\)\s*-\s*startedAt\s*>\s*TIME_BUDGET_MS/);
+    expect(src).toMatch(/Date\.now\(\)\s*-\s*startedAt\s*>\s*timeBudgetMs/);
   });
 
   it("converts the time budget into throughput with a bounded worker pool", () => {

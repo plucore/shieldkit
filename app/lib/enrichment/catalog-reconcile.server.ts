@@ -63,9 +63,6 @@ export const PAGE_SIZE = 250;
  */
 export const RECONCILE_TIME_BUDGET_MS = 40_000;
 
-/** Same 24h dedup window the webhook path uses against schema_enrichments. */
-const DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000;
-
 const CATALOG_PAGE_QUERY = /* GraphQL */ `
   query CatalogReconcilePage($n: Int!, $after: String) {
     products(first: $n, after: $after) {
@@ -140,6 +137,10 @@ export interface ReconcileResult {
   /** Everything else, kept so the parity comparison can explain each divergence. */
   noWork: ReconciledProduct[];
   enqueued: number;
+  /**
+   * Retained at 0 for response-shape stability. The reconcile intentionally does
+   * NOT dedup against schema_enrichments — see the note in the walk below.
+   */
   skippedDedupFresh: number;
   /** True when the wall-clock budget stopped the walk before the last page. */
   truncated: boolean;
@@ -224,26 +225,25 @@ export async function reconcileCatalog(
     );
   }
 
-  // ── Dedup anchors, once per pass ──────────────────────────────────────────
-  // The webhook path reads schema_enrichments per product to honour a 24h dedup
-  // window. One ranged read here gives the same answer for the whole catalog.
-  const freshCutoff = new Date(Date.now() - DEDUP_WINDOW_MS).toISOString();
-  const freshlyEnriched = new Set<string>();
-  try {
-    const { data, error } = await supabase
-      .from("schema_enrichments")
-      .select("product_id")
-      .eq("merchant_id", opts.merchantId)
-      .gte("enriched_at", freshCutoff);
-    if (error) throw new Error(error.message);
-    for (const row of data ?? []) freshlyEnriched.add(String(row.product_id));
-  } catch (err) {
-    // Fail toward doing the work: a missed dedup costs a redundant enrichment,
-    // a wrongly-applied one silently skips a product that needed writing.
-    result.errors.push(
-      `dedup_anchors: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  // ── NO schema_enrichments DEDUP. Deliberate; do not re-add. ───────────────
+  // The webhook path has to consult schema_enrichments because it has no idea
+  // whether a product needs work — it only knows the product was edited. The
+  // reconcile does know: `decideEnrichment` reads the live metafields off the
+  // catalog page. Live Shopify state is strictly better evidence than a local
+  // anchor, so the anchor can only ever override the truth.
+  //
+  // It did exactly that on 2026-07-28. A throttled burst wrote ~4,000 anchors,
+  // ~628 of which claimed success for products whose metafields were never
+  // written (see the enricher's write_unavailable path). Every one of those
+  // products then needed work AND carried a fresh anchor, so a dedup here would
+  // have classified them `dedup_fresh` and refused to re-enqueue the very work
+  // the anchor was wrong about. A cache that can veto ground truth is worse than
+  // no cache.
+  //
+  // Re-enqueue pressure is bounded by the `alreadyQueued` check below, which is
+  // the only dedup this path actually needs: while a row is pending, don't add
+  // another. Once the work genuinely lands, the product stops needing work and
+  // stops being enqueued — self-limiting, with no clock involved.
 
   // Already-queued unprocessed enrichment rows, so a second pass before the
   // drainer catches up does not double-enqueue. Same intent as the webhook's
@@ -339,13 +339,6 @@ export async function reconcileCatalog(
 
       if (decision.optedOut || wouldWrite.length === 0) {
         result.noWork.push(record);
-        continue;
-      }
-
-      // Freshly enriched within the dedup window — real work, but not yet.
-      if (freshlyEnriched.has(pid)) {
-        result.skippedDedupFresh += 1;
-        result.noWork.push({ ...record, reason: "dedup_fresh" });
         continue;
       }
 

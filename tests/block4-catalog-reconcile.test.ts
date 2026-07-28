@@ -315,14 +315,25 @@ describe("observe mode writes nothing", () => {
 });
 
 describe("enqueue mode matches the webhook path's dedup semantics", () => {
-  it("skips products enriched inside the 24h window", async () => {
+  it("does NOT let a schema_enrichments anchor veto live Shopify state", async () => {
+    // The 2026-07-28 lesson. A throttled burst wrote ~4,000 anchors, ~628 of
+    // which claimed success for products whose metafields were never written. An
+    // anchor-based dedup here would classify exactly those as dedup_fresh and
+    // refuse to re-enqueue the work the anchor was wrong about. The catalog page
+    // is ground truth; a cache that can override it is worse than no cache.
     pages = [{ nodes: [product("1"), product("2")], hasNextPage: false, endCursor: null }];
-    freshEnrichedIds = ["1"];
+    freshEnrichedIds = ["1", "2"]; // both "recently enriched" — and both wrong
     const r = await reconcileCatalog(opts({ mode: "enqueue" }));
-    expect(r.skippedDedupFresh).toBe(1);
-    expect(r.needsWork.map((p) => p.numericProductId)).toEqual(["2"]);
-    expect(r.noWork.find((p) => p.numericProductId === "1")?.reason).toBe("dedup_fresh");
-    expect(insertedRows).toHaveLength(1);
+    expect(r.skippedDedupFresh).toBe(0);
+    expect(r.needsWork.map((p) => p.numericProductId)).toEqual(["1", "2"]);
+    expect(insertedRows).toHaveLength(2);
+  });
+
+  it("never reads schema_enrichments at all", () => {
+    const src = read("app", "lib", "enrichment", "catalog-reconcile.server.ts");
+    expect(src).not.toMatch(/from\("schema_enrichments"\)/);
+    // The prohibition must be documented where someone would re-add it.
+    expect(src).toMatch(/NO schema_enrichments DEDUP/);
   });
 
   it("does not double-enqueue an already-queued product", async () => {

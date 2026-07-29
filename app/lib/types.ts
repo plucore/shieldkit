@@ -26,6 +26,15 @@ export interface Merchant {
   primary_domain?: string | null;
   scans_remaining: number | null;
   tier: string;
+  billing_cycle?: string | null;
+  /**
+   * The Shopify subscription gid. PRESERVED across a demotion since 2026-07-28,
+   * so a free-tier row carrying one means "was entitled, may have been demoted
+   * wrongly" — which is why the dashboard self-heal keys off this rather than
+   * off `tier`. Inert for feature gating: every gate reads `tier` via
+   * hasPaidAccess(), never this column.
+   */
+  shopify_subscription_id?: string | null;
   /**
    * Two-state JSON-LD flag (v4): true the moment the merchant clicks Enable.
    * The compliance scan's `structured_data_json_ld` check is the

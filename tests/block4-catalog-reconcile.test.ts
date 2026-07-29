@@ -498,8 +498,14 @@ describe("the cron route is gated and shaped correctly", () => {
     expect(src).not.toMatch(/405/);
   });
 
-  it("defaults to observe — the parallel run must never write", () => {
-    expect(src).toMatch(/mode = url\.searchParams\.get\("mode"\) === "enqueue" \? "enqueue" : "observe"/);
+  it("defaults to ENQUEUE — a scheduled caller that loses its query string must not silently no-op", () => {
+    // Inverted 2026-07-29. The observe default was justified by "a bare
+    // unauthenticated-shaped call can never write", but the bearer check above
+    // already guarantees no unauthenticated call reaches this line. It guarded
+    // an impossible case while enabling a real one: this is now the SOLE
+    // enrichment discovery path, so a run that writes nothing and returns 200 is
+    // the expensive failure. Read-only is the mode you have to ask for.
+    expect(src).toMatch(/=== "observe" \? "observe" : "enqueue"/);
   });
 
   it("restricts to paid, still-installed merchants", () => {
@@ -678,10 +684,21 @@ describe("cursor persistence — coverage, not just latency", () => {
     );
   });
 
-  it("the parity verdict grades COVERAGE, not per-invocation truncation", () => {
-    // Truncation is normal once the walk resumes, so grading on it would mark
-    // every large shop inconclusive forever. Cycle completion is the real question.
-    expect(route).toMatch(/truncated: !cycleComplete/);
+  it("the parity verdict is only sound when ONE invocation covered the whole catalog", () => {
+    // needsWork/noWork are per-invocation and populated only from `after`
+    // onward, but webhookSaw spans the whole window. On the final run of a
+    // RESUMED cycle, cycleComplete is true while the walk read only the tail —
+    // so either every earlier webhook-seen product becomes a false
+    // fail_unexplained_gap, or the run "passes" having examined the tail alone.
+    expect(route).toMatch(/truncated: !\(cycleComplete && resumeFrom === null\)/);
+  });
+
+  it("an empty webhook comparison set is inconclusive, never a pass", () => {
+    // The webhook log stopped being written when products/update was
+    // unsubscribed, so the 24h window drains to zero and every downstream
+    // number goes to 0 — including unexplainedCount, which "pass" was keyed on.
+    expect(route).toMatch(/inconclusive_no_webhook_evidence/);
+    expect(route).toMatch(/webhookSaw\.size === 0/);
   });
 
   it("reports when the whole catalog was last seen — only if that was PERSISTED", () => {
@@ -820,8 +837,35 @@ describe("post-switch: the scheduled reconcile must actually WRITE", () => {
     expect(existed).toBe(false);
   });
 
-  it("the ROUTE still defaults to observe, so only an explicit caller writes", () => {
+  it("the ROUTE defaults to enqueue, so a caller cannot silently write nothing", () => {
     const src = read("app", "routes", "api.cron.reconcile-catalog.ts");
-    expect(src).toMatch(/=== "enqueue" \? "enqueue" : "observe"/);
+    expect(src).toMatch(/=== "observe" \? "observe" : "enqueue"/);
+  });
+
+  it("a degraded run returns 5xx so the scheduled job goes red", () => {
+    // reconcileCatalog never throws, so every failure of the sole discovery path
+    // used to be a string inside an HTTP 200 and the workflow only fails on
+    // >= 400. Discovery could stop dead while every run stayed green.
+    const src = read("app", "routes", "api.cron.reconcile-catalog.ts");
+    expect(src).toMatch(/degraded \? 500 : 200/);
+    expect(src).toMatch(/degraded_reasons/);
+    // The three ways discovery can be silently useless.
+    expect(src).toMatch(/not_reached/);
+    expect(src).toMatch(/write_products/);
+    expect(src).toMatch(/shopErrors/);
+  });
+
+  it("the workflow asserts the RESPONSE, not just the status code", () => {
+    const wf = read(".github", "workflows", "reconcile-catalog.yml");
+    expect(wf).toMatch(/"mode":"enqueue"/);
+    expect(wf).toMatch(/"degraded":true/);
+  });
+
+  it("a Vercel cron exists as a second trigger for the sole discovery path", () => {
+    // GitHub Actions was the ONLY scheduler, and it disables scheduled workflows
+    // after 60 days of repo inactivity. The drainer already had both.
+    const vercelJson = JSON.parse(read("vercel.json"));
+    const paths = (vercelJson.crons as { path: string }[]).map((c) => c.path);
+    expect(paths).toContain("/api/cron/reconcile-catalog");
   });
 });

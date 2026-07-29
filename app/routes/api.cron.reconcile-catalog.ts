@@ -172,7 +172,15 @@ async function run(request: Request) {
   }
 
   const url = new URL(request.url);
-  const mode = url.searchParams.get("mode") === "enqueue" ? "enqueue" : "observe";
+  // DEFAULT IS ENQUEUE. This used to default to `observe`, justified by "a bare
+  // unauthenticated-shaped call can never write" — but the bearer check above
+  // already guarantees no unauthenticated call reaches this line, so the default
+  // was guarding something that cannot happen while creating the failure that
+  // can: a scheduled caller that loses its query string writes NOTHING and still
+  // returns 200. Since 2026-07-29 this route is the sole enrichment discovery
+  // path, so silent no-op is the expensive direction and read-only must be the
+  // one you ask for. `?mode=observe` still gives the investigation behaviour.
+  const mode = url.searchParams.get("mode") === "observe" ? "observe" : "enqueue";
   const onlyShop = url.searchParams.get("shop");
   const windowHours = Number(url.searchParams.get("window_hours")) || DEFAULT_WINDOW_HOURS;
   const after = url.searchParams.get("after");
@@ -287,11 +295,21 @@ async function run(request: Request) {
         windowHours,
         needsWork: rec.needsWork,
         noWork: rec.noWork,
-        // Coverage, not per-invocation truncation, is what the verdict depends on.
-        // Truncation is NORMAL for a large catalog now that the walk resumes, so
-        // grading on it alone would mark every big shop inconclusive forever;
-        // grading on cycle completion asks the right question.
-        truncated: !cycleComplete,
+        // The comparison is only sound when THIS invocation's product sets cover
+        // the same ground the webhook window does — i.e. the whole catalog, read
+        // in one pass.
+        //
+        // needsWork/noWork are allocated fresh per call and populated only from
+        // `after` onward, but webhookSaw spans the entire window. On the final
+        // run of a RESUMED cycle, cycleComplete is true while the walk only read
+        // the tail, so every webhook-seen product from the earlier pages falls
+        // into not_in_walked_catalog — either a false fail_unexplained_gap, or a
+        // `pass` that only ever examined the tail. Both are wrong, and the
+        // second is the dangerous one.
+        //
+        // So: sound only when the walk started at the beginning AND reached the
+        // end within this invocation.
+        truncated: !(cycleComplete && resumeFrom === null),
       });
 
       results.push({
@@ -336,16 +354,64 @@ async function run(request: Request) {
     }
   }
 
-  return json({
-    mode,
-    scope_ok: scopeOk,
-    merchants: merchants.length,
-    // Non-empty means this invocation did not cover every paid merchant. Re-run,
-    // or call per shop with ?shop=. Never treat an absent shop as clean.
-    not_reached: notReached,
-    elapsed_ms: Date.now() - startedAt,
-    results,
-  });
+  // ── FAIL LOUDLY ───────────────────────────────────────────────────────────
+  //
+  // reconcileCatalog never throws by design, so before this every failure mode
+  // of the SOLE enrichment discovery path — a dead admin client, per-page
+  // Shopify errors, enqueue suppressed by an unreadable queue, a shop never
+  // reached, the scope gate silently downgrading enqueue to observe — was a
+  // string inside an HTTP 200 body. The GitHub workflow only fails on >= 400,
+  // so discovery could stop completely while every run stayed green. Nothing
+  // would ever have told the owner.
+  //
+  // A 5xx here makes the scheduled job go red, which is the one channel that
+  // actually reaches someone. Sentry gets the detail.
+  const shopErrors = results.filter(
+    (r) => r.error || (Array.isArray(r.errors) && r.errors.length > 0),
+  );
+  const scopeDowngraded = !scopeOk;
+  const degradedReasons: string[] = [];
+  if (shopErrors.length > 0) {
+    degradedReasons.push(
+      `${shopErrors.length} shop(s) reported errors: ${shopErrors
+        .map((r) => `${r.shop}: ${r.error ?? (r.errors as string[]).join("; ")}`)
+        .join(" | ")}`,
+    );
+  }
+  if (notReached.length > 0) {
+    degradedReasons.push(`not_reached: ${notReached.join(", ")}`);
+  }
+  if (scopeDowngraded) {
+    degradedReasons.push(
+      "SCOPES lacks write_products, so enqueue was downgraded to observe and NOTHING was written",
+    );
+  }
+
+  const degraded = degradedReasons.length > 0;
+  if (degraded) {
+    sentry.captureMessage(
+      `reconcile-catalog DEGRADED (mode=${mode}) — ${degradedReasons.join(" || ")}`,
+      "error",
+    );
+    console.error(`[cron/reconcile-catalog] DEGRADED: ${degradedReasons.join(" || ")}`);
+  }
+
+  return json(
+    {
+      mode,
+      scope_ok: scopeOk,
+      merchants: merchants.length,
+      // Non-empty means this invocation did not cover every paid merchant. Re-run,
+      // or call per shop with ?shop=. Never treat an absent shop as clean.
+      not_reached: notReached,
+      degraded,
+      degraded_reasons: degradedReasons,
+      elapsed_ms: Date.now() - startedAt,
+      results,
+    },
+    // 200 only when discovery actually did its job end to end.
+    degraded ? 500 : 200,
+  );
 }
 
 /**

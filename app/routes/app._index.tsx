@@ -959,14 +959,27 @@ export default function Index() {
     }
   }, [policyFetcher.state, policyFetcher.data, shopify]);
 
-  // Fire selfHealBilling once on mount for paid merchants (Fix 6). The
-  // useRef guard prevents re-firing on re-renders or revalidations.
-  // Skipped for free tier — they have no shopify_subscription_id and the
-  // action would no-op anyway.
+  // Fire selfHealBilling once on mount (Fix 6). The useRef guard prevents
+  // re-firing on re-renders or revalidations.
+  //
+  // The gate used to be `tier === "free"`, justified by "they have no
+  // shopify_subscription_id and the action would no-op anyway". That stopped
+  // being true on 2026-07-28, when BOTH demote paths were changed to PRESERVE
+  // shopify_subscription_id precisely so a wrong demotion stays recoverable. A
+  // wrongly-demoted merchant now sits at tier=free WITH a charge id — and
+  // opening the app is exactly when they would want it re-checked, since they
+  // are looking at a dashboard that has silently stopped giving them what they
+  // pay for. The old gate blocked the one recovery path with a human behind it,
+  // leaving them to wait up to 24h for the cron.
+  //
+  // Now gated on the thing that actually determines whether there is anything to
+  // look up: a stored subscription id. A genuinely-free merchant has none, so
+  // this still costs them nothing.
   const selfHealFiredRef = useRef(false);
   useEffect(() => {
     if (selfHealFiredRef.current) return;
-    if (!merchant || merchant.tier === "free") return;
+    if (!merchant) return;
+    if (merchant.tier === "free" && !merchant.shopify_subscription_id) return;
     selfHealFiredRef.current = true;
     selfHealFetcher.submit(
       { action: "selfHealBilling" },

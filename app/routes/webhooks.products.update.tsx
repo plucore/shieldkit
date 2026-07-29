@@ -26,6 +26,59 @@ import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
 import { hasPaidAccess } from "../lib/billing/plans";
+import { removeProductWebhooks } from "../lib/webhooks/product-webhooks.server";
+import { sentry } from "../lib/sentry.server";
+
+/**
+ * Shops whose stale subscriptions we have already torn down in THIS process.
+ * Per-process and best-effort — a cold start forgets, which is fine because the
+ * teardown is idempotent and only fires when a delivery actually arrives.
+ */
+const torndownThisProcess = new Set<string>();
+
+/**
+ * Self-heal a subscription that should not exist.
+ *
+ * A products/* delivery for a NON-PAID shop is proof, from Shopify itself, that
+ * the shop still holds a subscription it is not entitled to. Until now the
+ * handler just returned 200 and the delivery kept arriving forever:
+ * reconcile-subscriptions is the only converger and it filters on
+ * `shopify_subscription_id IS NOT NULL`, so a merchant demoted back when that
+ * column was still being nulled is permanently invisible to it.
+ * sbnjen-ee.myshopify.com has been in exactly that state — holding both
+ * PRODUCTS_CREATE and PRODUCTS_UPDATE while sitting at tier=free.
+ *
+ * Worse, it was invisible AND free of telemetry: the handler bails at the tier
+ * gate BEFORE logOutcome, so none of those deliveries appear in
+ * enrichment_webhook_log. Nothing measured the cost.
+ *
+ * Tearing down here converges precisely the shops that are actually generating
+ * traffic — the only ones that cost anything — and costs nothing for a shop with
+ * no stale subscription, because this only runs when a delivery arrives.
+ */
+function selfHealStaleSubscription(shop: string): void {
+  if (torndownThisProcess.has(shop)) return;
+  torndownThisProcess.add(shop);
+  void removeProductWebhooks(shop)
+    .then((r) => {
+      if (r.deleted.length > 0) {
+        console.warn(
+          `[webhooks.products] tore down stale products/* for non-paid ${shop}: ${r.deleted.join(", ")}`,
+        );
+        sentry.captureMessage(
+          `Removed stale products/* subscriptions for non-paid shop ${shop}: ${r.deleted.join(", ")}`,
+          "info",
+        );
+      }
+      if (r.errors.length > 0) {
+        // Allow a later delivery to retry rather than latching the failure.
+        torndownThisProcess.delete(shop);
+      }
+    })
+    .catch(() => {
+      torndownThisProcess.delete(shop);
+    });
+}
 
 const ENRICHMENT_DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -227,6 +280,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   // catalog is gated by the same hasPaidAccess in app.gtin-fill.tsx (v4
   // single paid tier).
   if (!hasPaidAccess(merchant.tier)) {
+    // The delivery itself proves a subscription exists that should not. Fire and
+    // forget — never block the ACK on it.
+    selfHealStaleSubscription(shop);
     return ack();
   }
 

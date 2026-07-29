@@ -186,6 +186,13 @@ let merchantRows: Array<{
   tier: string;
   shopify_subscription_id: string;
 }> = [];
+/**
+ * Rows the ORPHAN ALARM query returns: still-installed, non-free tier, NULL
+ * subscription id. This is the one entitlement state nothing in the system
+ * converges on — invisible to the reconcile walk (which filters on a non-null
+ * id) and therefore never demoted, never re-promoted, never re-provisioned.
+ */
+let orphanPaidRows: Array<{ shopify_domain: string; tier: string }> = [];
 let partnerApiResponse: {
   status: string;
   tier: string | null;
@@ -207,11 +214,34 @@ vi.mock("../app/supabase.server", () => {
     const ctx: { mode: "select" | "update" | null; patch?: Record<string, unknown> } = {
       mode: null,
     };
+    // Filters are RECORDED, not ignored. Two different selects run against
+    // `merchants` in this route and the mock has to tell them apart:
+    //
+    //   the reconcile walk  .not("shopify_subscription_id", "is", null)
+    //   the orphan alarm    .is("shopify_subscription_id", null).neq("tier","free")
+    //
+    // and `.neq` was simply MISSING from this chain. Every run therefore threw
+    // `chain.neq is not a function` inside the route's own try/catch, which
+    // swallowed it into a no-op Sentry call — so `unreconcilable_paid` was `[]`
+    // in every test regardless of the fixtures, and PROVISIONING_ALARM_EXEMPT
+    // never executed once. The alarm had no coverage anywhere while looking
+    // covered.
+    const seen: Array<[string, string, unknown?]> = [];
     const chain: Record<string, (...args: any[]) => any> = {
       select: () => chain,
       in: () => chain,
-      is: () => chain,
-      not: () => chain,
+      is: (col: string, val: unknown) => {
+        seen.push(["is", col, val]);
+        return chain;
+      },
+      not: (col: string, op: string, val: unknown) => {
+        seen.push(["not", col, val]);
+        return chain;
+      },
+      neq: (col: string, val: unknown) => {
+        seen.push(["neq", col, val]);
+        return chain;
+      },
       eq: () => chain,
       update: (patch: Record<string, unknown>) => {
         ctx.mode = "update";
@@ -228,6 +258,11 @@ vi.mock("../app/supabase.server", () => {
           updateCalls.push({ id: row?.id ?? "unknown", patch: ctx.patch! });
           return resolve({ error: null });
         }
+        // The orphan-alarm query is the one asking for a NULL subscription id.
+        const isOrphanQuery = seen.some(
+          ([kind, col]) => kind === "is" && col === "shopify_subscription_id",
+        );
+        if (isOrphanQuery) return resolve({ data: orphanPaidRows, error: null });
         return resolve({ data: merchantRows, error: null });
       },
     };
@@ -261,6 +296,7 @@ describe("reconcile-subscriptions action — runtime behavior", () => {
   beforeEach(() => {
     process.env.CRON_SECRET = "test-secret";
     merchantRows = [];
+    orphanPaidRows = [];
     partnerApiResponse = null;
     updateCalls = [];
   });
@@ -350,6 +386,96 @@ describe("reconcile-subscriptions action — runtime behavior", () => {
     // The charge id must SURVIVE the demote so this job can re-check it and
     // re-promote if the demotion turns out to have been wrong (2026-07-28).
     expect(updateCalls[0].patch).not.toHaveProperty("shopify_subscription_id");
+  });
+
+  // ── FROZEN, executed rather than grepped ─────────────────────────────────
+  //
+  // a158f91 fixed the second copy of the terminal-status set after PR #14 fixed
+  // only one, so for a day the CRON demoted on a freeze while the webhook
+  // correctly ignored it. The only guard afterwards was
+  // `expect(src).not.toMatch(/"frozen"/)` — a string search over the source.
+  // That would pass again the moment someone reintroduced the behaviour through
+  // the shared helper, or spelled the status differently. This harness already
+  // drives cancelled / unknown / active; frozen is one more object literal, and
+  // it is the case that cost three merchants their entitlement.
+  it("FAIL-TOWARD-ACCESS: does NOT demote on status='frozen'", async () => {
+    merchantRows = [
+      {
+        id: "m-frozen",
+        shopify_domain: "frozen-shop.myshopify.com",
+        tier: "monitoring",
+        shopify_subscription_id: "gid://shopify/AppSubscription/9",
+      },
+    ];
+    partnerApiResponse = {
+      status: "frozen",
+      tier: "monitoring",
+      cycle: "monthly",
+      subscriptionGid: "gid://shopify/AppSubscription/9",
+      planName: "Monitoring",
+      billingOn: null,
+      activatedAt: null,
+      test: false,
+      reason: null,
+    };
+
+    const res = await action({
+      request: makeRequest(),
+    } as unknown as Parameters<typeof action>[0]);
+    const body = (await res.json()) as { demoted: number; demoted_domains?: string[] };
+
+    expect(res.status).toBe(200);
+    // The whole point: a freeze is recoverable. A frozen shop cannot use the app
+    // anyway, so leaving the entitlement costs nothing and cannot be abused;
+    // revoking it costs a customer.
+    expect(body.demoted).toBe(0);
+    expect(updateCalls).toEqual([]);
+  });
+
+  // ── The orphan alarm, which had NO executed coverage at all ───────────────
+  //
+  // The route chains `.select().is().is().neq("tier","free")`. This file's mock
+  // had no `.neq`, so every run threw `chain.neq is not a function` straight
+  // into the route's own try/catch, which swallowed it into a no-op Sentry call.
+  // `unreconcilable_paid` was therefore `[]` in EVERY test regardless of the
+  // fixtures, and PROVISIONING_ALARM_EXEMPT never executed once.
+  it("ALARMS on a paid merchant with no subscription id — invisible to every reconciler", async () => {
+    orphanPaidRows = [{ shopify_domain: "orphan-shop.myshopify.com", tier: "monitoring" }];
+
+    const res = await action({
+      request: makeRequest(),
+    } as unknown as Parameters<typeof action>[0]);
+    const body = (await res.json()) as {
+      unreconcilable_paid: string[];
+      unreconcilable_exempt: number;
+    };
+
+    expect(body.unreconcilable_paid).toHaveLength(1);
+    expect(body.unreconcilable_paid[0]).toContain("orphan-shop.myshopify.com");
+    expect(body.unreconcilable_exempt).toBe(0);
+  });
+
+  it("EXEMPTS the founder's dev store by name, but still counts it", async () => {
+    // Its charges are all test:true, so no Partner API charge id exists to
+    // store — it lives in this state legitimately and forever. Alarming daily
+    // on a known-permanent condition trains the alarm to be ignored, which is
+    // worse than not having one. Counted so it stays visible without being noisy.
+    orphanPaidRows = [
+      { shopify_domain: "shieldkit-test-stor.myshopify.com", tier: "monitoring" },
+      { shopify_domain: "orphan-shop.myshopify.com", tier: "pro" },
+    ];
+
+    const res = await action({
+      request: makeRequest(),
+    } as unknown as Parameters<typeof action>[0]);
+    const body = (await res.json()) as {
+      unreconcilable_paid: string[];
+      unreconcilable_exempt: number;
+    };
+
+    expect(body.unreconcilable_exempt).toBe(1);
+    expect(body.unreconcilable_paid).toHaveLength(1);
+    expect(body.unreconcilable_paid[0]).not.toContain("shieldkit-test-stor");
   });
 
   it("FAIL-SAFE: does NOT demote when Partner API returns status='unknown'", async () => {

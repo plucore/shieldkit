@@ -186,7 +186,18 @@ async function run(request: Request) {
   }
 
   if (!merchants || merchants.length === 0) {
-    return json({ checked: 0, demoted: 0, skipped_unknown: 0 });
+    // The orphan alarm is computed ABOVE this and was being thrown away here.
+    // That is precisely backwards: a merchant with a paid tier and no charge id
+    // is invisible to the walk, so the case where the walk finds NOTHING to do
+    // is exactly the case where the alarm is the only signal there is. Carrying
+    // it through means "checked: 0" can never be mistaken for "nothing wrong".
+    return json({
+      checked: 0,
+      demoted: 0,
+      skipped_unknown: 0,
+      unreconcilable_paid: unreconcilablePaid,
+      unreconcilable_exempt: unreconcilableExempt,
+    });
   }
 
   let demoted = 0;

@@ -37,7 +37,10 @@ import { useWebComponentClick } from "../hooks/useWebComponentClick";
 import { useSingleFlight } from "../hooks/useSingleFlight";
 import { wrapAdminClient, getProducts } from "../lib/shopify-api.server";
 import { hasPaidAccess } from "../lib/billing/plans";
-import { ENRICHMENT_METAFIELDS_ARGS } from "../lib/enrichment/enrichment-decision.server";
+import {
+  bareMetafieldKey,
+  ENRICHMENT_METAFIELDS_ARGS,
+} from "../lib/enrichment/enrichment-decision.server";
 
 const WRITE_METAFIELDS_SCOPE_ENABLED =
   (process.env.SCOPES ?? "").includes("write_products");
@@ -158,7 +161,8 @@ async function fetchEnrichmentCandidates(
     } }>) {
       const v = node.variants.edges[0]?.node;
       const mf: Record<string, string> = {};
-      for (const { node: m } of node.metafields.edges) mf[m.key] = m.value;
+      // Fully-qualified keys come back namespace-prefixed — see bareMetafieldKey.
+      for (const { node: m } of node.metafields.edges) mf[bareMetafieldKey(m.key)] = m.value;
       out.push({
         id: node.id,
         title: node.title,

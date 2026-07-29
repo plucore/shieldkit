@@ -15,6 +15,7 @@
  */
 
 import {
+  bareMetafieldKey,
   decideEnrichment,
   ENRICHMENT_METAFIELDS_ARGS,
   needsShopNameFallback,
@@ -133,7 +134,13 @@ export async function enrichProductMetafields(
     // gate is meaningless — see enrichment-decision.server.ts.
     const variant = product.variants.edges[0]?.node;
     const existing: Record<string, string> = {};
-    for (const { node: m } of product.metafields.edges) existing[m.key] = m.value;
+    // bareMetafieldKey: the query asks for fully-qualified keys, so Shopify
+    // returns "custom.gtin" rather than "gtin". Indexing by the raw key would
+    // make every value read as unset — overwriting existing data and ignoring
+    // an explicit identifier_exists opt-out.
+    for (const { node: m } of product.metafields.edges) {
+      existing[bareMetafieldKey(m.key)] = m.value;
+    }
     const snap: EnrichmentSnapshot = {
       productGid,
       vendor: product.vendor ?? null,

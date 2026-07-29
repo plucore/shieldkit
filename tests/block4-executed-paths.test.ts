@@ -246,3 +246,82 @@ describe("ensureProductWebhooks converges, executed", () => {
     expect(mutations.filter((m) => m.name === "update")).toHaveLength(0);
   });
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fully-qualified metafield keys come back NAMESPACE-PREFIXED.
+//
+// The Phase 4 fix narrowed the metafields query to the four keys we read, so a
+// product with many custom metafields could not hide them. Two things went
+// wrong on the way, both caught only by running against live Shopify:
+//
+//   1. `namespace: "custom", keys: [...]` is rejected at EXECUTION time
+//      ("Providing any of the namespace ... arguments with the keys argument is
+//      not supported") even though it passes schema validation. It shipped, and
+//      every paid merchant's catalog walk returned ZERO pages.
+//   2. With fully-qualified `keys: ["custom.gtin", ...]`, Shopify returns
+//      `key: "custom.gtin"` — so indexing by the raw key made every value read
+//      as UNSET: existing gtin/mpn/brand would be OVERWRITTEN and an explicit
+//      `identifier_exists = "false"` opt-out IGNORED.
+//
+// Verified live on a product carrying identifier_exists=false: optedOut=true,
+// writes=[].
+// ════════════════════════════════════════════════════════════════════════════
+describe("metafield key normalisation", () => {
+  it("never combines `namespace` with `keys` — Shopify rejects that pair", async () => {
+    const { ENRICHMENT_METAFIELDS_ARGS } = await import(
+      "../app/lib/enrichment/enrichment-decision.server"
+    );
+    expect(ENRICHMENT_METAFIELDS_ARGS).not.toMatch(/namespace\s*:/);
+    expect(ENRICHMENT_METAFIELDS_ARGS).toMatch(/keys:\s*\[/);
+    // Keys must be fully qualified, which is what `keys` requires.
+    expect(ENRICHMENT_METAFIELDS_ARGS).toContain('"custom.gtin"');
+    expect(ENRICHMENT_METAFIELDS_ARGS).toContain('"custom.identifier_exists"');
+  });
+
+  it("strips the namespace prefix so the decision can find its keys", async () => {
+    const { bareMetafieldKey } = await import(
+      "../app/lib/enrichment/enrichment-decision.server"
+    );
+    expect(bareMetafieldKey("custom.gtin")).toBe("gtin");
+    expect(bareMetafieldKey("custom.identifier_exists")).toBe("identifier_exists");
+    // Already-bare keys pass through unchanged.
+    expect(bareMetafieldKey("brand")).toBe("brand");
+  });
+
+  it("HONOURS an opt-out delivered under a namespace-prefixed key", async () => {
+    const { decideEnrichment, snapshotFromNode } = await import(
+      "../app/lib/enrichment/enrichment-decision.server"
+    );
+    const snap = snapshotFromNode({
+      id: "gid://shopify/Product/1",
+      vendor: "V",
+      variants: { nodes: [{ sku: "S", barcode: "B" }] },
+      metafields: { nodes: [{ key: "custom.identifier_exists", value: "false" }] },
+    });
+    expect(snap.existing).toEqual({ identifier_exists: "false" });
+    const d = decideEnrichment(snap, "Shop");
+    expect(d.optedOut).toBe(true);
+    expect(d.writes).toEqual([]);
+  });
+
+  it("does NOT overwrite existing values delivered under prefixed keys", async () => {
+    const { decideEnrichment, snapshotFromNode } = await import(
+      "../app/lib/enrichment/enrichment-decision.server"
+    );
+    const snap = snapshotFromNode({
+      id: "gid://shopify/Product/2",
+      vendor: "V",
+      variants: { nodes: [{ sku: "SKU1", barcode: "BAR1" }] },
+      metafields: {
+        nodes: [
+          { key: "custom.gtin", value: "existing-gtin" },
+          { key: "custom.mpn", value: "existing-mpn" },
+          { key: "custom.brand", value: "existing-brand" },
+        ],
+      },
+    });
+    const d = decideEnrichment(snap, "Shop");
+    expect(d.writes).toEqual([]);
+    expect(d.skipped.sort()).toEqual(["brand", "gtin", "mpn"]);
+  });
+});

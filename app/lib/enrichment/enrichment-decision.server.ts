@@ -50,6 +50,9 @@ export const ENRICHMENT_METAFIELD_KEYS = [
   "identifier_exists",
 ] as const;
 
+/** The namespace all four keys live in. */
+export const ENRICHMENT_METAFIELD_NAMESPACE = "custom";
+
 /**
  * The ARGUMENTS for the metafields connection, shared by all three queries.
  *
@@ -58,12 +61,43 @@ export const ENRICHMENT_METAFIELD_KEYS = [
  * use `edges { node }`), and forcing one shape would mean rewriting their
  * parsers for no benefit. What must NOT differ is which keys are requested.
  *
- * Verified against the Admin API 2025-10 schema — `keys` is a valid argument on
- * the Product `metafields` connection.
+ * `keys` takes FULLY-QUALIFIED "namespace.key" strings and must NOT be combined
+ * with a separate `namespace` argument. Shopify rejects that pair at EXECUTION
+ * time — "Providing any of the `namespace`, `withDefinitions`, or
+ * `withoutDefinitions` arguments with the `keys` argument is not supported" —
+ * even though the pair passes schema validation, because both arguments exist on
+ * the field. It shipped as `namespace: "custom", keys: [...]` and returned zero
+ * pages for every paid merchant until the reconcile route's new loud-failure
+ * path surfaced it.
+ *
+ * The lesson is the one this codebase keeps relearning: a schema validator tells
+ * you the query PARSES, not that the API will run it. Verified against live
+ * Shopify, not just the validator — see scripts/ probe in the commit message.
  */
-export const ENRICHMENT_METAFIELDS_ARGS = `namespace: "custom", keys: [${ENRICHMENT_METAFIELD_KEYS.map(
-  (k) => `"${k}"`,
+export const ENRICHMENT_METAFIELDS_ARGS = `keys: [${ENRICHMENT_METAFIELD_KEYS.map(
+  (k) => `"${ENRICHMENT_METAFIELD_NAMESPACE}.${k}"`,
 ).join(", ")}], first: ${ENRICHMENT_METAFIELD_KEYS.length}`;
+
+/**
+ * Normalise a returned metafield key to its BARE form.
+ *
+ * Querying with fully-qualified `keys: ["custom.gtin", ...]` makes Shopify
+ * return `key: "custom.gtin"` — namespace-prefixed — while `namespace` is ALSO
+ * returned separately. Every lookup in decideEnrichment() is by the bare name
+ * ("gtin", "mpn", "brand", "identifier_exists"), so without this every key reads
+ * as UNSET, and that is not a harmless miss:
+ *
+ *   - an existing gtin/mpn/brand gets OVERWRITTEN
+ *   - `identifier_exists = "false"` — an explicit merchant opt-out — is IGNORED
+ *
+ * Verified against live Shopify on a product carrying identifier_exists=false.
+ * Metafield keys cannot themselves contain a dot, so splitting on the first one
+ * is unambiguous.
+ */
+export function bareMetafieldKey(key: string): string {
+  const dot = key.indexOf(".");
+  return dot === -1 ? key : key.slice(dot + 1);
+}
 
 /** Everything the decision needs about one product. */
 export interface EnrichmentSnapshot {
@@ -155,7 +189,7 @@ export function snapshotFromNode(node: {
 }): EnrichmentSnapshot {
   const variant = node.variants?.nodes?.[0];
   const existing: Record<string, string> = {};
-  for (const m of node.metafields?.nodes ?? []) existing[m.key] = m.value;
+  for (const m of node.metafields?.nodes ?? []) existing[bareMetafieldKey(m.key)] = m.value;
   return {
     productGid: node.id,
     vendor: node.vendor ?? null,

@@ -38,6 +38,14 @@ type Node = {
 let pages: Array<{ nodes: Node[]; hasNextPage: boolean; endCursor: string | null }> = [];
 let pageFailsAt: number | null = null;
 let shopNameThrows = false;
+/**
+ * The shape that made finding 3 survive review: a Shopify THROTTLE is
+ * HTTP 200 with `errors[]` and NO `data` key. It does not throw, so a mock that
+ * can only throw or return a well-formed body cannot express it — which is
+ * exactly why the old shop-name test only covered the throw path and the real
+ * defect went untested.
+ */
+let shopNameThrottled = false;
 let freshEnrichedIds: string[] = [];
 let queuedIds: string[] = [];
 let insertedRows: Array<Record<string, unknown>> = [];
@@ -92,6 +100,13 @@ vi.mock("../app/lib/shopify-api.server", () => ({
     return async (query: string, variables?: Record<string, unknown>) => {
       if (query.includes("ReconcileShopName")) {
         if (shopNameThrows) throw new Error("shop name unavailable");
+        if (shopNameThrottled) {
+          // HTTP 200, errors[], no `data`. The reply that used to slip through.
+          return {
+            errors: [{ message: "Throttled", extensions: { code: "THROTTLED" } }],
+            extensions: { cost: { actualQueryCost: 0 } },
+          };
+        }
         return { data: { shop: { name: "Fallback Shop" } } };
       }
       const after = (variables?.after as string | null) ?? null;
@@ -113,6 +128,17 @@ vi.mock("../app/lib/shopify-api.server", () => ({
       };
     };
   },
+  // The reconcile now routes BOTH its queries through executeWithRetry, because
+  // createAdminClient returns a bare fetch wrapper with no THROTTLED backoff.
+  // The stand-in just delegates: retry behaviour is graphql-client's contract
+  // and is tested there; what matters here is that the caller inspects
+  // `errors[]` on whatever comes back.
+  executeWithRetry: async (
+    runner: (q: string, v?: Record<string, unknown>) => Promise<unknown>,
+    _queryName: string,
+    query: string,
+    variables?: Record<string, unknown>,
+  ) => runner(query, variables),
 }));
 
 const { reconcileCatalog, PAGE_SIZE } = await import(
@@ -153,6 +179,7 @@ beforeEach(() => {
   pages = [];
   pageFailsAt = null;
   shopNameThrows = false;
+  shopNameThrottled = false;
   freshEnrichedIds = [];
   queuedIds = [];
   insertedRows = [];
@@ -298,13 +325,58 @@ describe("a failed page is never 'the catalog ends here'", () => {
     spy.mockRestore();
   });
 
-  it("a lost shop name degrades brand to no_signal, never to a wrong value", async () => {
-    shopNameThrows = true;
-    pages = [{ nodes: [product("1", { vendor: null, sku: null, barcode: null })], hasNextPage: false, endCursor: null }];
+  // ── A lost shop name is "could not look", never "has no brand" ────────────
+  //
+  // This block previously asserted the OPPOSITE: that a failed shop-name lookup
+  // should classify the product `no_signal` with needsWork empty. That pinned
+  // the §11a collapse as the desired behaviour, and it only ever exercised the
+  // THROW path — the one case that did push an error. The reply Shopify actually
+  // sends under load (HTTP 200 + errors[] + no data) never threw, so shopName
+  // silently became null, the products were dropped, `errors` stayed empty, the
+  // cycle stamped last_completed_at and the parity verdict read `pass`.
+  //
+  // Correct behaviour, both shapes: record the failure AND treat a product whose
+  // brand can only come from the shop-name fallback as INDETERMINATE — hand it
+  // to the drainer, which resolves the shop name itself per product.
+  for (const [label, arm] of [
+    ["the query throws", () => { shopNameThrows = true; }],
+    ["the query is THROTTLED (HTTP 200, errors[], no data)", () => { shopNameThrottled = true; }],
+  ] as const) {
+    it(`a lost shop name is recorded and never becomes "no signal" — ${label}`, async () => {
+      arm();
+      pages = [
+        {
+          nodes: [product("1", { vendor: null, sku: null, barcode: null })],
+          hasNextPage: false,
+          endCursor: null,
+        },
+      ];
+      const r = await reconcileCatalog(opts());
+
+      // The failure must be VISIBLE, so the caller cannot close the cycle on it.
+      expect(r.errors.join(" ")).toMatch(/shop_name_unavailable/);
+
+      // And the product must NOT be written off.
+      expect(r.noWork).toHaveLength(0);
+      expect(r.needsWork).toHaveLength(1);
+      expect(r.needsWork[0].reason).toBe("brand_indeterminate");
+    });
+  }
+
+  it("a resolvable shop name still classifies a brand-only product as needs_write", async () => {
+    // The control. If the fallback works, nothing above should change.
+    pages = [
+      {
+        nodes: [product("1", { vendor: null, sku: null, barcode: null })],
+        hasNextPage: false,
+        endCursor: null,
+      },
+    ];
     const r = await reconcileCatalog(opts());
-    expect(r.errors.join(" ")).toMatch(/shop_name/);
-    expect(r.needsWork).toHaveLength(0);
-    expect(r.noWork[0].reason).toBe("no_signal");
+    expect(r.errors).toEqual([]);
+    expect(r.needsWork).toHaveLength(1);
+    expect(r.needsWork[0].reason).toBe("needs_write");
+    expect(r.needsWork[0].wouldWrite).toEqual(["brand"]);
   });
 });
 
@@ -612,9 +684,19 @@ describe("cursor persistence — coverage, not just latency", () => {
     expect(route).toMatch(/truncated: !cycleComplete/);
   });
 
-  it("reports when the whole catalog was last seen", () => {
-    expect(route).toMatch(/last_full_catalog_pass: nextState\.last_completed_at/);
-    expect(route).toMatch(/cycle_complete: cycleComplete/);
+  it("reports when the whole catalog was last seen — only if that was PERSISTED", () => {
+    // saveState used to swallow a failed upsert and return the INTENDED state,
+    // so the response could advertise a cursor and a last_full_catalog_pass that
+    // never reached the database. The next run would then restart from page 1
+    // while the previous response claimed a completed cycle.
+    expect(route).toMatch(
+      /last_full_catalog_pass: saved\.persisted \? nextState\.last_completed_at : null/,
+    );
+    expect(route).toMatch(/cycle_complete: cycleComplete && saved\.persisted/);
+    // The failure has to be legible on its own, not only by the absence of a
+    // timestamp.
+    expect(route).toMatch(/cursor_persisted: saved\.persisted/);
+    expect(route).toMatch(/cursor_not_persisted/);
   });
 
   it("a failed state read or write can never skip catalog", () => {

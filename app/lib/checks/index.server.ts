@@ -9,7 +9,7 @@ import {
   createAdminClient,
   getShopInfo,
   getShopPolicies,
-  getProducts,
+  getProductsWithAvailability,
   getPagesWithAvailability,
 } from "../shopify-api.server";
 import { supabase } from "../../supabase.server";
@@ -78,13 +78,14 @@ export async function runComplianceScan(
   const executor = await createAdminClient(shopifyDomain);
 
   // ── 2. Fetch all Shopify data concurrently ──────────────────────────────────
-  const [shopInfo, shopPolicies, products, pagesResult] = await Promise.all([
+  const [shopInfo, shopPolicies, productsResult, pagesResult] = await Promise.all([
     getShopInfo(executor),
     getShopPolicies(executor),
-    getProducts(executor, 50),
+    getProductsWithAvailability(executor, 50),
     getPagesWithAvailability(executor, 20),
   ]);
   const pages = pagesResult.pages;
+  const products = productsResult.products;
 
   // ── 2b. Opportunistically refresh merchant metadata from Shopify ────────────
   // Fire-and-forget: keeps shop_name, owner, country, plan, etc. in sync on
@@ -295,6 +296,23 @@ export async function runComplianceScan(
       ? degradeUnverifiable(check11, "store policies")
       : check11;
 
+  // Products were the last Admin-API source with no availability flag: a
+  // throttle or a stale-token 401 returned `[]`, and an empty catalog makes
+  // every product-derived check pass VACUOUSLY — a better score than the
+  // merchant earned. Degrade them on the same gate so "we could not read your
+  // catalog" can never be scored as "your catalog is fine".
+  //
+  // Only applied when the check PASSED: a product-derived FAILURE found in the
+  // partial results we did read is still a real finding worth showing.
+  const degradeIfProductsUnavailable = (r: CheckResult): CheckResult =>
+    !productsResult.available &&
+    r.passed &&
+    (r.check_name === "product_data_quality" ||
+      r.check_name === "structured_data_json_ld" ||
+      r.check_name === "image_hosting_audit")
+      ? degradeUnverifiable(r, "product catalog")
+      : r;
+
   const checkResults: CheckResult[] = [
     ...fatalFive,
     check6,
@@ -304,7 +322,7 @@ export async function runComplianceScan(
     check10,
     check11Degraded,
     check12,
-  ];
+  ].map(degradeIfProductsUnavailable);
 
   // ── 5. Aggregate scores and counts ──────────────────────────────────────────
   const totalChecks = checkResults.length; // 11+ as new checks are added in v2

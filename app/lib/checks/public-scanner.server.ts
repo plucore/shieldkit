@@ -129,6 +129,13 @@ interface PageFetchResult {
   url: string;
   status: number | null;
   html: string | null;
+  /**
+   * Three-state, so a check can tell "this product page is genuinely unpublished"
+   * from "we were rate-limited". Added 2026-07-29: the storefront check consumed
+   * only `status` and used `status !== 200`, which is the verbatim pre-Block-1
+   * predicate that conflates a 404 with a 429/503/timeout.
+   */
+  availability: FetchAvailability;
 }
 
 async function fetchPage(
@@ -619,17 +626,61 @@ function checkStorefrontAccessibility(
       raw_data: { signals },
     };
   }
-  const failed = productPageResults.filter((r) => r.status !== 200);
-  if (failed.length > 0 && productPageResults.length > 0) {
+  // `status !== 200` was the WHOLE test here — the verbatim pre-Block-1
+  // predicate, still live on this file long after the policy pages were fixed.
+  // It cannot separate the three outcomes:
+  //
+  //   404 / 410       the product page genuinely is not published — a REAL finding
+  //   429/503/403/5xx rate-limited, down, bot-challenged — "we could not look"
+  //   null            timeout / DNS / connection reset — "we could not look"
+  //
+  // A single transient 503 on one of three sampled pages therefore told a
+  // prospect their storefront was broken. Only the definitive class may fail.
+  const genuinelyMissing = productPageResults.filter((r) => r.availability === "absent");
+  const unverifiable = productPageResults.filter((r) => r.availability === "unavailable");
+
+  if (genuinelyMissing.length > 0) {
     return {
       check_name: "storefront_accessibility",
       passed: false,
       severity: "warning",
-      title: "Product Pages Returning Non-200",
-      description: `${failed.length} of ${productPageResults.length} sampled product pages did not return HTTP 200.`,
+      title: "Product Pages Not Reachable",
+      description: `${genuinelyMissing.length} of ${productPageResults.length} sampled product pages could not be found (404).`,
       fix_instruction:
         "Verify the affected products are published to the Online Store sales channel.",
-      raw_data: { product_pages: productPageResults.map((r) => ({ url: r.url, status: r.status })) },
+      raw_data: {
+        product_pages: productPageResults.map((r) => ({
+          url: r.url,
+          status: r.status,
+          availability: r.availability,
+        })),
+      },
+    };
+  }
+
+  // Nothing definitive, but we could not read every page either — say so
+  // instead of returning a clean pass built on pages we never saw.
+  if (unverifiable.length > 0 && genuinelyMissing.length === 0) {
+    return {
+      check_name: "storefront_accessibility",
+      passed: true,
+      scorable: false,
+      severity: "info",
+      title: "Storefront Accessibility — Not Checked",
+      description:
+        `We could not load ${unverifiable.length} of ${productPageResults.length} sampled product ` +
+        `pages just now, so this was not checked and has not affected your score. That is usually ` +
+        `the store rate-limiting an automated request, not a problem with your store.`,
+      fix_instruction: "No action needed. Re-run the scan.",
+      raw_data: {
+        degraded: true,
+        degraded_reason: "storefront_fetch_unavailable",
+        product_pages: productPageResults.map((r) => ({
+          url: r.url,
+          status: r.status,
+          availability: r.availability,
+        })),
+      },
     };
   }
   return {
@@ -828,12 +879,20 @@ export async function runPublicScan(
     refundFetch,
     productsJson,
   ] = await Promise.all([
-    fetchPage(`${storeUrl}/`),
-    fetchPage(`${storeUrl}/pages/contact-us`).then((r) =>
-      r && r.status === 200 ? r : fetchPage(`${storeUrl}/pages/contact`)
+    // ALL of these go through fetchPageChecked now. The policy pages were
+    // converted in Block 1 and these four were not, which left the fix covering
+    // 3 checks of 8 — contact_information and storefront_accessibility carried
+    // no availability at all and could still assert absence from a failed fetch.
+    fetchPageChecked(`${storeUrl}/`),
+    // The -us / bare fallback is a REAL absence check: try the alternate handle
+    // only when the first is genuinely `absent`. Retrying the alternate after an
+    // `unavailable` would just double a rate-limited request and then report the
+    // second failure as "no contact page".
+    fetchPageChecked(`${storeUrl}/pages/contact-us`).then((r) =>
+      r.availability === "absent" ? fetchPageChecked(`${storeUrl}/pages/contact`) : r
     ),
-    fetchPage(`${storeUrl}/pages/about-us`).then((r) =>
-      r && r.status === 200 ? r : fetchPage(`${storeUrl}/pages/about`)
+    fetchPageChecked(`${storeUrl}/pages/about-us`).then((r) =>
+      r.availability === "absent" ? fetchPageChecked(`${storeUrl}/pages/about`) : r
     ),
     // Policy pages go through fetchPageChecked so a 429/503/timeout is
     // distinguishable from a 404 and gets one bounded retry.
@@ -846,7 +905,7 @@ export async function runPublicScan(
     ),
   ]);
 
-  if (!homepageFetch) {
+  if (!homepageFetch.page) {
     return {
       ok: false,
       error: `Couldn't reach ${storeUrl} — make sure it's a live, public Shopify storefront.`,
@@ -855,19 +914,20 @@ export async function runPublicScan(
 
   const handles = (productsJson?.products ?? []).slice(0, 3).map((p) => p.handle);
   const productUrls = handles.map((h) => `${storeUrl}/products/${h}`);
-  const productFetches = await Promise.all(productUrls.map((u) => fetchPage(u)));
+  const productFetches = await Promise.all(productUrls.map((u) => fetchPageChecked(u)));
   const productResults: PageFetchResult[] = productUrls.map((url, i) => ({
     url,
-    status: productFetches[i]?.status ?? null,
-    html: productFetches[i]?.html ?? null,
+    status: productFetches[i]?.page?.status ?? null,
+    html: productFetches[i]?.page?.html ?? null,
+    availability: productFetches[i]?.availability ?? "unavailable",
   }));
 
   const results = await Promise.all([
     safeCheck("contact_information", () =>
       checkContactInformation(
-        contactFetch?.status === 200 ? contactFetch.html : null,
-        aboutFetch?.status === 200 ? aboutFetch.html : null,
-        homepageFetch?.html ?? null
+        contactFetch.availability === "ok" ? contactFetch.page!.html : null,
+        aboutFetch.availability === "ok" ? aboutFetch.page!.html : null,
+        homepageFetch.page?.html ?? null
       )
     ),
     safeCheck("shipping_policy", () =>
@@ -886,14 +946,14 @@ export async function runPublicScan(
       )
     ),
     safeCheck("checkout_transparency", () =>
-      checkCheckoutTransparency(storeUrl, homepageFetch?.html ?? null)
+      checkCheckoutTransparency(storeUrl, homepageFetch.page?.html ?? null)
     ),
     safeCheck("storefront_accessibility", () =>
       checkStorefrontAccessibility(
         storeUrl,
         productResults,
-        homepageFetch?.status ?? null,
-        homepageFetch?.html ?? null
+        homepageFetch.page?.status ?? null,
+        homepageFetch.page?.html ?? null
       )
     ),
     safeCheck("structured_data_json_ld", () => checkStructuredDataJsonLd(productResults)),
@@ -930,6 +990,14 @@ export async function runPublicScan(
           ? "privacy policy page"
           : "terms of service page",
     },
+    // contact_information is 1-of-N across the contact page, the about page AND
+    // the homepage markup, so a PASS stands on its own evidence and must not be
+    // degraded. Only a FAILURE built on pages we could not read is unsafe —
+    // handled below, where the result is known.
+    //
+    // storefront_accessibility now classifies its own product pages (see the
+    // check), so it is deliberately NOT listed here; a second degrade at this
+    // layer would relabel its already-correct verdict.
   };
 
   // `results` is a fixed-length tuple from Promise.all, so build a new array
@@ -939,6 +1007,18 @@ export async function runPublicScan(
     if (entry && entry.availability === "unavailable") {
       degradedPublic.push(r.check_name);
       return degradeUnverifiable(r, entry.what);
+    }
+    // contact_information: a PASS is self-evidencing (any one signal found is a
+    // real signal), but a FAIL asserts "no contact method anywhere" — which is
+    // only true if we actually read the pages. Mirrors the authenticated
+    // orchestrator, which degrades this check on the same asymmetry.
+    if (
+      r.check_name === "contact_information" &&
+      !r.passed &&
+      (contactFetch.availability === "unavailable" || aboutFetch.availability === "unavailable")
+    ) {
+      degradedPublic.push(r.check_name);
+      return degradeUnverifiable(r, "contact page");
     }
     return r;
   });

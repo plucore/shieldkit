@@ -38,10 +38,12 @@ const TERMS_BODY =
 const GENERIC = "<html><body><p>Shop</p></body></html>";
 
 /**
- * @param privacyStatus HTTP status the privacy policy URL should answer with.
- *                      503 = "we could not look"; 404 = "genuinely absent".
+ * @param privacyStatus     status the privacy policy URL answers with.
+ *                          503 = "we could not look"; 404 = "genuinely absent".
+ * @param productPageStatus status the sampled PRODUCT page answers with, and
+ *                          whether products.json returns a handle at all.
  */
-function stubNetwork(privacyStatus: number) {
+function stubNetwork(privacyStatus: number, productPageStatus: number | null = null) {
   return vi.fn(async (input: string | URL) => {
     const url = String(input);
     const reply = (status: number, body: string) => ({
@@ -55,7 +57,13 @@ function stubNetwork(privacyStatus: number) {
     }
     if (url.includes("/policies/terms-of-service")) return reply(200, TERMS_BODY);
     if (url.includes("/policies/")) return reply(200, GENERIC);
-    if (url.includes("products.json")) return reply(200, JSON.stringify({ products: [] }));
+    if (url.includes("products.json")) {
+      return reply(
+        200,
+        JSON.stringify({ products: productPageStatus === null ? [] : [{ handle: "a-product" }] }),
+      );
+    }
+    if (url.includes("/products/")) return reply(productPageStatus ?? 200, GENERIC);
     if (url.includes("googleapis.com")) return reply(500, "{}");
     return reply(200, GENERIC);
   });
@@ -127,5 +135,72 @@ describe("public /scan — privacy policy fabrication", () => {
     const { check } = await scanWithPrivacyStatus(200);
     expect(check.passed).toBe(true);
     expect(check.severity).toBe("info");
+  });
+});
+
+/**
+ * The second half of the same defect. Block 1 converted the four POLICY pages to
+ * the classified fetch and left contact / about / homepage / product pages on
+ * raw fetchPage, so storefront_accessibility still ran the verbatim pre-Block-1
+ * predicate:
+ *
+ *     const failed = productPageResults.filter((r) => r.status !== 200);
+ *
+ * which reports a rate-limited product page as a broken storefront.
+ */
+describe("public /scan — storefront accessibility", () => {
+  async function scanWithProductStatus(status: number) {
+    globalThis.fetch = stubNetwork(200, status) as unknown as typeof globalThis.fetch;
+    const { runPublicScan } = await import("../app/lib/checks/public-scanner.server");
+    const res = await runPublicScan("https://example.com");
+    if (!res.ok) throw new Error(`scan failed: ${res.error}`);
+    const check = res.results.find((r) => r.check_name === "storefront_accessibility");
+    if (!check) throw new Error("storefront_accessibility missing from results");
+    return check;
+  }
+
+  it("does NOT report a broken storefront when a product page is rate-limited (503)", async () => {
+    const check = await scanWithProductStatus(503);
+    expect(check.passed).toBe(true);
+    expect(check.scorable).toBe(false);
+    expect(check.title).toMatch(/Not Checked/i);
+    expect(check.raw_data).toMatchObject({ degraded: true });
+  });
+
+  it("does NOT report a broken storefront on a timeout / connection reset", async () => {
+    globalThis.fetch = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      const reply = (status: number, body: string) => ({
+        ok: true, status, text: async () => body, json: async () => JSON.parse(body),
+      });
+      if (url.includes("products.json")) {
+        return reply(200, JSON.stringify({ products: [{ handle: "a-product" }] }));
+      }
+      if (url.includes("/products/")) throw new Error("ECONNRESET");
+      if (url.includes("/policies/privacy-policy")) return reply(200, PRIVACY_BODY);
+      if (url.includes("/policies/terms-of-service")) return reply(200, TERMS_BODY);
+      if (url.includes("googleapis.com")) return reply(500, "{}");
+      return reply(200, GENERIC);
+    }) as unknown as typeof globalThis.fetch;
+    const { runPublicScan } = await import("../app/lib/checks/public-scanner.server");
+    const res = await runPublicScan("https://example.com");
+    if (!res.ok) throw new Error("scan failed");
+    const check = res.results.find((r) => r.check_name === "storefront_accessibility")!;
+    expect(check.passed).toBe(true);
+    expect(check.scorable).toBe(false);
+  });
+
+  it("STILL reports a genuinely unpublished product page (404)", async () => {
+    // Over-correction guard, same as the privacy 404 case.
+    const check = await scanWithProductStatus(404);
+    expect(check.passed).toBe(false);
+    expect(check.title).toMatch(/Not Reachable/i);
+    expect(check.raw_data).not.toMatchObject({ degraded: true });
+  });
+
+  it("passes when the product page is reachable", async () => {
+    const check = await scanWithProductStatus(200);
+    expect(check.passed).toBe(true);
+    expect(check.scorable).not.toBe(false);
   });
 });

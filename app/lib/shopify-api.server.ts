@@ -269,10 +269,54 @@ export async function getShopPolicies(
  * @param executor GraphQL executor
  * @param maxTotal Maximum total products to fetch. Default 250.
  */
+/**
+ * getProducts with an explicit availability signal.
+ *
+ * Its two siblings (getShopPolicies, getPagesWithAvailability) gained an
+ * `available` flag on 2026-07-28; this one was left behind, and it is the widest
+ * of the three. It logged GraphQL errors and then did
+ * `result.data?.products?.edges ?? []`, so ANY non-data response — a THROTTLE
+ * (HTTP 200 + errors[] + no data), an ACCESS_DENIED on a stale token, a 5xx —
+ * became "this store has zero products".
+ *
+ * That is not a harmless empty list. Products feed product_data_quality,
+ * structured_data_json_ld and image_hosting_audit, and an empty catalog makes
+ * every one of them pass vacuously — a HIGHER compliance score than the merchant
+ * has earned. Failing toward a clean result is the direction §11a calls the most
+ * dangerous, because nobody investigates good news.
+ *
+ * 38 of 54 live sessions currently hold expired tokens that answer 401, so this
+ * is a reachable state, not a theoretical one.
+ */
+export async function getProductsWithAvailability(
+  executor: GraphQLExecutor,
+  maxTotal = 250
+): Promise<{ products: Product[]; available: boolean }> {
+  const first = await getProductsInner(executor, maxTotal);
+  if (first.available) return first;
+  // One bounded retry, mirroring getShopPolicies / getPagesWithAvailability.
+  await new Promise((r) => setTimeout(r, 600));
+  const second = await getProductsInner(executor, maxTotal);
+  if (!second.available) {
+    console.error(
+      "[ShopifyAPI] getProducts UNAVAILABLE after retry — returning available:false so callers degrade instead of scoring an empty catalog as compliant."
+    );
+  }
+  return second;
+}
+
+/** Back-compat wrapper: same signature as before, availability discarded. */
 export async function getProducts(
   executor: GraphQLExecutor,
   maxTotal = 250
 ): Promise<Product[]> {
+  return (await getProductsWithAvailability(executor, maxTotal)).products;
+}
+
+async function getProductsInner(
+  executor: GraphQLExecutor,
+  maxTotal = 250
+): Promise<{ products: Product[]; available: boolean }> {
   const PAGE_SIZE = 50;
 
   try {
@@ -320,11 +364,16 @@ export async function getProducts(
         variables
       );
 
-      if (result.errors?.length) {
+      // A GraphQL errors body with no data is NOT "this shop has no products".
+      // Report unavailable so the caller degrades instead of asserting an empty
+      // catalog. Partial results already collected are returned alongside the
+      // flag so a caller that only needs a sample can still see what landed.
+      if (result.errors?.length || !result.data?.products) {
         console.error(
-          "[ShopifyAPI] getProducts GraphQL errors:",
-          JSON.stringify(result.errors, null, 2)
+          "[ShopifyAPI] getProducts GraphQL errors / no data:",
+          JSON.stringify(result.errors ?? "no data", null, 2)
         );
+        return { products: allProducts, available: false };
       }
 
       const edges = result.data?.products?.edges ?? [];
@@ -356,10 +405,10 @@ export async function getProducts(
       cursor = pageInfo.endCursor;
     }
 
-    return allProducts;
+    return { products: allProducts, available: true };
   } catch (err) {
     console.error("[ShopifyAPI] getProducts unexpected error:", err);
-    return [];
+    return { products: [], available: false };
   }
 }
 

@@ -24,6 +24,12 @@ import { join } from "node:path";
 // ─── Mutable fixtures the mocks read ────────────────────────────────────────
 let policiesAvailable = true;
 let pagesAvailable = true;
+/**
+ * Products were the last Admin-API source with no availability flag. An empty
+ * catalog from a throttle or a stale-token 401 made every product-derived check
+ * pass vacuously, scoring a store HIGHER than it earned.
+ */
+let productsAvailable = true;
 let prevScan: { compliance_score: number; critical_count: number; created_at: string } | null = null;
 let prevScanThrows = false;
 let insertedViolations: Array<Record<string, unknown>> = [];
@@ -134,6 +140,14 @@ vi.mock("../app/lib/shopify-api.server", () => ({
   // The orchestrator reads pages through the availability-aware variant so a
   // failed Pages fetch cannot be read as "this shop has no policy pages".
   getPagesWithAvailability: vi.fn(async () => ({ pages: [], available: pagesAvailable })),
+  // Same contract for products. `available: true` here means these tests keep
+  // exercising the POLICY degradation path specifically — a products-driven
+  // degrade would otherwise confound the assertions below. The
+  // products-unavailable path has its own coverage.
+  getProductsWithAvailability: vi.fn(async () => ({
+    products: [],
+    available: productsAvailable,
+  })),
 }));
 
 import { runComplianceScan } from "../app/lib/checks/index.server";
@@ -236,10 +250,82 @@ describe("getShopPolicies: every failure mode yields available:false", () => {
 // ════════════════════════════════════════════════════════════════════════════
 // PART 2 — what the MERCHANT sees. Drives the real orchestrator.
 // ════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
+// An unreadable CATALOG must not be scored as a compliant one.
+//
+// getProducts() was the last Admin-API source with no availability flag: it
+// logged GraphQL errors and then did `result.data?.products?.edges ?? []`, so a
+// THROTTLE, a 5xx, or an ACCESS_DENIED on one of the 38 live expired tokens all
+// became "this store has zero products". The product-derived checks then passed
+// vacuously and the merchant got a BETTER score than they earned — the
+// direction §11a calls the most dangerous, because nobody investigates good
+// news.
+// ════════════════════════════════════════════════════════════════════════════
+describe("orchestrator: an unreadable catalog never becomes a clean score", () => {
+  const PRODUCT_CHECKS = [
+    "product_data_quality",
+    "structured_data_json_ld",
+    "image_hosting_audit",
+  ];
+
+  beforeEach(() => {
+    policiesAvailable = true;
+    pagesAvailable = true;
+    productsAvailable = true;
+    prevScan = null;
+    prevScanThrows = false;
+    insertedViolations = [];
+    insertedScan = null;
+    sentryMessages = [];
+  });
+
+  it("BASELINE — an available (if empty) catalog scores the product checks normally", async () => {
+    productsAvailable = true;
+    await runComplianceScan("m1", "test.myshopify.com", "manual");
+    for (const name of PRODUCT_CHECKS) {
+      const row = insertedViolations.find((v) => v.check_name === name);
+      if (row) expect(row.raw_data, `${name} wrongly degraded`).not.toHaveProperty("degraded");
+    }
+  });
+
+  it("an unavailable catalog degrades the product checks to non-scorable info", async () => {
+    productsAvailable = false;
+    await runComplianceScan("m1", "test.myshopify.com", "manual");
+
+    for (const name of PRODUCT_CHECKS) {
+      const row = insertedViolations.find((v) => v.check_name === name);
+      expect(row, `${name} missing from results`).toBeDefined();
+      expect(row!.raw_data, `${name} not degraded`).toMatchObject({ degraded: true });
+      expect(row!.severity, `${name} still scored as a failure`).toBe("info");
+    }
+  });
+
+  it("an unavailable catalog cannot inflate the compliance score", async () => {
+    productsAvailable = false;
+    await runComplianceScan("m1", "test.myshopify.com", "manual");
+    // Degraded checks are excluded from BOTH sides of the ratio, exactly as a
+    // PageSpeed timeout is. A vacuous pass would instead have counted toward
+    // the numerator AND the denominator and pushed the score up.
+    const degradedProductChecks = insertedViolations.filter(
+      (v) =>
+        PRODUCT_CHECKS.includes(v.check_name as string) &&
+        (v.raw_data as Record<string, unknown> | null)?.degraded === true,
+    );
+    expect(degradedProductChecks.length).toBe(PRODUCT_CHECKS.length);
+    for (const row of degradedProductChecks) {
+      // passed:true + severity:info + scorable:false is what excludes a row from
+      // both sides of the ratio. A degraded row left at passed:false would still
+      // count against the merchant for something we never managed to read.
+      expect(row.passed, `${row.check_name} degraded but still counted as failed`).toBe(true);
+    }
+  });
+});
+
 describe("orchestrator: unavailable policy data never becomes a finding", () => {
   beforeEach(() => {
     policiesAvailable = true;
     pagesAvailable = true;
+    productsAvailable = true;
     prevScan = null;
     prevScanThrows = false;
     insertedViolations = [];

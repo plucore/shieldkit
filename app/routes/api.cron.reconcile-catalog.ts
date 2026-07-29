@@ -271,7 +271,7 @@ async function run(request: Request) {
       // that reached the end closes the cycle and stamps last_completed_at, the
       // only timestamp that licenses "the whole catalog has been seen".
       const cycleComplete = !rec.truncated && rec.nextCursor === null && rec.errors.length === 0;
-      const nextState = await saveState({
+      const saved = await saveState({
         shopDomain: m.shopify_domain,
         cursor: cycleComplete ? null : rec.nextCursor,
         cycleComplete,
@@ -280,6 +280,7 @@ async function run(request: Request) {
         productsDelta: rec.productsSeen,
         prior: state,
       });
+      const nextState = saved.state;
 
       const parity = await buildParityReport({
         merchantId: m.id,
@@ -305,14 +306,22 @@ async function run(request: Request) {
         enqueued: rec.enqueued,
         truncated: rec.truncated,
         next_cursor: rec.nextCursor,
-        cycle_complete: cycleComplete,
+        // Reported as ACTUALLY PERSISTED, not as intended. A cycle whose state
+        // never reached the DB will restart from page 1 next run, so claiming
+        // completion here would be a confident falsehood about the one signal
+        // that licenses "the whole catalog has been seen".
+        cycle_complete: cycleComplete && saved.persisted,
+        cursor_persisted: saved.persisted,
+        cursor_persist_error: saved.error,
         cycle_pages_walked: nextState.pages_walked_this_cycle,
         cycle_products_seen: nextState.products_seen_this_cycle,
         cycle_started_at: nextState.cycle_started_at,
-        last_full_catalog_pass: nextState.last_completed_at,
+        last_full_catalog_pass: saved.persisted ? nextState.last_completed_at : null,
         elapsed_ms: rec.elapsedMs,
         total_actual_query_cost: rec.totalActualQueryCost,
-        errors: rec.errors,
+        errors: saved.persisted
+          ? rec.errors
+          : [...rec.errors, `cursor_not_persisted: ${saved.error}`],
         parity,
       });
     } catch (err) {
@@ -494,8 +503,14 @@ async function loadState(shopDomain: string): Promise<ReconcileState | null> {
 }
 
 /**
- * Persist the resume point and the cycle counters. Returns the state as written
- * so the response reports what was actually saved rather than what was intended.
+ * Persist the resume point and the cycle counters.
+ *
+ * Returns the state AND whether the write actually landed. The docstring used to
+ * claim it "returns the state as written"; it did not — the upsert error was
+ * swallowed into a Sentry call and the INTENDED state was returned regardless,
+ * so the response could report a cursor and a `last_full_catalog_pass` that were
+ * never persisted. An operator reading that JSON would conclude the walk was
+ * resuming when in fact it restarts from page 1 every run.
  */
 async function saveState(opts: {
   shopDomain: string;
@@ -505,7 +520,7 @@ async function saveState(opts: {
   pagesDelta: number;
   productsDelta: number;
   prior: ReconcileState | null;
-}): Promise<ReconcileState> {
+}): Promise<{ state: ReconcileState; persisted: boolean; error: string | null }> {
   const nowIso = new Date().toISOString();
   const prior = opts.prior ?? EMPTY_STATE;
 
@@ -536,11 +551,20 @@ async function saveState(opts: {
     );
     if (error) throw new Error(error.message);
   } catch (err) {
-    // A lost cursor costs a restarted cycle, never skipped catalog.
+    // A lost cursor costs a restarted cycle, never skipped catalog — so this
+    // stays non-fatal. But it must be VISIBLE: the caller reports
+    // `cursor_persisted: false` and, critically, suppresses the
+    // `last_full_catalog_pass` claim, because a completion that was not written
+    // is not a completion anyone can rely on next run.
     sentry.captureException(err, {
       tags: { area: "cron.reconcile-catalog", branch: "save_state" },
       extra: { shop: opts.shopDomain },
     });
+    return {
+      state: next,
+      persisted: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
-  return next;
+  return { state: next, persisted: true, error: null };
 }

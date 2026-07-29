@@ -14,7 +14,12 @@ import {
 
 function ldProductPage(schema: unknown) {
   const html = `<html><head><script type="application/ld+json">${JSON.stringify(schema)}</script></head><body>ok</body></html>`;
-  return [{ url: "https://x.example/products/p", status: 200, html }];
+  // `availability` is required on PageFetchResult since 2026-07-29 — a page
+  // fixture has to state whether it was actually READ, so a check can no longer
+  // treat an unfetched page as an empty one.
+  return [
+    { url: "https://x.example/products/p", status: 200, html, availability: "ok" as const },
+  ];
 }
 const PRODUCT_BASE = {
   "@context": "https://schema.org/",
@@ -118,7 +123,12 @@ describe("public structured_data_json_ld — offers shapes + INFO when absent", 
 
   it("returns INFO (not warning) when no JSON-LD is present in the static HTML", () => {
     const r = checkStructuredDataJsonLd([
-      { url: "https://x.example/products/p", status: 200, html: "<html><body>no schema</body></html>" },
+      {
+        url: "https://x.example/products/p",
+        status: 200,
+        html: "<html><body>no schema</body></html>",
+        availability: "ok" as const,
+      },
     ]);
     expect(r.passed).toBe(true);
     expect(r.severity).toBe("info");

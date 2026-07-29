@@ -403,6 +403,39 @@ async function run(request: Request) {
         `[cron/process-scan-triggers] enrichment failed for ${merchant.shopify_domain} product ${productGid}:`,
         err instanceof Error ? err.message : err,
       );
+
+      // A THROW is "could not", exactly like `result.unavailable` — it is not
+      // "done". This path used to fall straight through to the unconditional
+      // markProcessed below, so a transient network reset or an unhandled
+      // response shape DISCARDED that product's enrichment entirely, bypassing
+      // the defer-and-requeue contract twenty lines above it. The row was
+      // consumed and the work was never retried.
+      //
+      // Same bounded requeue as the unavailable branch: forward progress is
+      // preserved (the row is still advanced below, so one bad product cannot
+      // wedge the queue head) but the work is deferred rather than lost.
+      const attempt = Number(row.payload?.attempt ?? 0) + 1;
+      if (attempt <= MAX_ENRICH_ATTEMPTS) {
+        const { error: reErr } = await supabase.from("pending_scan_triggers").insert({
+          merchant_id: row.merchant_id,
+          trigger_type: "enrichment",
+          payload: { product_gid: productGid, numeric_product_id: numericId, attempt },
+        });
+        if (reErr) {
+          sentry.captureException(new Error(`requeue-after-throw failed: ${reErr.message}`), {
+            tags: { area: "process-scan-triggers", branch: "requeue_throw" },
+            extra: { shop: merchant.shopify_domain, product_gid: productGid },
+          });
+        } else {
+          requeued += 1;
+        }
+      } else {
+        requeueExhausted += 1;
+        sentry.captureMessage(
+          `enrichment gave up after ${MAX_ENRICH_ATTEMPTS} thrown attempts: ${merchant.shopify_domain} ${productGid}`,
+          "warning",
+        );
+      }
     }
 
     // Forward-progress guarantee: advance the row regardless of the enrichment

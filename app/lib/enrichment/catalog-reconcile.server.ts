@@ -40,9 +40,10 @@
  */
 
 import { supabase } from "../../supabase.server";
-import { createAdminClient } from "../shopify-api.server";
+import { createAdminClient, executeWithRetry } from "../shopify-api.server";
 import {
   decideEnrichment,
+  needsShopNameFallback,
   snapshotFromNode,
   type EnrichmentDecision,
   type EnrichmentSnapshot,
@@ -119,7 +120,20 @@ export interface ReconciledProduct {
   updatedAt: string;
   /** Keys the drainer would write, in gtin/mpn/brand order. */
   wouldWrite: string[];
-  reason: "needs_write" | "already_complete" | "no_signal" | "opted_out" | "dedup_fresh";
+  reason:
+    | "needs_write"
+    | "already_complete"
+    | "no_signal"
+    | "opted_out"
+    | "dedup_fresh"
+    /**
+     * The shop-name lookup failed, and this product's brand can ONLY be
+     * resolved from it (no brand metafield, no vendor). We cannot tell whether
+     * it needs a write, so it is treated as needing one and handed to the
+     * drainer, which resolves the shop name itself per product. Never counted
+     * as noWork — "could not look" is not "nothing to do".
+     */
+    | "brand_indeterminate";
 }
 
 export interface ReconcileResult {
@@ -213,15 +227,45 @@ export async function reconcileCatalog(
   // ── Shop name, once per pass ───────────────────────────────────────────────
   // The per-product path fetches this lazily per product that needs it; here one
   // query serves the whole catalog. Same value, same fallback chain.
+  //
+  // "COULD NOT LOOK" IS NOT "HAS NO NAME". This block previously read
+  // `res.data?.shop?.name ?? null` with NO `res.errors` check, through the bare
+  // executor. A THROTTLED Admin reply is HTTP 200 with `errors[]` and no `data`,
+  // so it did not throw, the catch never fired, and NOTHING was pushed to
+  // result.errors — shopName silently became null.
+  //
+  // That is not cosmetic: shopName is the last-resort brand fallback in
+  // decideEnrichment(), so every product with no vendor and no brand metafield
+  // was reclassified from `needs_write` to `no_signal` and never enqueued. And
+  // because result.errors stayed EMPTY, the caller computed cycleComplete=true
+  // and stamped last_completed_at, and the parity verdict read `pass`. Silent,
+  // confident, and in the direction that looks like success.
+  //
+  // Now: routed through executeWithRetry (THROTTLED backoff — createAdminClient
+  // returns a BARE fetch wrapper with none), errors[] inspected explicitly, and
+  // an unresolved lookup recorded as an error so the cycle cannot close on it.
   let shopName: string | null = null;
+  let shopNameAvailable = false;
   try {
-    const res = await executor<{ shop: { name: string | null } }>(SHOP_NAME_QUERY);
-    shopName = res.data?.shop?.name ?? null;
+    const res = await executeWithRetry<{ shop: { name: string | null } }>(
+      executor,
+      "reconcileShopName",
+      SHOP_NAME_QUERY,
+    );
+    if (res.errors?.length) {
+      throw new Error(res.errors.map((e) => e.message).join("; "));
+    }
+    if (!res.data?.shop) {
+      // No `errors` and no `data` still means we did not get an answer.
+      throw new Error("no_shop_in_response");
+    }
+    shopName = res.data.shop.name ?? null;
+    shopNameAvailable = true;
   } catch (err) {
-    // Non-fatal: brand then falls back to vendor only, and a product with
-    // neither is reported as no_signal rather than being wrongly enqueued.
+    // Recorded, so cycleComplete is false and the walk is retried rather than
+    // being written off as "this catalog needs nothing".
     result.errors.push(
-      `shop_name: ${err instanceof Error ? err.message : String(err)}`,
+      `shop_name_unavailable: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 
@@ -316,10 +360,18 @@ export async function reconcileCatalog(
 
     let page: CatalogPageResponse["products"];
     try {
-      const res = await executor<CatalogPageResponse>(CATALOG_PAGE_QUERY, {
-        n: PAGE_SIZE,
-        after,
-      });
+      // executeWithRetry, NOT the bare executor. createAdminClient returns a
+      // plain fetch wrapper with no rate-limit handling, so a THROTTLED reply
+      // (HTTP 200 + errors[] + no data) ended the whole shop's walk on the first
+      // burst. The backoff lives here; the errors[] check below is still
+      // required, because executeWithRetry returns the throttled response once
+      // it exhausts MAX_RETRIES rather than throwing.
+      const res = await executeWithRetry<CatalogPageResponse>(
+        executor,
+        "reconcileCatalogPage",
+        CATALOG_PAGE_QUERY,
+        { n: PAGE_SIZE, after },
+      );
       if (res.errors?.length) {
         throw new Error(res.errors.map((e) => e.message).join("; "));
       }
@@ -349,6 +401,15 @@ export async function reconcileCatalog(
       const decision: EnrichmentDecision = decideEnrichment(snap, shopName);
       const wouldWrite = decision.writes.map((w) => w.key);
 
+      // When the shop-name lookup failed, any product whose brand can ONLY come
+      // from that fallback has an UNKNOWN decision, not a negative one. Without
+      // this the run silently downgraded exactly those products to `no_signal`
+      // and dropped them. `needsShopNameFallback` is the same predicate the
+      // per-product path uses to decide whether it needs the lookup at all, so
+      // the two surfaces agree on which products are affected.
+      const brandIndeterminate =
+        !shopNameAvailable && !decision.optedOut && needsShopNameFallback(snap);
+
       const record: ReconciledProduct = {
         productGid: node.id,
         numericProductId: pid,
@@ -362,12 +423,14 @@ export async function reconcileCatalog(
           ? "opted_out"
           : wouldWrite.length > 0
             ? "needs_write"
-            : ["gtin", "mpn", "brand"].every((k) => snap.existing[k])
-              ? "already_complete"
-              : "no_signal",
+            : brandIndeterminate
+              ? "brand_indeterminate"
+              : ["gtin", "mpn", "brand"].every((k) => snap.existing[k])
+                ? "already_complete"
+                : "no_signal",
       };
 
-      if (decision.optedOut || wouldWrite.length === 0) {
+      if (decision.optedOut || (wouldWrite.length === 0 && !brandIndeterminate)) {
         result.noWork.push(record);
         continue;
       }

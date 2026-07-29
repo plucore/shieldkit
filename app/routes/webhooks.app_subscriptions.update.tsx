@@ -52,6 +52,7 @@ import {
   intervalToCycle,
   type PlanName,
   type ShopifyAppPricingInterval,
+  isTerminalSubscriptionStatus,
 } from "../lib/billing/plans";
 
 // Shape of the APP_SUBSCRIPTIONS_UPDATE webhook payload (flat REST shape).
@@ -75,20 +76,6 @@ interface AppSubscriptionPayload {
   };
 }
 
-/**
- * Statuses that genuinely end an entitlement.
- *
- * FROZEN WAS REMOVED 2026-07-28 and must not be re-added. A freeze is a
- * RECOVERABLE state — Shopify freezes an app subscription when the shop itself
- * is frozen or a payment fails, and emits an unfreeze when it clears. Treating
- * it as terminal permanently stripped paying merchants:
- *   0yzffh-vw  FROZEN 2026-06-02 on a $39 Shield Max      — never unfrozen, demoted
- *   ygxib5-9s  FROZEN 2026-06-15 on a $290 Monitoring Annual — never unfrozen, demoted
- *   sbnjen-ee  FROZEN 2026-06-08 → UNFROZEN 2026-06-12    — under-entitled 4 days
- * A frozen shop cannot use the app anyway, so leaving the entitlement in place
- * costs nothing and cannot be abused; wrongly revoking it costs a customer.
- */
-const TERMINAL_STATUSES = new Set(["CANCELLED", "EXPIRED", "DECLINED"]);
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { payload, topic, shop } = await authenticate.webhook(request);
@@ -107,7 +94,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (status === "PENDING") return new Response();
 
   // FROZEN is explicitly a no-op, not a fall-through. Leaving the entitlement
-  // intact is deliberate (see TERMINAL_STATUSES above). When the freeze clears,
+  // intact is deliberate (see TERMINAL_SUBSCRIPTION_STATUSES in plans.ts). When
+  // the freeze clears,
   // Shopify redelivers this webhook with status=ACTIVE, so the ACTIVE branch
   // below re-entitles the merchant automatically — that is the UNFROZEN
   // handling. There is no "UNFROZEN" webhook status; UNFROZEN exists only as a
@@ -183,7 +171,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return new Response();
   }
 
-  if (TERMINAL_STATUSES.has(status)) {
+  if (isTerminalSubscriptionStatus(status)) {
     // ── SUBSCRIPTION-IDENTITY GUARD (added 2026-07-28) ──────────────────────
     //
     // Only demote if this terminal event is for the subscription we are

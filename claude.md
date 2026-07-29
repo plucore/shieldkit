@@ -25,29 +25,29 @@ Two plans only. The Partner Dashboard pricing UI advertises only these:
 | **Free** | $0 | `'free'` | `"Free"` — plus localised variants Shopify serves per merchant locale: `"Gratuit"`, `"Gratis"`, `"Grátis"`, `"Gratuito"`, `"Kostenlos"` |
 | **Monitoring** | **$29.00 USD/month** | `'monitoring'` | `"Monitoring"` |
 
-> **⚠️ `plans.ts` PRICE CONSTANTS ARE WRONG — verified 2026-07-28.** Every real
-> `SUBSCRIPTION_CHARGE_ACTIVATED` for a Monitoring plan in the Partner API bills
-> **$29.00**: `cq3dar-gv` (2026-07-07), `sex-eshop` (2026-07-12), `9973f3-3` /
-> Wanok (2026-07-25). `app/lib/billing/plans.ts:81` declares `monthly: 49` and
-> `:90` declares `annual: 390`. Neither figure has ever matched a real charge.
-> Observed price history: **$39 → $29** somewhere between 2026-06-17
-> (`hbhkfy-gy` @ 39.0) and 2026-07-07 (`cq3dar-gv` @ 29.0). The only annual
-> charge ever seen is `"Monitoring Annual"` @ **$290.00** (`ygxib5-9s`,
-> 2026-05-18), not $390.
+> **Price constants were CORRECTED in PR #14 (merged 2026-07-28 13:15 UTC).**
+> `plans.ts` now declares `monitoring_monthly.monthly = 29` and
+> `monitoring_annual.annual = 290`, matching every real charge in the Partner API:
+> `cq3dar-gv` (2026-07-07), `sex-eshop` (2026-07-12), `9973f3-3` / Wanok
+> (2026-07-25), all $29.00. Observed price history: **$39 → $29** between
+> 2026-06-17 (`hbhkfy-gy` @ 39.0) and 2026-07-07. The only annual charge ever seen
+> is `"Monitoring Annual"` @ **$290.00** (`ygxib5-9s`, 2026-05-18).
 >
-> **Why this is not cosmetic:** `cycleFromChargeAmount()` (`plans.ts:196-208`)
-> resolves billing_cycle by matching the charge amount against
-> `TIER_PRICE_POINTS`. With monthly pinned at 49 and annual at 390, a real
-> $29 charge matches NEITHER and the function returns `null`; the caller then
-> falls back to `PLAN_NAME_TO_CYCLE`, which maps bare `"Monitoring"` → monthly.
-> So monthly happens to resolve correctly **by accident**. A future annual
-> subscriber on the collapsed single-name plan would resolve to `monthly`,
-> silently, because the amount can no longer discriminate. Fix the constants
-> before selling annual again.
+> **Why it mattered:** `cycleFromChargeAmount()` resolves billing_cycle by matching
+> the charge amount against `TIER_PRICE_POINTS`. While monthly was pinned at 49 and
+> annual at 390, a real $29 charge matched NEITHER, the function returned `null`,
+> and the caller fell back to `PLAN_NAME_TO_CYCLE` — so monthly resolved correctly
+> only **by accident** and a future annual subscriber would have silently resolved
+> to `monthly`. Now the amounts discriminate correctly.
 >
-> **`sex-eshop` is NOT grandfathered** — they pay $29.00, the same as the current
-> price. There is no grandfathered paying merchant: every `pro`/`shield`-tier row
-> is gone (see the tier distribution below).
+> **This warning block was stale for 25 hours after the fix landed and caused a
+> false report on 2026-07-29** — the code was read as broken because this file said
+> so. When you fix something described here as broken, update the description in
+> the same commit.
+>
+> **`sex-eshop` is NOT grandfathered** — they pay $29.00, the current price. There
+> is no grandfathered paying merchant: every `pro`/`shield`-tier row is gone (see
+> the tier distribution below).
 
 **Lifetime revenue, Partner API `transactions`, 2026-07-28: $300.00 gross / $290.24 net across 10 transactions.**
 - **3 × `AppOneTimeSale` @ $29.00 → $28.16 net each = $84.48.** This is the "all-time one-time charges" figure in the Partner Dashboard: `nngf4r-d0` (2026-04-15), `bybaanoo` (2026-04-25), `tbgypsysoul` (2026-05-04). They date from the one-time-$29 billing model shipped in `374dc39` (2026-03-31) and removed by the Managed Pricing migration `68bf618` (2026-05-09). **Nothing in the current codebase can create a one-time charge** — do not look for a bug here. This also explains why those merchants carry paid-feature residue (`generated_policies`, `schema_enrichments`) while sitting at `tier='free'`.
@@ -386,9 +386,9 @@ Atomic per-type policy regeneration cap. `RETURNS TABLE(claimed BOOLEAN)`. A sin
 
 See the §11 doctrine bullet "Churn must never be stored only on the `merchants` row" and the header of `supabase/migrations/20260728120000_install_events.sql`. Short version: all 7 pre-existing child tables declare `REFERENCES merchants(id) ON DELETE CASCADE`, which is precisely why not one of them survived to record any churn. A future "schema tidy-up" migration adding an FK to `install_events` would silently destroy the history on the next redact. The standing check is `SELECT conname FROM pg_constraint WHERE conrelid='install_events'::regclass AND contype='f'` — it must always return zero rows.
 
-### §4a. 🔴 OPEN BUG: `app_subscriptions/update` demotes on a SUPERSEDED subscription id
+### §4a. ✅ FIXED (2026-07-28 / 2026-07-29): `app_subscriptions/update` demoted on a SUPERSEDED subscription id
 
-Found 2026-07-28 investigating a paying merchant who lost entitlement. **Not yet fixed.**
+Found 2026-07-28 investigating a paying merchant who lost entitlement. **Both defects are now fixed** — the subscription-identity guard in PR #14, the FROZEN handling in PR #14 plus the 2026-07-29 consolidation. Kept in full because the failure mode is instructive and the forensic signature below is still the only way to detect a historical demotion.
 
 `webhooks.app_subscriptions.update.tsx:136-147` applies its demote-to-free payload with
 `.eq("shopify_domain", shop)` and **no check that the payload's `admin_graphql_api_id` matches the
@@ -407,12 +407,20 @@ one **in the same second**. Partner API events for `9973f3-3.myshopify.com` (Wan
 The CANCELED for the superseded **Free** charge processed last and demoted them at
 `scans_reset_at = 12:39:22.64`. There is no cancellation for the Monitoring charge — it is still active.
 
-**Second defect in the same handler: `FROZEN` is in `TERMINAL_STATUSES` (`:76-81`).** A freeze is a
-recoverable payment/shop state, not a cancellation, and Shopify emits `SUBSCRIPTION_CHARGE_UNFROZEN`
-when it clears — which this handler does not handle at all. Confirmed victims: `0yzffh-vw` (FROZEN
-2026-06-02, never unfrozen, demoted) and `ygxib5-9s` (FROZEN 2026-06-15 on a $290 Monitoring Annual,
-demoted). `sbnjen-ee` was demoted on FROZEN 2026-06-08 and silently under-entitled until UNFROZEN on
-2026-06-12.
+**Second defect — FROZEN treated as terminal — is FIXED.** PR #14 (2026-07-28)
+removed `FROZEN` from the webhook handler's terminal set. On **2026-07-29** the set
+was consolidated into a single source, `TERMINAL_SUBSCRIPTION_STATUSES` +
+`isTerminalSubscriptionStatus()` in `app/lib/billing/plans.ts`, because PR #14 had
+fixed only ONE of TWO copies: `api.cron.reconcile-subscriptions.ts` kept `"frozen"`
+in its own local set, so for a day the daily cron demoted on a freeze while the
+webhook correctly ignored it — and `tests/reconcile-subscriptions.test.ts` actively
+asserted that wrong behaviour. Neither caller keeps a local copy now, and a test
+pins that. There is no `UNFROZEN` status to handle: `partner-api.server.ts` maps
+`SUBSCRIPTION_CHARGE_UNFROZEN → "active"`, so a recovery re-entitles through the
+ordinary active path. Historical victims: `0yzffh-vw` (FROZEN 2026-06-02, never
+unfrozen, demoted), `ygxib5-9s` (FROZEN 2026-06-15 on a $290 Monitoring Annual,
+demoted), `sbnjen-ee` (FROZEN 2026-06-08 → UNFROZEN 2026-06-12, under-entitled 4
+days).
 
 **The forensic signature of a demotion** — useful because nothing logs it: `scans_reset_at` materially
 later than `created_at`. Only two code paths write that column (this handler and

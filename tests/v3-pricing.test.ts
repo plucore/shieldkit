@@ -258,16 +258,27 @@ describe("app_subscriptions/update must not destroy a live entitlement", () => {
     .join("\n");
 
   it("FROZEN is NOT terminal — a freeze is recoverable, not a cancellation", () => {
-    expect(code).toMatch(
-      /TERMINAL_STATUSES\s*=\s*new Set\(\[\s*"CANCELLED",\s*"EXPIRED",\s*"DECLINED",?\s*\]\)/,
+    // The set moved to plans.ts on 2026-07-29 and is now SHARED with
+    // reconcile-subscriptions. This test used to pin the webhook's local copy,
+    // which is precisely why the cron's second copy kept "frozen" for a day
+    // without anything failing. Assert against the single source.
+    const plans = readFileSync(
+      join(__dirname, "..", "app", "lib", "billing", "plans.ts"),
+      "utf8",
     );
-    expect(code).not.toMatch(/TERMINAL_STATUSES[\s\S]{0,120}"FROZEN"/);
+    const m = plans.match(
+      /export const TERMINAL_SUBSCRIPTION_STATUSES: readonly string\[\] = \[([\s\S]*?)\];/,
+    );
+    expect(m).not.toBeNull();
+    expect(m![1]).not.toMatch(/frozen/i);
+    expect(code).not.toMatch(/const TERMINAL_STATUSES/);
+    expect(code).toMatch(/isTerminalSubscriptionStatus\(status\)/);
   });
 
   it("FROZEN is handled explicitly and leaves entitlement intact", () => {
     // Must short-circuit BEFORE the demote block, not fall through to it.
     const frozenIdx = code.indexOf('status === "FROZEN"');
-    const demoteIdx = code.indexOf("TERMINAL_STATUSES.has(status)");
+    const demoteIdx = code.indexOf("isTerminalSubscriptionStatus(status)");
     expect(frozenIdx).toBeGreaterThan(-1);
     expect(demoteIdx).toBeGreaterThan(-1);
     expect(frozenIdx).toBeLessThan(demoteIdx);
@@ -279,14 +290,14 @@ describe("app_subscriptions/update must not destroy a live entitlement", () => {
     // ACTIVE branch unconditionally restores the paid tier and unlimited scans.
     const activeIdx = code.indexOf('status === "ACTIVE"');
     expect(activeIdx).toBeGreaterThan(-1);
-    const activeBlock = code.slice(activeIdx, code.indexOf("TERMINAL_STATUSES.has(status)"));
+    const activeBlock = code.slice(activeIdx, code.indexOf("isTerminalSubscriptionStatus(status)"));
     expect(activeBlock).toMatch(/scans_remaining:\s*null/);
     expect(activeBlock).toMatch(/shopify_subscription_id:\s*admin_graphql_api_id/);
     expect(activeBlock).toMatch(/\btier\b/);
   });
 
   it("demote is gated on the event matching the TRACKED subscription id", () => {
-    const demoteIdx = code.indexOf("TERMINAL_STATUSES.has(status)");
+    const demoteIdx = code.indexOf("isTerminalSubscriptionStatus(status)");
     const block = code.slice(demoteIdx);
     // Reads the stored id...
     expect(block).toMatch(/select\(\s*["'][^"']*shopify_subscription_id/);
@@ -300,7 +311,7 @@ describe("app_subscriptions/update must not destroy a live entitlement", () => {
   });
 
   it("fails CLOSED — an unreadable merchant row must not trigger a demote", () => {
-    const block = code.slice(code.indexOf("TERMINAL_STATUSES.has(status)"));
+    const block = code.slice(code.indexOf("isTerminalSubscriptionStatus(status)"));
     expect(block).toMatch(/readErr/);
     expect(block.indexOf("readErr")).toBeLessThan(block.indexOf('tier: "free"'));
   });

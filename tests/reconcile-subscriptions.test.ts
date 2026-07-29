@@ -67,12 +67,15 @@ describe("api.cron.reconcile-subscriptions.ts — file shape", () => {
     expect(src).toContain("getActiveSubscriptionByChargeId");
   });
 
-  it("treats cancelled / expired / frozen / declined as terminal", () => {
-    // Must match the same set the webhook treats as terminal.
-    expect(src).toContain('"cancelled"');
-    expect(src).toContain('"expired"');
-    expect(src).toContain('"frozen"');
-    expect(src).toContain('"declined"');
+  it("uses the SHARED terminal-status set, not its own copy", () => {
+    // This test previously asserted the cron treated FROZEN as terminal — it
+    // locked in the bug. PR #14 removed FROZEN from the webhook's copy and left
+    // the cron's copy intact, so for a day the two paths disagreed about the same
+    // Shopify event: the webhook correctly ignored a freeze while this cron
+    // demoted on it. There is now ONE set in plans.ts and no local copy here.
+    expect(src).toMatch(/isTerminalSubscriptionStatus/);
+    expect(src).not.toMatch(/const TERMINAL_STATUSES/);
+    expect(src).not.toMatch(/"frozen"/);
   });
 
   it("never demotes on status='unknown' — fail-safe is documented and enforced", () => {
@@ -433,5 +436,53 @@ describe("reconcile-subscriptions action — runtime behavior", () => {
     };
     expect(body.checked).toBe(0);
     expect(body.demoted).toBe(0);
+  });
+});
+
+describe("terminal subscription statuses live in ONE place", () => {
+  const plans = readFileSync(join(__dirname, "..", "app", "lib", "billing", "plans.ts"), "utf8");
+  const webhook = readFileSync(
+    join(__dirname, "..", "app", "routes", "webhooks.app_subscriptions.update.tsx"),
+    "utf8",
+  );
+  const cron = readFileSync(
+    join(__dirname, "..", "app", "routes", "api.cron.reconcile-subscriptions.ts"),
+    "utf8",
+  );
+
+  it("FROZEN is NOT terminal, in the one set that exists", () => {
+    // A freeze is recoverable. Treating it as terminal permanently stripped three
+    // paying merchants (0yzffh-vw, ygxib5-9s, sbnjen-ee). Fail toward access.
+    const m = plans.match(
+      /export const TERMINAL_SUBSCRIPTION_STATUSES: readonly string\[\] = \[([\s\S]*?)\];/,
+    );
+    expect(m).not.toBeNull();
+    const body = m![1];
+    expect(body).toMatch(/"cancelled"/);
+    expect(body).toMatch(/"expired"/);
+    expect(body).toMatch(/"declined"/);
+    expect(body).not.toMatch(/frozen/i);
+  });
+
+  it("neither caller keeps a local copy that could drift", () => {
+    for (const [name, src] of [["webhook", webhook], ["cron", cron]] as const) {
+      expect(src, `${name} still declares its own set`).not.toMatch(
+        /const TERMINAL_STATUSES\s*=/,
+      );
+      expect(src, `${name} does not use the shared helper`).toMatch(
+        /isTerminalSubscriptionStatus\(/,
+      );
+    }
+  });
+
+  it("the helper is case-insensitive, because the two callers pass different casing", () => {
+    // Shopify's webhook sends "CANCELLED"; the Partner API mapping yields
+    // "cancelled". A case-sensitive shared set would silently stop demoting.
+    expect(plans).toMatch(/status\.toLowerCase\(\)/);
+  });
+
+  it("the prohibition is recorded where someone would re-add it", () => {
+    expect(plans).toMatch(/FROZEN IS NOT TERMINAL AND MUST NOT BE ADDED/);
+    expect(plans).toMatch(/SUBSCRIPTION_CHARGE_UNFROZEN/);
   });
 });

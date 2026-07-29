@@ -36,7 +36,10 @@
 
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { supabase } from "../supabase.server";
-import { PAID_TIERS } from "../lib/billing/plans";
+import {
+  PAID_TIERS,
+  isTerminalSubscriptionStatus,
+} from "../lib/billing/plans";
 import { getActiveSubscriptionByChargeId } from "../lib/billing/partner-api.server";
 import {
   ensureProductWebhooks,
@@ -44,12 +47,6 @@ import {
 } from "../lib/webhooks/product-webhooks.server";
 import { sentry } from "../lib/sentry.server";
 
-const TERMINAL_STATUSES = new Set([
-  "cancelled",
-  "expired",
-  "frozen",
-  "declined",
-]);
 
 function json<T>(body: T, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -314,7 +311,7 @@ async function run(request: Request) {
       continue;
     }
 
-    if (TERMINAL_STATUSES.has(sub.status)) {
+    if (isTerminalSubscriptionStatus(sub.status)) {
       // Mirror the APP_SUBSCRIPTIONS_UPDATE webhook's terminal-status reset.
       const { error: updateError } = await supabase
         .from("merchants")

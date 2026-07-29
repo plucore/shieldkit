@@ -284,6 +284,50 @@ export function cycleFromChargeAmount(
  * bulk GTIN/MPN/brand fill, ongoing per-product enrichment, llms.txt,
  * AI bot allow/block toggle, Organization/WebSite JSON-LD theme blocks.
  */
+/**
+ * The ONLY statuses that genuinely end an entitlement.
+ *
+ * ONE SET, TWO CALLERS, ON PURPOSE. This used to be duplicated:
+ * `webhooks.app_subscriptions.update.tsx` compared against Shopify's webhook
+ * status (uppercase) and `api.cron.reconcile-subscriptions.ts` against the
+ * Partner API's mapped status (lowercase). PR #14 removed FROZEN from the webhook
+ * copy and left it in the cron copy, so the two paths disagreed about the same
+ * Shopify event for a day: the webhook correctly ignored a freeze while the daily
+ * cron demoted on it. Exactly the drifted-copies failure in §11a of claude.md,
+ * in the billing layer.
+ *
+ * FROZEN IS NOT TERMINAL AND MUST NOT BE ADDED. A freeze is RECOVERABLE —
+ * Shopify freezes an app subscription when the shop itself is frozen or a payment
+ * fails, and emits an unfreeze when it clears. Treating it as terminal
+ * permanently stripped paying merchants:
+ *   0yzffh-vw  FROZEN 2026-06-02, $39 Shield Max          — never unfrozen, demoted
+ *   ygxib5-9s  FROZEN 2026-06-15, $290 Monitoring Annual  — never unfrozen, demoted
+ *   sbnjen-ee  FROZEN 2026-06-08 → UNFROZEN 2026-06-12    — under-entitled 4 days
+ * A frozen shop cannot use the app anyway, so leaving the entitlement in place
+ * costs nothing and cannot be abused; wrongly revoking it costs a customer. Fail
+ * toward access.
+ *
+ * There is no UNFROZEN status to handle: partner-api.server.ts maps
+ * SUBSCRIPTION_CHARGE_UNFROZEN → "active", so a recovery re-entitles through the
+ * ordinary active path.
+ */
+export const TERMINAL_SUBSCRIPTION_STATUSES: readonly string[] = [
+  "cancelled",
+  "expired",
+  "declined",
+];
+
+/**
+ * Case-insensitive so both callers can pass their own casing — Shopify's webhook
+ * sends "CANCELLED", the Partner API mapping yields "cancelled".
+ */
+export function isTerminalSubscriptionStatus(
+  status: string | null | undefined,
+): boolean {
+  if (!status) return false;
+  return TERMINAL_SUBSCRIPTION_STATUSES.includes(status.toLowerCase());
+}
+
 export function hasPaidAccess(tier: string | null | undefined): boolean {
   return tier === "monitoring" || tier === "recovery" || tier === "pro";
 }

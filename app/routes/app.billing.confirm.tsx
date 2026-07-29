@@ -32,6 +32,7 @@ import {
   buildAppSubscriptionGid,
   getActiveSubscriptionByChargeId,
 } from "../lib/billing/partner-api.server";
+import { isTerminalSubscriptionStatus } from "../lib/billing/plans";
 import { ensureProductWebhooks } from "../lib/webhooks/product-webhooks.server";
 import { sentry } from "../lib/sentry.server";
 import { captureEvent } from "../lib/analytics.server";
@@ -184,11 +185,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   }
 
   // ── Explicit terminal cancellation → cancelled banner ────────────────────
-  if (
-    sub.status === "cancelled" ||
-    sub.status === "declined" ||
-    sub.status === "expired"
-  ) {
+  //
+  // Routed through the shared helper. This was the THIRD open-coded copy of the
+  // terminal-status set; the 2026-07-29 consolidation converted the webhook and
+  // the cron and missed this one. It happened to agree — but that is exactly
+  // what the previous copy did until PR #14 changed one and not the other, and
+  // for a day the two paths disagreed about the same Shopify event. A copy that
+  // agrees today is a copy that will disagree tomorrow.
+  if (isTerminalSubscriptionStatus(sub.status)) {
     return redirect("/app?billing=cancelled");
   }
 

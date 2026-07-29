@@ -102,8 +102,14 @@ const MULTI_SHOP_BUDGET_MS = 22_000;
  * Per-shop budget when the caller named a single shop. Nothing else competes for
  * the invocation, so a large catalog can complete in one pass: sex-eshop's 31
  * pages measured ~44s at Vercel's observed 1.42s/page.
+ *
+ * Bounded by ROUTE_BUDGET_MS because it is Math.min'd against the remaining
+ * route budget below. It was 50_000 against a 48_000 route budget, so the value
+ * was unreachable and quietly meant 48_000 minus whatever had already elapsed —
+ * a constant that documented an intent the code could not honour. Expressed as
+ * the derivation instead of a literal, so the two cannot diverge again.
  */
-const SINGLE_SHOP_BUDGET_MS = 50_000;
+const SINGLE_SHOP_BUDGET_MS = ROUTE_BUDGET_MS;
 
 /**
  * A cycle that has not completed within this window is restarted from the

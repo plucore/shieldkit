@@ -96,18 +96,35 @@ printf "  enrichment_webhook_log rows   %8s\n" "$LOGROWS"
 echo "─────────────────────────────────────────────────────────────"
 
 # ── thresholds ───────────────────────────────────────────────────────────────
-# Drain capacity after PR #12 is ~500 rows/day (BATCH_SIZE 100 x 5 runs/day,
-# bounded by a 45s wall-clock guard and 5-way concurrency).
+# DERIVED FROM THE CODE, not from memory. These were hand-computed from
+# BATCH_SIZE=100 and never updated when the constant went to 150 in the same PR
+# range, so the alarm fired ~50% early and recommended work that was already
+# done. A shell script cannot import a TS constant, so it reads it — and says so
+# loudly if it cannot, rather than silently falling back to a stale guess.
+DRAINER_TS="$(dirname "$0")/../app/routes/api.cron.process-scan-triggers.ts"
+BATCH_SIZE="$(grep -oE 'const BATCH_SIZE = [0-9]+' "$DRAINER_TS" | grep -oE '[0-9]+' || true)"
+if [ -z "$BATCH_SIZE" ]; then
+  echo "  WARN — could not read BATCH_SIZE from ${DRAINER_TS}."
+  echo "         Drain-capacity thresholds below are NOT trustworthy; fix the"
+  echo "         grep rather than guessing a number."
+  BATCH_SIZE=0
+fi
+# GitHub Actions runs the drainer every 6h (4/day) plus one Vercel cron = 5 runs.
+RUNS_PER_DAY=5
+DRAIN_CEILING=$(( BATCH_SIZE * RUNS_PER_DAY ))
+ACT_AT=$(( DRAIN_CEILING * 80 / 100 ))
+WATCH_AT=$(( DRAIN_CEILING * 60 / 100 ))
+
+echo "  drain ceiling (derived)       ${DRAIN_CEILING}/day  (BATCH_SIZE ${BATCH_SIZE} x ${RUNS_PER_DAY} runs)"
+
 ALERT=0
-if [ "$INBOUND_PER_DAY" -ge 400 ]; then
-  echo "  ACT NOW — inbound ${INBOUND_PER_DAY}/day is at or above 400."
-  echo "    You are within ~20% of the ~500/day drain ceiling. No Hobby-legal"
-  echo "    cron cadence fixes this. Do the catalog-reconcile migration"
-  echo "    (replace products/update with a daily reconcile) NOW, not later."
+if [ "$DRAIN_CEILING" -gt 0 ] && [ "$INBOUND_PER_DAY" -ge "$ACT_AT" ]; then
+  echo "  ACT NOW — inbound ${INBOUND_PER_DAY}/day is at or above ${ACT_AT}."
+  echo "    You are within ~20% of the ~${DRAIN_CEILING}/day drain ceiling. No"
+  echo "    Hobby-legal cron cadence fixes this."
   ALERT=1
-elif [ "$INBOUND_PER_DAY" -ge 300 ]; then
+elif [ "$DRAIN_CEILING" -gt 0 ] && [ "$INBOUND_PER_DAY" -ge "$WATCH_AT" ]; then
   echo "  WATCH — inbound ${INBOUND_PER_DAY}/day. Headroom is shrinking."
-  echo "    Start the catalog-reconcile build; you have weeks, not days."
   ALERT=1
 fi
 if [ "$BACKLOG" -ge 2000 ]; then

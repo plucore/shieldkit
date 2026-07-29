@@ -31,7 +31,10 @@
 import "dotenv/config";
 import { supabase } from "../app/supabase.server";
 import { PAID_TIERS } from "../app/lib/billing/plans";
-import { ensureProductWebhooks } from "../app/lib/webhooks/product-webhooks.server";
+import {
+  DESIRED_TOPICS,
+  ensureProductWebhooks,
+} from "../app/lib/webhooks/product-webhooks.server";
 
 interface MerchantRow {
   id: string;
@@ -108,11 +111,17 @@ async function main() {
   console.log("─".repeat(96));
 
   const withErrors = report.filter((r) => r.errors.length).length;
+  // Derived from DESIRED_TOPICS, never a literal. This read `>= 2` and the
+  // message said "BOTH topics", both of which stopped being true the moment
+  // PRODUCTS_UPDATE was removed from DESIRED_TOPICS on 2026-07-29 — a fully
+  // correct convergence then reported as 0/N provisioned.
+  const wantedCount = DESIRED_TOPICS.length;
   const fullyCovered = report.filter(
-    (r) => r.created.length + r.existing.length >= 2 && !r.errors.length,
+    (r) => r.created.length + r.existing.length >= wantedCount && !r.errors.length,
   ).length;
   console.log(
-    `\nDone. ${fullyCovered}/${report.length} shops have BOTH topics provisioned; ${withErrors} with errors.`,
+    `\nDone. ${fullyCovered}/${report.length} shops have all ${wantedCount} desired topic(s) ` +
+      `(${DESIRED_TOPICS.join(", ")}) provisioned; ${withErrors} with errors.`,
   );
   if (withErrors > 0) {
     console.log(

@@ -594,7 +594,18 @@ describe("drainer operator knobs (Block 4 burn-down)", () => {
     expect(src).toMatch(/const BATCH_SIZE = 150/);
     expect(src).toMatch(/const ENRICH_CONCURRENCY = 5/);
     expect(src).toMatch(/clamp\(params\.get\("batch"\), BATCH_SIZE, 1, 1000\)/);
-    expect(src).toMatch(/clamp\(params\.get\("concurrency"\), ENRICH_CONCURRENCY, 1, 24\)/);
+  });
+
+  it("the concurrency ceiling matches the MEASUREMENT, not the old guess", () => {
+    // Was a bare literal 24, three times the sustainable ceiling. Production
+    // 2026-07-28: concurrency 10 -> 384 succeeded with zero deferrals;
+    // 16 -> 278 succeeded plus 28 DEFERRED. The "24 is linear" reading came from
+    // the broken success counters, where failures looked like speed. A bound of
+    // 24 invites an operator to burn a paying merchant's rate limit during a
+    // burn-down and read the throttles as throughput.
+    expect(src).toMatch(/const MAX_ENRICH_CONCURRENCY = 10/);
+    expect(src).toMatch(/MAX_ENRICH_CONCURRENCY,?\s*\)/);
+    expect(src).not.toMatch(/ENRICH_CONCURRENCY, 1, 24\)/);
   });
 
   it("batch is capped at 1000 — PostgREST silently caps the response there", () => {

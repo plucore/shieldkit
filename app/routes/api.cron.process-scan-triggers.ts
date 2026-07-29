@@ -2,7 +2,7 @@
  * app/routes/api.cron.process-scan-triggers.ts
  *
  * Drains pending_scan_triggers in a small bounded batch per invocation. The
- * Vercel Hobby tier function ceiling is 60s; BATCH_SIZE=10 enrichments (~2s
+ * Vercel Hobby tier function ceiling is 60s; BATCH_SIZE enrichments (~2s
  * each) keep us comfortably under it.
  *
  * Queue-head safety (2026-06-26): the drain SELECT joins merchants with an
@@ -101,6 +101,21 @@ const TIME_BUDGET_MS = 45_000;
 const ENRICH_CONCURRENCY = 5;
 
 /**
+ * Hard ceiling for the `?concurrency=` operator override.
+ *
+ * Was 24, which predated the measurement. Production, 2026-07-28:
+ *   concurrency  5 -> 183 succeeded / 46s
+ *   concurrency 10 -> 384 succeeded / 47s, zero deferrals
+ *   concurrency 16 -> 278 succeeded + 28 DEFERRED
+ * So 10 is the sustainable ceiling and 16 is already degrading. (The earlier
+ * "24 is linear" reading came from the broken success counters, where failures
+ * looked like speed — see §11a site 3.) A bound that permits 24 invites an
+ * operator to burn a paying merchant's rate limit during a burn-down and read
+ * the resulting throttles as throughput.
+ */
+const MAX_ENRICH_CONCURRENCY = 10;
+
+/**
  * How many times a product may be re-enqueued after an "unavailable" result
  * before we stop and report it. Bounds the retry so a permanently-broken product
  * cannot cycle forever, while a transient throttle still gets three chances
@@ -173,7 +188,12 @@ async function run(request: Request) {
     return Number.isFinite(n) && n >= min ? Math.min(Math.floor(n), max) : dflt;
   };
   const batchSize = clamp(params.get("batch"), BATCH_SIZE, 1, 1000);
-  const concurrency = clamp(params.get("concurrency"), ENRICH_CONCURRENCY, 1, 24);
+  const concurrency = clamp(
+    params.get("concurrency"),
+    ENRICH_CONCURRENCY,
+    1,
+    MAX_ENRICH_CONCURRENCY,
+  );
   const timeBudgetMs = clamp(params.get("budget_ms"), TIME_BUDGET_MS, 5_000, 50_000);
 
   const cronSecret = process.env.CRON_SECRET;

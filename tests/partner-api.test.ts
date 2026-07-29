@@ -161,9 +161,19 @@ describe("app.billing.confirm.tsx — Partner API primary path", () => {
     // status, including `unknown` (which means "Shopify hasn't propagated
     // events yet"). Post-fix, only explicit cancelled / declined / expired
     // hits that redirect path.
-    expect(src).toMatch(/sub\.status === "cancelled"/);
-    expect(src).toMatch(/sub\.status === "declined"/);
-    expect(src).toMatch(/sub\.status === "expired"/);
+    //
+    // Now routed through the SHARED helper rather than a third open-coded copy
+    // of the status set. Assert the helper is used and that no local copy has
+    // crept back — the literal-comparison form is what drifted last time.
+    expect(src).toMatch(/isTerminalSubscriptionStatus\(sub\.status\)/);
+    expect(src).not.toMatch(/sub\.status === "cancelled"/);
+    expect(src).not.toMatch(/const TERMINAL_STATUSES/);
+    // And the shared set is still the right one.
+    const plans = read("app", "lib", "billing", "plans.ts");
+    for (const s of ["cancelled", "declined", "expired"]) {
+      expect(plans).toMatch(new RegExp(`"${s}"`));
+    }
+    expect(plans).not.toMatch(/TERMINAL_SUBSCRIPTION_STATUSES[\s\S]{0,120}frozen/i);
   });
 
   it("emits Sentry breadcrumbs at each Partner API branch", () => {

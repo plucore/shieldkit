@@ -23,6 +23,7 @@ import { load as cheerioLoad } from "cheerio";
 import dns from "node:dns/promises";
 import {
   detectContactSignals,
+  detectPasswordGate,
   detectPaymentSignals,
   evaluateStructuredDataPages,
 } from "./shared/html-detectors.server";
@@ -590,29 +591,13 @@ function checkStorefrontAccessibility(
   homepageStatus: number | null,
   homepageHtml: string | null
 ): PublicCheckResult {
-  let passwordProtected = false;
-  const signals: string[] = [];
-  if (homepageStatus === 401) {
-    passwordProtected = true;
-    signals.push("HTTP 401");
-  }
-  if (homepageHtml) {
-    const $ = cheerioLoad(homepageHtml);
-    const bodyClass = ($("body").attr("class") ?? "").toLowerCase();
-    const title = $("title").text().toLowerCase();
-    if (bodyClass.includes("template-password")) {
-      passwordProtected = true;
-      signals.push('body class "template-password"');
-    }
-    if (title.includes("enter using password") || title.includes("password required")) {
-      passwordProtected = true;
-      signals.push("password page title");
-    }
-    if ($("form[action='/password']").length > 0) {
-      passwordProtected = true;
-      signals.push("password form");
-    }
-  }
+  // Shared with the authenticated check. This copy was MISSING the
+  // #shopify-challenge-page signal the other two carried, so a store behind
+  // Shopify's challenge page was reported as accessible here and gated there.
+  const { passwordProtected, signals } = detectPasswordGate(
+    homepageHtml,
+    homepageStatus,
+  );
   if (passwordProtected) {
     return {
       check_name: "storefront_accessibility",

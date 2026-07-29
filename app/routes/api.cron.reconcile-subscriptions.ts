@@ -12,11 +12,18 @@
  * self-heal loader (app._index.tsx) never runs — so the DB keeps showing
  * them as a paid tier and they get paid features for free.
  *
- * This job closes that gap. For every active paid merchant we query the
- * Partner API for the current subscription status. If Shopify says the
- * subscription is in a terminal state (cancelled / expired / frozen /
- * declined) we demote the merchant to free, mirroring exactly what the
- * APP_SUBSCRIPTIONS_UPDATE webhook used to do on the same statuses.
+ * This job closes that gap. For every merchant carrying a charge id we query
+ * the Partner API for the current subscription status. If Shopify says the
+ * subscription is in a terminal state (cancelled / expired / declined) we
+ * demote the merchant to free, using the SAME shared predicate the
+ * APP_SUBSCRIPTIONS_UPDATE webhook uses — isTerminalSubscriptionStatus() in
+ * plans.ts.
+ *
+ * FROZEN IS NOT TERMINAL. This header listed it as one for a day after the
+ * behaviour changed, which is the same stale-description mechanism that caused
+ * a false report on 2026-07-29. A freeze is recoverable and demoting on it
+ * permanently stripped three paying merchants. When you change behaviour,
+ * change the prose describing it in the SAME commit.
  *
  * CRITICAL FAIL-SAFE: if the Partner API call fails or returns
  * `status: "unknown"` (network error, GraphQL error, no matching events,

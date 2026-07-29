@@ -926,8 +926,22 @@ export async function runPublicScan(
         // Pass availability THROUGH rather than collapsing it to null. `absent`
         // (404) and `unavailable` (429/503/timeout) are different facts and the
         // check has to be able to tell them apart.
-        { html: privacyFetch.page?.html ?? null, availability: privacyFetch.availability },
-        { html: termsFetch.page?.html ?? null, availability: termsFetch.availability }
+        //
+        // But the HTML is still gated on `ok`. This briefly read
+        // `privacyFetch.page?.html ?? null`, which on a 404 hands over the
+        // STORE'S 404 PAGE — non-empty markup that stripHtml() reads as a
+        // present policy. Caught in production against example.com, which 404s
+        // every policy path and was reported as having both policies. That is
+        // the mirror image of the bug being fixed: a real finding hidden
+        // instead of a fake one invented, and just as wrong.
+        {
+          html: privacyFetch.availability === "ok" ? privacyFetch.page!.html : null,
+          availability: privacyFetch.availability,
+        },
+        {
+          html: termsFetch.availability === "ok" ? termsFetch.page!.html : null,
+          availability: termsFetch.availability,
+        }
       )
     ),
     safeCheck("checkout_transparency", () =>

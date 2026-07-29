@@ -36,6 +36,17 @@ const PRIVACY_BODY =
 const TERMS_BODY =
   "<html><body><h1>Terms of Service</h1><p>These terms govern your use of the store.</p></body></html>";
 const GENERIC = "<html><body><p>Shop</p></body></html>";
+/**
+ * A real 404 has a BODY. The first version of these tests returned an empty
+ * string for the 404 case, which is what let a regression through: the call site
+ * briefly passed `page?.html` unconditionally, so on a 404 the check received
+ * the store's 404 PAGE and stripHtml() read it as a present policy. With an
+ * empty fixture body the assertion still passed. Caught only in production,
+ * against example.com. Fixtures must be as unhelpful as reality.
+ */
+const NOT_FOUND_PAGE =
+  "<html><head><title>404 Not Found</title></head><body><h1>Page not found</h1>" +
+  "<p>The page you were looking for does not exist. Continue shopping.</p></body></html>";
 
 /**
  * @param privacyStatus     status the privacy policy URL answers with.
@@ -53,7 +64,9 @@ function stubNetwork(privacyStatus: number, productPageStatus: number | null = n
       json: async () => JSON.parse(body),
     });
     if (url.includes("/policies/privacy-policy")) {
-      return reply(privacyStatus, privacyStatus === 200 ? PRIVACY_BODY : "");
+      if (privacyStatus === 200) return reply(200, PRIVACY_BODY);
+      // 404 -> a real not-found PAGE; 5xx -> an error body. Never empty.
+      return reply(privacyStatus, privacyStatus === 404 ? NOT_FOUND_PAGE : "<html><body>Service Unavailable</body></html>");
     }
     if (url.includes("/policies/terms-of-service")) return reply(200, TERMS_BODY);
     if (url.includes("/policies/")) return reply(200, GENERIC);

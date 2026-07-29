@@ -6,6 +6,8 @@
  */
 
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   checkContactInformation,
   checkCheckoutTransparency,
@@ -133,5 +135,43 @@ describe("public structured_data_json_ld — offers shapes + INFO when absent", 
     expect(r.passed).toBe(true);
     expect(r.severity).toBe("info");
     expect(r.severity).not.toBe("warning");
+  });
+});
+
+/**
+ * The CLI scanner (scripts/outbound-scanner.ts) is a DELIBERATE self-contained
+ * mirror of app/lib/checks/shared/html-detectors.server.ts — it must run
+ * standalone via `node --experimental-strip-types`, which cannot resolve the
+ * app's extensionless imports, so it cannot import the shared module.
+ *
+ * "Deliberate copy" is not "safe copy". The ProductGroup / hasVariant fix landed
+ * in the shared module on 2026-07-28, the CLI was edited AFTER that, and it
+ * still carried the pre-fix logic — so the CLI reported "No Product JSON-LD
+ * schema found" on exactly the stores the app had just learned to handle. The
+ * header comment claiming the shared module is the source of truth did not stop
+ * the drift, because nothing checked.
+ *
+ * Content assertions, unavoidably: the CLI cannot be imported. They are worth
+ * having anyway — they are the only thing standing between the two copies.
+ */
+describe("the CLI detector mirror stays in sync with the shared module", () => {
+  const cli = readFileSync(
+    join(process.cwd(), "scripts", "outbound-scanner.ts"),
+    "utf8",
+  );
+
+  it("matches ProductGroup, not only Product", () => {
+    expect(cli).toMatch(/types\.includes\("ProductGroup"\)/);
+    expect(cli).toMatch(/types\.includes\("Product"\)/);
+    // The pre-fix predicate must be gone, not merely supplemented.
+    expect(cli).not.toMatch(/t === "Product" \|\| \(Array\.isArray\(t\) && t\.includes\("Product"\)\)/);
+  });
+
+  it("merges hasVariant levels before deciding a field is missing", () => {
+    expect(cli).toMatch(/hasVariant/);
+    expect(cli).toMatch(/presentSomewhere/);
+    // Validating only the top level is what produced "missing image, missing
+    // offers" on a complete ProductGroup.
+    expect(cli).not.toMatch(/for \(const field of \["name", "image", "description"\]\) \{\s*if \(!p\[field\]\) missing\.push\(field\);/);
   });
 });

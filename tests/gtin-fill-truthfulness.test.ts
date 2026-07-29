@@ -130,4 +130,14 @@ describe("the 500-product cap is surfaced, not silent", () => {
     // left thinking they have to keep clicking.
     expect(src).toMatch(/automatically in the background/);
   });
+
+  it('never tells the merchant to "run it again to continue"', () => {
+    // It could not continue. fetchEnrichmentCandidates always starts at the
+    // first page and persists no cursor, so a second run re-reads the same
+    // PAGE_CAP x PAGE_SIZE products and can never reach the rest — for a
+    // 7,685-product catalog the button covers 6.5% of it. The instruction sent
+    // the merchant round a loop that does nothing.
+    expect(src).not.toMatch(/[Rr]un it again to\s+continue/);
+    expect(src).toMatch(/You do not need to run it again/);
+  });
 });

@@ -791,7 +791,18 @@ function checkStructuredDataJsonLd(productPageResults: PageFetchResult[]): Check
         for (const node of candidates) {
           if (node && typeof node === "object" && !Array.isArray(node)) {
             const t = (node as Record<string, unknown>)["@type"];
-            if (t === "Product" || (Array.isArray(t) && t.includes("Product"))) {
+            // MIRROR of app/lib/checks/shared/html-detectors.server.ts
+            // findProductSchema. ProductGroup is schema.org's type for a variant
+            // parent and is what Shopify's own product template emits for any
+            // product WITH VARIANTS. Matching only "Product" reported "No
+            // Product JSON-LD schema found" on those stores — a false negative
+            // that reads as "your products are not set up for Google" when they
+            // are. Verified live on izzyplants.com 2026-07-28.
+            //
+            // This mirror missed the fix when it landed in the shared module on
+            // 2026-07-28 and was edited again afterwards without picking it up.
+            const types = Array.isArray(t) ? t : [t];
+            if (types.includes("Product") || types.includes("ProductGroup")) {
               productSchema = node as Record<string, unknown>;
               break;
             }
@@ -809,21 +820,37 @@ function checkStructuredDataJsonLd(productPageResults: PageFetchResult[]): Check
     }
 
     const p = productSchema as Record<string, unknown>;
+
+    // MIRROR of missingRequiredProductFields in the shared module. A
+    // ProductGroup splits the required fields across two levels: the group
+    // carries name/description/brand, each hasVariant Product carries
+    // image/offers. Neither satisfies the requirements alone, so validating only
+    // the top level reported "missing image, missing offers" on a product whose
+    // data was complete — a false POSITIVE stacked on the ProductGroup false
+    // negative above. Treat the group and its variants as ONE product: a field
+    // counts as present if it appears on the group OR on any variant.
+    const variants: Record<string, unknown>[] = Array.isArray(p["hasVariant"])
+      ? (p["hasVariant"] as unknown[]).filter(
+          (v): v is Record<string, unknown> =>
+            !!v && typeof v === "object" && !Array.isArray(v),
+        )
+      : [];
+    const levels = [p, ...variants];
+    const presentSomewhere = (field: string) => levels.some((l) => !!l[field]);
+
     const missing: string[] = [];
     for (const field of ["name", "image", "description"]) {
-      if (!p[field]) missing.push(field);
+      if (!presentSomewhere(field)) missing.push(field);
     }
-    const offers = p["offers"];
-    if (!offers) {
+    // offers may live on the group or on any variant — collect from every level.
+    const allOffers = levels.flatMap((l) =>
+      l["offers"] ? normalizeOffers(l["offers"]) : [],
+    );
+    if (allOffers.length === 0) {
       missing.push("offers");
     } else {
-      const offerObjs = normalizeOffers(offers);
-      if (offerObjs.length === 0) {
-        missing.push("offers");
-      } else {
-        if (!offerObjs.some(offerHasPrice)) missing.push("offers.price");
-        if (!offerObjs.some(offerHasCurrency)) missing.push("offers.priceCurrency");
-      }
+      if (!allOffers.some(offerHasPrice)) missing.push("offers.price");
+      if (!allOffers.some(offerHasCurrency)) missing.push("offers.priceCurrency");
     }
 
     if (missing.length === 0) pagesValid++;

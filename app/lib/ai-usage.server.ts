@@ -130,3 +130,41 @@ async function fallbackConsume(merchantId: string): Promise<AiCreditResult> {
     resetAt: stale ? nowIso : (row.ai_generations_reset_at as string),
   };
 }
+
+/**
+ * Give back a credit consumed for a generation that produced nothing.
+ *
+ * The credit is deliberately taken BEFORE the Anthropic call so a cap-reached
+ * request never burns a model hit — but there was no path back, so an API
+ * failure, a refusal, or an empty completion still cost the merchant one of
+ * their 12 monthly generations for a document they never received. Same
+ * compensating-transaction shape the scan quota already uses when a scan fails.
+ *
+ * Best-effort and never throws: refunding is a courtesy, and failing to refund
+ * must not turn a failed generation into a failed request as well. Clamped at 0
+ * so a double-refund can never mint credit.
+ */
+export async function refundAiCredit(merchantId: string): Promise<void> {
+  try {
+    const { data: row, error } = await supabase
+      .from("merchants")
+      .select("ai_generations_used")
+      .eq("id", merchantId)
+      .maybeSingle();
+    if (error || !row) return;
+
+    const used = (row.ai_generations_used as number | null) ?? 0;
+    if (used <= 0) return;
+
+    // Absolute write, not a relative decrement: a relative one would compound a
+    // concurrent refund into negative credit. Worst case here is that two
+    // simultaneous refunds give back one credit instead of two, which errs
+    // toward the merchant paying rather than being given free generations.
+    await supabase
+      .from("merchants")
+      .update({ ai_generations_used: Math.max(0, used - 1) })
+      .eq("id", merchantId);
+  } catch {
+    // Never let a refund failure escape into the caller's error path.
+  }
+}

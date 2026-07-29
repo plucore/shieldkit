@@ -24,6 +24,47 @@
  * per-product path) or once per pass (the paged path).
  */
 
+/**
+ * The `custom`-namespace metafield keys this decision actually reads.
+ *
+ * ALL THREE query copies (catalog reconcile, per-product enricher, merchant
+ * bulk-fill) previously asked for `metafields(namespace: "custom", first: 10)`
+ * and hoped the keys they needed were in the window. On a product with more
+ * than ten custom metafields they may not be — and every one of the four keys
+ * missing from the response is read as "not set":
+ *
+ *   gtin / mpn / brand missing  -> we OVERWRITE a value the merchant already has
+ *   identifier_exists missing   -> we ignore an EXPLICIT merchant opt-out
+ *
+ * Both write to the merchant's own catalog on the strength of a field we never
+ * received. Requesting the keys by name removes the window entirely: the
+ * response can only ever contain these four, so `first: 10` is unreachable.
+ *
+ * Exported as the query text so the three call sites cannot drift — the whole
+ * reason this module exists (see the header).
+ */
+export const ENRICHMENT_METAFIELD_KEYS = [
+  "gtin",
+  "mpn",
+  "brand",
+  "identifier_exists",
+] as const;
+
+/**
+ * The ARGUMENTS for the metafields connection, shared by all three queries.
+ *
+ * Arguments only, not a whole selection: the three call sites legitimately
+ * differ in shape (the paged reconcile uses `nodes`, the two per-product queries
+ * use `edges { node }`), and forcing one shape would mean rewriting their
+ * parsers for no benefit. What must NOT differ is which keys are requested.
+ *
+ * Verified against the Admin API 2025-10 schema — `keys` is a valid argument on
+ * the Product `metafields` connection.
+ */
+export const ENRICHMENT_METAFIELDS_ARGS = `namespace: "custom", keys: [${ENRICHMENT_METAFIELD_KEYS.map(
+  (k) => `"${k}"`,
+).join(", ")}], first: ${ENRICHMENT_METAFIELD_KEYS.length}`;
+
 /** Everything the decision needs about one product. */
 export interface EnrichmentSnapshot {
   productGid: string;

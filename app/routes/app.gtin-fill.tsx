@@ -37,6 +37,7 @@ import { useWebComponentClick } from "../hooks/useWebComponentClick";
 import { useSingleFlight } from "../hooks/useSingleFlight";
 import { wrapAdminClient, getProducts } from "../lib/shopify-api.server";
 import { hasPaidAccess } from "../lib/billing/plans";
+import { ENRICHMENT_METAFIELDS_ARGS } from "../lib/enrichment/enrichment-decision.server";
 
 const WRITE_METAFIELDS_SCOPE_ENABLED =
   (process.env.SCOPES ?? "").includes("write_products");
@@ -53,7 +54,7 @@ const ENRICHMENT_CANDIDATES_QUERY = `#graphql
           variants(first: 1) {
             edges { node { sku barcode } }
           }
-          metafields(namespace: "custom", first: 10) {
+          metafields(${ENRICHMENT_METAFIELDS_ARGS}) {
             edges { node { key value } }
           }
         }
@@ -603,13 +604,22 @@ export default function GtinFillPage() {
           >
             Wrote details for {actionData.succeeded} product
             {actionData.succeeded === 1 ? "" : "s"}.
+            {/*
+              The old copy invited the merchant to re-run this to pick up where
+              it left off. It cannot: fetchEnrichmentCandidates always starts at
+              the first page and persists no cursor, so a second run re-reads the
+              same PAGE_CAP x PAGE_SIZE products and never reaches the rest. For
+              a 7,685-product catalog that button covers 6.5% of it, and the
+              instruction sent the merchant round a loop that does nothing.
+              Say only what is true, and point at the path that does work.
+            */}
             {actionData.catalogTruncated ? (
               <>
                 {" "}
-                This run covers the first {PAGE_CAP * PAGE_SIZE} products only —
-                your catalog is larger than one run can handle. Run it again to
-                continue, or leave it to us: ShieldKit works through the rest of
-                your catalog automatically in the background.
+                This run covered the first {PAGE_CAP * PAGE_SIZE} products, which
+                is as much as one run can do. You do not need to run it again.
+                ShieldKit works through the rest of your catalog{" "}
+                automatically in the background.
               </>
             ) : null}
           </s-banner>

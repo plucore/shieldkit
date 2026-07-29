@@ -273,9 +273,27 @@ export async function generatePolicy(
     );
   }
 
-  // Extract the text content from the response
+  // Extract the text content from the response.
+  //
+  // An EMPTY generation is a failure, not a policy. `textBlock?.text ?? ""` used
+  // to sail straight through: a refusal, a content-filter block, a stop_reason
+  // the model reached before emitting any text, or a malformed content array all
+  // produced body === "" — which was then returned as a GeneratedPolicy, saved,
+  // and (on a regeneration) claimed the merchant's ONE regen slot for that type.
+  // The AI credit was already consumed before the call, so the merchant paid a
+  // cap slot and a regen for a blank document.
+  //
+  // Throwing routes this into the caller's existing error path, which surfaces a
+  // real message instead of writing an empty policy.
   const textBlock = message.content.find((block) => block.type === "text");
   const rawBody = stripCodeFence(textBlock?.text ?? "");
+  if (!rawBody.trim()) {
+    throw new Error(
+      `policy_generation_empty: the model returned no text for "${type}" ` +
+        `(stop_reason=${message.stop_reason ?? "unknown"}, ` +
+        `content_blocks=${message.content.length})`,
+    );
+  }
   // Defense-in-depth: sanitize at the source before the HTML is stored.
   // Use sanitize-html (pure JS, no jsdom) instead of DOMPurify on the server.
   // Vercel's Rust-based Node runtime doesn't support require()-ing ESM modules,
@@ -291,6 +309,14 @@ export async function generatePolicy(
       },
     }),
   );
+
+  // Sanitising can also empty a body — a response made entirely of disallowed
+  // markup leaves nothing behind. Same rule: nothing is not a policy.
+  if (!body.trim()) {
+    throw new Error(
+      `policy_generation_empty_after_sanitize: "${type}" produced no publishable content`,
+    );
+  }
 
   return {
     type,

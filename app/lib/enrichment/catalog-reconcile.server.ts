@@ -43,6 +43,7 @@ import { supabase } from "../../supabase.server";
 import { createAdminClient, executeWithRetry } from "../shopify-api.server";
 import {
   decideEnrichment,
+  ENRICHMENT_METAFIELDS_ARGS,
   needsShopNameFallback,
   snapshotFromNode,
   type EnrichmentDecision,
@@ -81,7 +82,7 @@ const CATALOG_PAGE_QUERY = /* GraphQL */ `
             barcode
           }
         }
-        metafields(namespace: "custom", first: 10) {
+        metafields(${ENRICHMENT_METAFIELDS_ARGS}) {
           nodes {
             key
             value

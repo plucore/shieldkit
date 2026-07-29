@@ -47,6 +47,7 @@ import { validateGeneratedPolicy } from "../lib/policy-validator.server";
 import {
   AI_MONTHLY_CAP,
   checkAndConsumeAiCredit,
+  refundAiCredit,
   windowResetIso,
 } from "../lib/ai-usage.server";
 import { wrapAdminClient, getShopInfo } from "../lib/shopify-api.server";
@@ -508,6 +509,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     } catch (err) {
       // No regen slot to release: finalize_policy_regen claims AFTER generation,
       // so a throw here means nothing was claimed and the regen stays available.
+      //
+      // The AI CREDIT is a different story and was not being given back. It is
+      // consumed before the Anthropic call on purpose (so a cap-reached request
+      // never burns a model hit), but there was no path back — an API failure, a
+      // refusal, or an empty completion still cost the merchant one of their 12
+      // monthly generations for a document they never received. Same
+      // compensating transaction the scan quota already performs on a failed
+      // scan. Best-effort: a failed refund must not replace the real error.
+      await refundAiCredit(merchant.id);
+
       const message = err instanceof Error ? err.message : String(err);
       return new Response(
         JSON.stringify({ success: false, message }),

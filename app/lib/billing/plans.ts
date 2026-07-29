@@ -16,11 +16,11 @@
  *                                       products, llms.txt, AI bot
  *                                       allow/block, store schema settings,
  *                                       Organization & WebSite JSON-LD.
- *                                       Billed as "Monitoring" at $49/mo
- *                                       or $390/yr — annual is a discounted
- *                                       billing option on the single
- *                                       "Monitoring" plan since the 2026-06
- *                                       Partner Dashboard collapse.
+ *                                       Billed as "Monitoring"; annual is a
+ *                                       discounted billing option on that one
+ *                                       plan since the 2026-06 Partner
+ *                                       Dashboard collapse. Prices live ONLY
+ *                                       in the PLANS constant below.
  *
  * Grandfathered tiers (still in DB, still resolve through reconciliation,
  * NOT offered to new merchants):
@@ -60,12 +60,20 @@ export type Tier = "free" | "shield" | "pro" | "monitoring" | "recovery";
 // during webhook reconciliation and Partner API lookups.
 //
 // v4 (2026-05-28): Recovery removed (folded into Monitoring as one paid
-// tier). Monitoring price changed from $30/$290 to $49/$449.
+// tier).
 // 2026-06: the standalone "Monitoring Annual" Partner Dashboard plan was
 // deleted; annual is now a discounted billing option on the single
-// "Monitoring" plan at $390/yr (was $449). The monitoring_annual entry is
-// retained below as the canonical annual-PRICE source and to reconcile any
-// pre-collapse subscriber whose charge is still named "Monitoring Annual".
+// "Monitoring" plan. The monitoring_annual entry is retained below as the
+// canonical annual-PRICE source and to reconcile any pre-collapse subscriber
+// whose charge is still named "Monitoring Annual".
+//
+// CURRENT LISTED PRICES (2026-07-29, read off the Shopify App Store listing by
+// the founder — the listing is the customer-facing source of truth):
+//   monthly $29   annual $299
+// Do not restate a price anywhere else in this file. The prose here has been
+// wrong twice: it claimed $49/$449 after the code said 29, then claimed $390/yr
+// against a constant of 290, and the landing page renders whatever the constant
+// says. One number, one place.
 // Legacy shield_*/pro_* entries kept so grandfathered subscriptions still
 // reconcile through the PLAN_NAME maps below; the 2 live Shield Max
 // merchants stay on their existing subscriptions.
@@ -87,17 +95,25 @@ export const PLANS = {
     monthly: 29,
     interval: "EVERY_30_DAYS",
   },
-  // Retained as the annual-PRICE source ($390) + to reconcile pre-collapse
-  // subscribers whose Partner API charge is still named "Monitoring Annual".
-  // New annual subs arrive as name "Monitoring" + amount 390 → resolved via
+  // Retained as the annual-PRICE source + to reconcile pre-collapse subscribers
+  // whose Partner API charge is still named "Monitoring Annual". New annual
+  // subs arrive as name "Monitoring" + the annual amount → resolved via
   // cycleFromChargeAmount(). Do NOT treat this name as a live pickable plan.
   monitoring_annual: {
     name: "Monitoring Annual",
-    // $290.00 USD — the ONLY annual charge that has ever existed in the Partner
-    // API is ygxib5-9s @ 290.0 on 2026-05-18. This previously read 390, which
-    // never matched a real charge and additionally collided with the
-    // grandfathered Shield Max Annual price of 390.
-    annual: 290,
+    // $299.00 USD — the price actually listed on the Shopify App Store,
+    // confirmed 2026-07-29.
+    //
+    // This constant has been wrong twice. It read 390 (never matched a real
+    // charge, and collided with grandfathered Shield Max Annual). It was then
+    // corrected to 290 on the strength of the only annual charge in the Partner
+    // API — ygxib5-9s @ 290.0 on 2026-05-18 — which was a HISTORICAL charge,
+    // not the current listed price. Past charges tell you what was billed then;
+    // only the listing tells you what a new subscriber pays now.
+    //
+    // The landing page renders this value publicly, so a wrong number here
+    // under-quotes real customers.
+    annual: 299,
     interval: "ANNUAL",
   },
 
@@ -206,11 +222,16 @@ const TIER_PRICE_POINTS: Partial<
 /**
  * Multiple of the monthly price at or above which a charge is read as annual.
  *
- * Every plan ShieldKit has ever sold discounts annual to exactly 10x monthly
- * (29/290, 14/140, 39/390), so the real gap is 10x. 6x sits well clear of any
- * plausible monthly price while staying below any plausible annual one, which
- * is what makes the structural fallback below tolerant of the constants above
- * drifting out of date by up to 6x before it can misread a cycle.
+ * Every plan ShieldKit has sold prices annual at roughly 10x monthly — the
+ * grandfathered tiers at exactly 10x (14/140, 39/390), the current one at
+ * 29/299 (10.3x). 6x sits well clear of any plausible monthly price while
+ * staying below any plausible annual one, which is what makes the structural
+ * fallback below tolerant of the constants above drifting out of date by up to
+ * 6x before it can misread a cycle.
+ *
+ * That tolerance is the whole point and it has now been earned twice: the
+ * annual constant has been wrong three times (390, then 290, now 299) and the
+ * structural branch resolved every one of them correctly regardless.
  */
 const ANNUAL_RATIO_THRESHOLD = 6;
 

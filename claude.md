@@ -25,20 +25,36 @@ Two plans only. The Partner Dashboard pricing UI advertises only these:
 | **Free** | $0 | `'free'` | `"Free"` — plus localised variants Shopify serves per merchant locale: `"Gratuit"`, `"Gratis"`, `"Grátis"`, `"Gratuito"`, `"Kostenlos"` |
 | **Monitoring** | **$29.00 USD/month** | `'monitoring'` | `"Monitoring"` |
 
-> **Price constants were CORRECTED in PR #14 (merged 2026-07-28 13:15 UTC).**
-> `plans.ts` now declares `monitoring_monthly.monthly = 29` and
-> `monitoring_annual.annual = 290`, matching every real charge in the Partner API:
-> `cq3dar-gv` (2026-07-07), `sex-eshop` (2026-07-12), `9973f3-3` / Wanok
-> (2026-07-25), all $29.00. Observed price history: **$39 → $29** between
-> 2026-06-17 (`hbhkfy-gy` @ 39.0) and 2026-07-07. The only annual charge ever seen
-> is `"Monitoring Annual"` @ **$290.00** (`ygxib5-9s`, 2026-05-18).
+> **CURRENT PRICES: $29/mo, $299/yr.** Annual corrected to 299 on 2026-07-29 from
+> the live Shopify App Store listing. `plans.ts` is the single source; the landing
+> page derives from it and renders `$29` / `$299` / `Save $49/yr`.
+>
+> **The annual constant has now been wrong three times, each for a different
+> reason, and the third one is the instructive one:**
+> - `390` — never matched any real charge, and collided with grandfathered Shield
+>   Max Annual.
+> - `290` — "corrected" on 2026-07-28 from the only annual charge in the Partner
+>   API (`ygxib5-9s` @ 290.0, 2026-05-18). That charge was real, and the inference
+>   was still wrong: **a past charge tells you what was billed then, only the
+>   listing tells you what a new subscriber pays now.**
+> - `299` — read off the App Store listing, which is the customer-facing source of
+>   truth. Verify there, not in the charge history.
+>
+> Monthly $29 IS confirmed by real charges: `cq3dar-gv` (2026-07-07), `sex-eshop`
+> (2026-07-12), `9973f3-3` / Wanok (2026-07-25). History: **$39 → $29** between
+> 2026-06-17 (`hbhkfy-gy` @ 39.0) and 2026-07-07.
 >
 > **Why it mattered:** `cycleFromChargeAmount()` resolves billing_cycle by matching
 > the charge amount against `TIER_PRICE_POINTS`. While monthly was pinned at 49 and
 > annual at 390, a real $29 charge matched NEITHER, the function returned `null`,
 > and the caller fell back to `PLAN_NAME_TO_CYCLE` — so monthly resolved correctly
 > only **by accident** and a future annual subscriber would have silently resolved
-> to `monthly`. Now the amounts discriminate correctly.
+> to `monthly`.
+>
+> That is now defended structurally rather than by the constants being right:
+> `cycleFromChargeAmount` falls back to `amount >= monthly * 6 → annual` when no
+> price point matches, so it resolved 290, 299 AND 390 correctly through all three
+> wrong constants. Tests pin every historical figure.
 >
 > **This warning block was stale for 25 hours after the fix landed and caused a
 > false report on 2026-07-29** — the code was read as broken because this file said
@@ -102,7 +118,7 @@ Two plans only. The Partner Dashboard pricing UI advertises only these:
 
 ### Hosting & Deployment
 * **Vercel** at `shieldkit.vercel.app`. **Tier: Hobby.** Load-bearing — Hobby caps function duration at 60s, so heavy work is split.
-* `vercel.json` defines **3 Vercel Cron jobs** (down from 7 pre-v4). Lowest-frequency-allowed slot on Hobby is daily.
+* `vercel.json` defines **4 Vercel Cron jobs** (down from 7 pre-v4). All four confirmed registered and enabled in the Vercel dashboard 2026-07-29. Lowest-frequency-allowed slot on Hobby is daily.
 * `react-router.config.ts` uses the `@vercel/react-router` preset.
 * `npm run build` → `react-router build`. `npm start` → `react-router-serve ./build/server/index.js`.
 
@@ -236,7 +252,7 @@ Current offerings:
 | Name | Price | DB tier | billing_cycle |
 |------|-------|---------|---------------|
 | `Monitoring` | **$29/mo** | `monitoring` | `monthly` |
-| `Monitoring Annual` | **$290/yr** (see the §1 warning — `plans.ts` prose still says $390; verify in the Partner Dashboard) | `monitoring` | `annual` |
+| `Monitoring Annual` | **$299/yr** | `monitoring` | `annual` |
 
 Grandfathered (not offered to new merchants; kept for reconciliation):
 | Name | Price | DB tier | billing_cycle |
@@ -638,7 +654,7 @@ After a scan, loader revalidates and renders (in order, inside `<s-page>`):
   - Inline upgrade banner (free only — v4 collapsed the Monitoring→Recovery upsell since there's only one paid tier)
   - `AuditChecklist` (12-point, sorted failed-first by severity)
 - **Aside (always)**:
-  - `PlanStatusCard` — two-state value box. Paid → "Your ShieldKit coverage" reassurance with every paid feature checked; the JSON-LD row is display-only (`checked` when on, muted `off` otherwise). Free → "Fix it now — and stay protected." with locked items + $49/$449 CTA.
+  - `PlanStatusCard` — two-state value box. Paid → "Your ShieldKit coverage" reassurance with every paid feature checked; the JSON-LD row is display-only (`checked` when on, muted `off` otherwise). Free → "Fix it now — and stay protected." with locked items + upgrade CTA (no price rendered in-app).
   - `SecurityStatusAside`
   - `PolicyGenerationCard` (when paid)
   - `AIVisibilityCard` (when paid + data exists)
@@ -697,7 +713,7 @@ On first scan, shop owner email collected via GraphQL (`shop { email }`) and ups
 
 | Route File | URL Path | Behaviour |
 |-----------|----------|-----------|
-| `_index/route.tsx` | `/` | Landing page. Paid plan card + Free. **Prices are DERIVED from `PLANS` (2026-07-28), never hardcoded** — it renders $29/mo and $290/yr. Emits Organization + FAQPage JSON-LD. Redirects to `/app` when `?shop` present. |
+| `_index/route.tsx` | `/` | Landing page. Paid plan card + Free. **Prices are DERIVED from `PLANS`, never hardcoded** — it renders $29/mo and $299/yr. A test forbids any price literal in this file. Emits Organization + FAQPage JSON-LD. Redirects to `/app` when `?shop` present. |
 | `scan.tsx` | `/scan` | Public 8-point compliance scanner. Emits WebApplication JSON-LD. POST runs scan; second POST (`intent=unlock`) captures lead email. |
 | `explainer.tsx` | `/explainer` | GMC misrepresentation explainer (Article JSON-LD). |
 | `blog._index.tsx` | `/blog` | Listing from `app/content/blog/*.mdx`. |
@@ -1019,9 +1035,10 @@ sync" has now failed to do so three times.
 ### Vercel (current)
 * App URL: `https://shieldkit.vercel.app`
 * **Tier: Hobby.** Function duration capped at 60s; daily is the minimum cron cadence.
-* **`vercel.json` defines 3 Vercel Cron jobs** (down from 7 pre-v4 / 4 mid-cleanup-batch):
-  - `/api/cron/reconcile-subscriptions` — daily 04:00 UTC (Partner-API demote)
+* **`vercel.json` defines 4 Vercel Cron jobs** — all four confirmed registered and enabled in the Vercel dashboard on 2026-07-29:
+  - `/api/cron/reconcile-catalog` — daily 02:00 UTC (**failsafe for the SOLE enrichment discovery path**; primary is GH Actions `0 5,11,17,23`. Added 2026-07-29 because GitHub Actions was the only scheduler for the one job enrichment depends on, and it disables scheduled workflows after 60 days of repo inactivity)
   - `/api/cron/reconcile-installs` — daily 03:00 UTC (Admin-API uninstall probe)
+  - `/api/cron/reconcile-subscriptions` — daily 04:00 UTC (Partner-API demote)
   - `/api/cron/process-scan-triggers` — daily 12:00 UTC (failsafe drainer — primary is GH Actions every 6h)
 * `vercel.json` also defines edge-level 308 `redirects` for known scanner paths (`/wp-admin/*`, `/.env`, `/xmlrpc.php`, etc.) so bot probes don't cold-start serverless functions, plus long-cache headers on static brand assets.
 * **App Proxy:** `[app_proxy]` in `shopify.app.toml` registers `/apps/llms-txt` → `/api/proxy/llms-txt`; HMAC verified by `authenticate.public.appProxy(request)`.
@@ -1068,4 +1085,4 @@ Open follow-ups noted during the cleanup batch but not actioned:
 - Drop the `digest_emails` table (or repurpose).
 - Drop the `scans_reset_at` column.
 - Remove `@sentry/react` dev-dep if no client-side telemetry is planned.
-- Manually delete legacy plans (Recovery, Shield Pro, Shield Pro Annual, Shield Max, Shield Max Annual) from the Partner Dashboard pricing UI; set Monitoring to $49/$449 if not yet done.
+- Manually delete legacy plans (Recovery, Shield Pro, Shield Pro Annual, Shield Max, Shield Max Annual) from the Partner Dashboard pricing UI.

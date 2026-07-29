@@ -31,7 +31,7 @@ const PRICE_MONTHLY = `$${PLANS.monitoring_monthly.monthly}`;
 const PRICE_ANNUAL = `$${PLANS.monitoring_annual.annual}`;
 const PRICE_SAVINGS = `Save $${annualSavings()}/yr`;
 const PAID_PLAN_NAME = PLANS.monitoring_monthly.name;
-/** e.g. "Monitoring ($29/mo or $290/yr)" — used in FAQ prose and JSON-LD. */
+/** e.g. "Monitoring ($29/mo or $299/yr)" — used in FAQ prose and JSON-LD. */
 const PAID_PRICE_PHRASE = `${PAID_PLAN_NAME} (${PRICE_MONTHLY}/mo or ${PRICE_ANNUAL}/yr)`;
 
 export const links: LinksFunction = () => [

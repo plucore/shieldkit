@@ -518,12 +518,6 @@ describe("the cron route is gated and shaped correctly", () => {
     expect(src).toMatch(/mode: scopeOk \? mode : "observe"/);
   });
 
-  it("counts a webhook-seen product it cannot account for as unexplained", () => {
-    // This is the number that blocks the switch. It must exist and be surfaced.
-    expect(src).toMatch(/webhook_only_unexplained/);
-    expect(src).toMatch(/not_in_walked_catalog/);
-  });
-
   it("never starts a merchant it cannot finish, and says which it skipped", () => {
     // The first production run hit 57.7s of the 60s ceiling with three merchants.
     // A merchant silently omitted from the results would read as "nothing to do".
@@ -532,33 +526,10 @@ describe("the cron route is gated and shaped correctly", () => {
     expect(src).toMatch(/notReached\.push\(m\.shopify_domain\)/);
   });
 
-  it("a truncated walk can never report a passing verdict", () => {
-    // Same defect class as Block 1: products the walk never read are
-    // indistinguishable from products it decided need nothing.
-    expect(src).toMatch(/inconclusive_truncated_walk/);
-    expect(src).toMatch(/opts\.truncated\s*\n?\s*\?\s*"inconclusive_truncated_walk"/);
-    expect(src).toMatch(/fail_unexplained_gap/);
-  });
-
   it("raises the per-shop budget for a single-shop call", () => {
     // How a large catalog gets a complete one-pass walk instead of truncating.
     expect(src).toMatch(/SINGLE_SHOP_BUDGET_MS/);
     expect(src).toMatch(/onlyShop \? SINGLE_SHOP_BUDGET_MS : MULTI_SHOP_BUDGET_MS/);
-  });
-
-  it("paginates the webhook log read — PostgREST silently caps at 1,000", () => {
-    // Measured: the first 7-day run read 777 distinct products from a window
-    // holding 4,250 rows / 2,941 distinct. An under-read makes the gate look
-    // CLEANER than it is, because a webhook-only product beyond the cap is never
-    // considered for webhook_only_unexplained.
-    expect(src).toMatch(/\.range\(offset, offset \+ PAGE - 1\)/);
-    expect(src).toMatch(/rows\.length < PAGE/);
-    expect(src).toMatch(/webhook_log_rows_read/);
-  });
-
-  it("a capped or errored log read cannot report a passing verdict either", () => {
-    expect(src).toMatch(/inconclusive_webhook_log_read_incomplete/);
-    expect(src).toMatch(/logReadTruncated \|\| logReadError/);
   });
 
   it("names the one real regression: event latency becomes cycle latency", () => {
@@ -695,21 +666,45 @@ describe("cursor persistence — coverage, not just latency", () => {
     );
   });
 
-  it("the parity verdict is only sound when ONE invocation covered the whole catalog", () => {
-    // needsWork/noWork are per-invocation and populated only from `after`
-    // onward, but webhookSaw spans the whole window. On the final run of a
-    // RESUMED cycle, cycleComplete is true while the walk read only the tail —
-    // so either every earlier webhook-seen product becomes a false
-    // fail_unexplained_gap, or the run "passes" having examined the tail alone.
-    expect(route).toMatch(/truncated: !\(cycleComplete && resumeFrom === null\)/);
+  it("the parity report is GONE, not merely quietened", () => {
+    // Removed 2026-07-29. It diffed this route against enrichment_webhook_log
+    // to gate the products/update switch — and the switch removed the thing it
+    // read from. With no deliveries being written the window drains to zero, so
+    // it first returned a green `pass` from no evidence, then began reporting
+    // fail_unexplained_gap against a shrinking historical set. Neither verdict
+    // meant anything. A decaying instrument is worse than none: it emits numbers
+    // people read.
+    //
+    // Asserting ABSENCE, because a half-removed version that still computes a
+    // verdict nobody trusts is exactly what this deletion was for.
+    // Comments are stripped first: the header legitimately NAMES the removed
+    // verdicts to explain why they went. History is worth keeping; the code
+    // that computed them is not.
+    const code = route
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split("\n")
+      .filter((l) => !l.trim().startsWith("//"))
+      .join("\n");
+    for (const token of [
+      "buildParityReport",
+      "ParityReport",
+      "webhook_only_unexplained",
+      "not_in_walked_catalog",
+      "inconclusive_truncated_walk",
+      "inconclusive_no_webhook_evidence",
+      "fail_unexplained_gap",
+      "WEBHOOK_SAW_OUTCOMES",
+      "window_hours",
+    ]) {
+      expect(code, `route still references ${token}`).not.toContain(token);
+    }
   });
 
-  it("an empty webhook comparison set is inconclusive, never a pass", () => {
-    // The webhook log stopped being written when products/update was
-    // unsubscribed, so the 24h window drains to zero and every downstream
-    // number goes to 0 — including unexplainedCount, which "pass" was keyed on.
-    expect(route).toMatch(/inconclusive_no_webhook_evidence/);
-    expect(route).toMatch(/webhookSaw\.size === 0/);
+  it("health is judged by THIS run, not by an external corpus", () => {
+    // What replaced parity: degraded + HTTP 500. Both describe the invocation
+    // that just happened, need no historical data, and cannot rot.
+    expect(route).toMatch(/degraded \? 500 : 200/);
+    expect(route).toMatch(/degraded_reasons/);
   });
 
   it("reports when the whole catalog was last seen — only if that was PERSISTED", () => {

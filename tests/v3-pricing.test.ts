@@ -79,12 +79,16 @@ describe("v4 plan reference data", () => {
   // code declared, which NEVER matched a real charge. Verified against the
   // Partner API: every real (test:false) Monitoring activation bills $29.00
   // (cq3dar-gv 2026-07-07, sex-eshop 2026-07-12, 9973f3-3 2026-07-25), and the
-  // only annual charge that has ever existed is $290 (ygxib5-9s 2026-05-18).
-  // Price history: $30 (pre-v4) → $39 → $29, the last change landing between
-  // 2026-06-17 and 2026-07-07.
-  it("Monitoring is priced at $29/mo and $290/yr (verified vs Partner API)", () => {
+  // Monthly $29 is confirmed against real Partner API charges. ANNUAL is $299,
+  // read off the Shopify App Store listing on 2026-07-29 — NOT off the charge
+  // history. The only annual charge that has ever existed is $290 (ygxib5-9s,
+  // 2026-05-18), and taking that as the current price is exactly how this
+  // constant became wrong the second time: a past charge tells you what was
+  // billed then, only the listing tells you what a new subscriber pays now.
+  // Price history: $30 (pre-v4) → $39 → $29 monthly; annual 390 → 290 → 299.
+  it("Monitoring is priced at $29/mo and $299/yr (per the live App Store listing)", () => {
     expect(PLANS.monitoring_monthly.monthly).toBe(29);
-    expect(PLANS.monitoring_annual.annual).toBe(290);
+    expect(PLANS.monitoring_annual.annual).toBe(299);
   });
 
   it("PLANS no longer exposes a recovery_annual entry", () => {
@@ -94,12 +98,12 @@ describe("v4 plan reference data", () => {
   it("TIER_GROUPS has one group ('monitoring') at the current price", () => {
     expect(Object.keys(TIER_GROUPS)).toEqual(["monitoring"]);
     expect(TIER_GROUPS.monitoring.monthlyPrice).toBe(29);
-    expect(TIER_GROUPS.monitoring.annualPrice).toBe(290);
+    expect(TIER_GROUPS.monitoring.annualPrice).toBe(299);
   });
 
   it("annualSavings reports the monthly-vs-annual gap", () => {
-    // 29×12 = 348, minus 290 = 58.
-    expect(annualSavings()).toBe(58);
+    // 29×12 = 348, minus 299 = 49.
+    expect(annualSavings()).toBe(49);
   });
 
   it("PAID_FEATURES is the single canonical paid feature list", () => {
@@ -136,7 +140,27 @@ describe("cycleFromChargeAmount — Partner API cycle resolution (2026-06 collap
   // silently recorded as monthly.
   it("resolves the real live prices exactly", () => {
     expect(cycleFromChargeAmount("monitoring", 29)).toBe("monthly");
-    expect(cycleFromChargeAmount("monitoring", 290)).toBe("annual");
+    expect(cycleFromChargeAmount("monitoring", 299)).toBe("annual");
+  });
+
+  // THE ORIGINAL DEFECT, pinned at every price this plan has ever carried.
+  // A future annual subscriber silently resolving to `monthly` is the failure
+  // that started all of this, so each historical annual figure is asserted
+  // alongside the current one: 299 by exact match, 290 and 390 structurally.
+  it("resolves EVERY annual figure this plan has carried as annual", () => {
+    for (const amount of [299, 290, 390]) {
+      expect(cycleFromChargeAmount("monitoring", amount), `${amount} must be annual`).toBe(
+        "annual",
+      );
+    }
+    // ...and the monthly ones as monthly, including the stale 49 constant.
+    for (const amount of [29, 39, 49]) {
+      expect(cycleFromChargeAmount("monitoring", amount), `${amount} must be monthly`).toBe(
+        "monthly",
+      );
+    }
+    // $0 still carries no cycle at all.
+    expect(cycleFromChargeAmount("monitoring", 0)).toBeNull();
   });
 
   it("disambiguates grandfathered tiers by their own price points", () => {
@@ -166,6 +190,7 @@ describe("cycleFromChargeAmount — Partner API cycle resolution (2026-06 collap
     // match-or-null logic both real amounts returned null. They must not now.
     expect(cycleFromChargeAmount("monitoring", 29)).not.toBeNull();
     expect(cycleFromChargeAmount("monitoring", 290)).not.toBeNull();
+    expect(cycleFromChargeAmount("monitoring", 299)).not.toBeNull();
   });
 
   it("returns null only when there is genuinely no cycle to infer", () => {
@@ -212,7 +237,10 @@ describe("public marketing surfaces cannot drift from PLANS", () => {
     const offenders = literals.filter((s) => !/^["'`]\$0$/.test(s));
     expect(offenders).toEqual([]);
     // And the specific historical wrong values must never reappear anywhere.
-    for (const stale of ["$49", "$390", "$449", "$198"]) {
+    // $290 joined this list on 2026-07-29: it was itself a "correction" of $390,
+    // inferred from the single historical annual charge rather than from the
+    // live listing, and the real listed price turned out to be $299.
+    for (const stale of ["$49", "$390", "$449", "$198", "$290"]) {
       expect(code).not.toContain(stale);
     }
   });

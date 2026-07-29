@@ -58,10 +58,6 @@ on:
         options:
           - enqueue
           - observe
-      window_hours:
-        description: "Parity-report window in hours"
-        required: false
-        default: "24"
 
 concurrency:
   group: reconcile-catalog
@@ -76,7 +72,6 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           INPUT_MODE: ${{ inputs.mode }}
-          INPUT_WINDOW_HOURS: ${{ inputs.window_hours }}
         run: |
           set -euo pipefail
           if [ -z "$CRON_SECRET" ]; then
@@ -91,18 +86,12 @@ jobs:
             MODE=observe
           fi
 
-          # Digits only, so the value cannot carry extra query parameters.
-          WINDOW_HOURS=24
-          case "${INPUT_WINDOW_HOURS:-}" in
-            ''|*[!0-9]*) ;;
-            *) WINDOW_HOURS="$INPUT_WINDOW_HOURS" ;;
-          esac
 
           HTTP_STATUS=$(curl --silent --show-error --output /tmp/reconcile.json --write-out "%{http_code}" \
             --max-time 240 \
             --header "Authorization: Bearer $CRON_SECRET" \
-            "https://shieldkit.vercel.app/api/cron/reconcile-catalog?mode=${MODE}&window_hours=${WINDOW_HOURS}")
-          echo "HTTP $HTTP_STATUS (mode=$MODE window_hours=$WINDOW_HOURS)"
+            "https://shieldkit.vercel.app/api/cron/reconcile-catalog?mode=${MODE}")
+          echo "HTTP $HTTP_STATUS (mode=$MODE)"
           cat /tmp/reconcile.json || true
           echo
           if [ "$HTTP_STATUS" -ge 400 ]; then

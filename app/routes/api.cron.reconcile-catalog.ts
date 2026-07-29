@@ -12,30 +12,22 @@
  * enqueues `pending_scan_triggers` rows. `api.cron.process-scan-triggers` remains
  * the single writer.
  *
- * `mode` still defaults to `observe` at the ROUTE level — a bare unauthenticated-
- * shaped call can never write — and `.github/workflows/reconcile-catalog.yml`
- * passes `mode=enqueue` explicitly on its schedule. It also diffs its conclusions
- * against `enrichment_webhook_log` over a window; that diff was the gate artefact
- * and is now a regression check, though it decays in usefulness as the webhook log
- * ages out of the window.
+ * `mode` defaults to `enqueue`; `?mode=observe` is the read-only investigation
+ * mode. `.github/workflows/reconcile-catalog.yml` passes it explicitly anyway.
  *
- * The parity question this answers is narrow and deliberate. Both paths call the
- * SAME decision function (app/lib/enrichment/enrichment-decision.server.ts), so
- * the decisions cannot differ by construction — what is being tested is
- * DISCOVERY: does paging find the products the webhooks would have found? That
- * is the actual risk in dropping products/update, because a missed edit to an
- * existing product silently stops enrichment for the merchant paying for it.
+ * THE PARITY REPORT WAS REMOVED on 2026-07-29. It diffed this route's
+ * conclusions against `enrichment_webhook_log` to gate the products/update
+ * switch, and it did its job — but the switch removed the very thing it read
+ * from. With no webhook deliveries being written, the window drains to zero and
+ * every downstream number goes with it. It first returned a green `pass` from
+ * no evidence at all (fixed to `inconclusive_no_webhook_evidence`), then began
+ * reporting `fail_unexplained_gap` against a shrinking historical set. Neither
+ * verdict meant anything, and a measurement that cannot be wrong cannot be
+ * right either. A decaying instrument left in place is worse than no
+ * instrument: it produces numbers people read.
  *
- * Two structural differences are expected and are NOT failures:
- *
- *   reconcile-only  Products needing enrichment that nobody edited in the
- *                   window. The webhook path is blind to these — it only ever
- *                   sees edits — which is the main reason to switch.
- *   webhook-only    Products edited in the window that need no write. The
- *                   webhook enqueues them anyway and the drainer discovers, one
- *                   Admin API round trip later, that there is nothing to do.
- *                   Every one of these is reported with the reconcile's reason
- *                   so it can be checked rather than assumed.
+ * What replaced it as the health signal is the `degraded` flag and the HTTP 500
+ * — those describe THIS run, need no external corpus, and cannot rot.
  *
  * The one genuine regression risk, stated plainly: webhook discovery is
  * event-latency, reconcile discovery is cycle-latency. A merchant who changes a
@@ -47,7 +39,6 @@
  * Query params (all optional):
  *   mode=observe|enqueue   default observe
  *   shop=<domain>          restrict to one shop
- *   window_hours=<n>       parity window, default 24
  *   after=<cursor>         resume a truncated walk (single-shop only)
  *   max_pages=<n>          bound the walk
  *   enqueue_cap=<n>        cap rows inserted in enqueue mode, default 500
@@ -82,15 +73,11 @@ import { PAID_TIERS } from "../lib/billing/plans";
 import { reconcileCatalog, type ReconciledProduct } from "../lib/enrichment/catalog-reconcile.server";
 import { sentry } from "../lib/sentry.server";
 
-/** Outcomes that mean the webhook path SAW this product in the window. */
-const WEBHOOK_SAW_OUTCOMES = ["enqueued", "skip_dedup", "skip_already_queued"];
-
-const DEFAULT_WINDOW_HOURS = 24;
 const DEFAULT_ENQUEUE_CAP = 500;
 
 /**
  * Stop starting new merchants at this point. Leaves ~12s of the 60s ceiling for
- * the in-flight shop to wind down at its own budget, its parity query, and the
+ * the in-flight shop to wind down at its own budget and the
  * response — measured against a first run that reached 57.7s.
  */
 const ROUTE_BUDGET_MS = 48_000;
@@ -135,34 +122,6 @@ export async function action({ request }: ActionFunctionArgs) {
   return run(request);
 }
 
-interface ParityReport {
-  window_hours: number;
-  webhook_saw: number;
-  /** Rows actually read from enrichment_webhook_log, so an under-read is visible. */
-  webhook_log_rows_read: number;
-  reconcile_needs_work: number;
-  /** Products both paths agree need work. */
-  agreed: number;
-  /** Edited in the window, reconcile says no work — with the reason for each. */
-  webhook_only: number;
-  webhook_only_by_reason: Record<string, number>;
-  webhook_only_unexplained: string[];
-  /**
-   * The gate verdict for this shop. A truncated walk can never be `pass`: the
-   * products it never read are indistinguishable from products it decided need
-   * nothing, which is the same "could not look read as a factual negative"
-   * defect Block 1 removed from the scanner.
-   */
-  verdict:
-    | "pass"
-    | "inconclusive_truncated_walk"
-    | "inconclusive_webhook_log_read_incomplete"
-    | "inconclusive_no_webhook_evidence"
-    | "fail_unexplained_gap";
-  /** Needs work but nobody edited it — the coverage the webhooks never had. */
-  reconcile_only: number;
-}
-
 async function run(request: Request) {
   const startedAt = Date.now();
 
@@ -188,7 +147,6 @@ async function run(request: Request) {
   // one you ask for. `?mode=observe` still gives the investigation behaviour.
   const mode = url.searchParams.get("mode") === "observe" ? "observe" : "enqueue";
   const onlyShop = url.searchParams.get("shop");
-  const windowHours = Number(url.searchParams.get("window_hours")) || DEFAULT_WINDOW_HOURS;
   const after = url.searchParams.get("after");
   const maxPages = Number(url.searchParams.get("max_pages")) || undefined;
   const enqueueCap = Number(url.searchParams.get("enqueue_cap")) || DEFAULT_ENQUEUE_CAP;
@@ -296,27 +254,6 @@ async function run(request: Request) {
       });
       const nextState = saved.state;
 
-      const parity = await buildParityReport({
-        merchantId: m.id,
-        windowHours,
-        needsWork: rec.needsWork,
-        noWork: rec.noWork,
-        // The comparison is only sound when THIS invocation's product sets cover
-        // the same ground the webhook window does — i.e. the whole catalog, read
-        // in one pass.
-        //
-        // needsWork/noWork are allocated fresh per call and populated only from
-        // `after` onward, but webhookSaw spans the entire window. On the final
-        // run of a RESUMED cycle, cycleComplete is true while the walk only read
-        // the tail, so every webhook-seen product from the earlier pages falls
-        // into not_in_walked_catalog — either a false fail_unexplained_gap, or a
-        // `pass` that only ever examined the tail. Both are wrong, and the
-        // second is the dangerous one.
-        //
-        // So: sound only when the walk started at the beginning AND reached the
-        // end within this invocation.
-        truncated: !(cycleComplete && resumeFrom === null),
-      });
 
       results.push({
         shop: m.shopify_domain,
@@ -346,7 +283,6 @@ async function run(request: Request) {
         errors: saved.persisted
           ? rec.errors
           : [...rec.errors, `cursor_not_persisted: ${saved.error}`],
-        parity,
       });
     } catch (err) {
       sentry.captureException(err, {
@@ -418,118 +354,6 @@ async function run(request: Request) {
     // 200 only when discovery actually did its job end to end.
     degraded ? 500 : 200,
   );
-}
-
-/**
- * Diff the reconcile's conclusions against what the webhook path saw over the
- * same window. `webhook_only_unexplained` is the number that matters: a product
- * the webhooks enqueued that the reconcile neither flagged nor can account for
- * is a genuine discovery gap and must block the switch.
- */
-async function buildParityReport(opts: {
-  merchantId: string;
-  windowHours: number;
-  needsWork: ReconciledProduct[];
-  noWork: ReconciledProduct[];
-  truncated: boolean;
-}): Promise<ParityReport> {
-  const cutoff = new Date(Date.now() - opts.windowHours * 3600_000).toISOString();
-
-  // PAGINATED, and the pagination is load-bearing. PostgREST caps an unbounded
-  // .select() at 1,000 rows, silently. The first 7-day run read 777 distinct
-  // products where the table actually holds 4,250 rows / 2,941 distinct — and an
-  // under-read of webhook_saw makes the gate look CLEANER than it is, because a
-  // webhook-only product beyond the cap is never even considered for
-  // webhook_only_unexplained. Exactly the "we could not look, reported as a
-  // factual negative" defect, on the instrument rather than the subject. The 24h
-  // window happened to sit under the cap (829 rows), so that verdict was correct
-  // by luck, not by construction.
-  const webhookSaw = new Set<string>();
-  const PAGE = 1000;
-  let logRowsRead = 0;
-  let logReadTruncated = false;
-  let logReadError: string | null = null;
-  for (let offset = 0; ; offset += PAGE) {
-    const { data, error } = await supabase
-      .from("enrichment_webhook_log")
-      .select("product_id")
-      .eq("merchant_id", opts.merchantId)
-      .in("outcome", WEBHOOK_SAW_OUTCOMES)
-      .gte("created_at", cutoff)
-      .not("product_id", "is", null)
-      .order("id", { ascending: true })
-      .range(offset, offset + PAGE - 1);
-    if (error) {
-      logReadError = error.message;
-      break;
-    }
-    const rows = data ?? [];
-    logRowsRead += rows.length;
-    for (const row of rows) if (row.product_id) webhookSaw.add(String(row.product_id));
-    if (rows.length < PAGE) break;
-    // Hard stop so a pathological log can never run the invocation into the
-    // ceiling — but say so, because a capped read cannot support a pass.
-    if (offset + PAGE >= 100_000) {
-      logReadTruncated = true;
-      break;
-    }
-  }
-
-  const needs = new Set(opts.needsWork.map((p) => p.numericProductId));
-  const reasonById = new Map<string, string>();
-  for (const p of opts.noWork) reasonById.set(p.numericProductId, p.reason);
-
-  let agreed = 0;
-  const byReason: Record<string, number> = {};
-  const unexplained: string[] = [];
-  for (const pid of webhookSaw) {
-    if (needs.has(pid)) {
-      agreed += 1;
-      continue;
-    }
-    const reason = reasonById.get(pid);
-    if (reason) {
-      byReason[reason] = (byReason[reason] ?? 0) + 1;
-    } else {
-      // Not in the walked catalog at all. Either the product was deleted after
-      // the webhook fired (benign, and the drainer would 'product_not_found'
-      // too) or the walk was truncated before reaching it. The caller's
-      // `truncated` flag disambiguates — never read this as benign on its own.
-      byReason["not_in_walked_catalog"] = (byReason["not_in_walked_catalog"] ?? 0) + 1;
-      if (unexplained.length < 25) unexplained.push(pid);
-    }
-  }
-
-  const unexplainedCount = byReason["not_in_walked_catalog"] ?? 0;
-  return {
-    // An EMPTY comparison set is not agreement — it is no evidence.
-    //
-    // products/update was unsubscribed on 2026-07-29, so enrichment_webhook_log
-    // stopped being written at 2026-07-28 23:07 and the 24h window drained to
-    // zero rows the following night. With webhook_saw = 0 every downstream
-    // number is 0 too, unexplainedCount is 0, and the old expression returned
-    // "pass" — a green verdict computed from nothing, on the instrument an
-    // operator uses to decide the switch was safe. That is the §11a collapse
-    // applied to the measuring device rather than the subject.
-    verdict: opts.truncated
-      ? "inconclusive_truncated_walk"
-      : logReadTruncated || logReadError
-        ? "inconclusive_webhook_log_read_incomplete"
-        : unexplainedCount > 0
-          ? "fail_unexplained_gap"
-          : webhookSaw.size === 0
-            ? "inconclusive_no_webhook_evidence"
-            : "pass",
-    window_hours: opts.windowHours,
-    webhook_saw: webhookSaw.size,
-    webhook_log_rows_read: logRowsRead,
-    reconcile_needs_work: needs.size,
-    agreed,
-    webhook_only: webhookSaw.size - agreed,
-    webhook_only_by_reason: byReason,
-    webhook_only_unexplained: unexplained,
-    reconcile_only: needs.size - agreed,
-  };
 }
 
 // ─── Cursor persistence ──────────────────────────────────────────────────────

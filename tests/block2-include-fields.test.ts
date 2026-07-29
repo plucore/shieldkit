@@ -72,24 +72,21 @@ describe("products/* subscriptions request only the field the handler reads", ()
     expect(src).toMatch(/if \(existing && !upToDate\)/);
   });
 
-  it("does NOT claim the delivery-count saving in a comment", () => {
-    // The debounce behaviour is undocumented; the payload-size saving is not.
-    // Keep the distinction explicit so nobody later reads it as established.
-    expect(src).toMatch(/UNVERIFIED/);
-    expect(src).toMatch(/CERTAIN/);
-  });
-
-  it("records the debounce hypothesis as RETIRED UNTESTED, not pending", () => {
-    // The planned 48h delivery-count test measured products/update redelivery
-    // volume, and products/update was unsubscribed 2026-07-29. Deliveries fall to
-    // ~0 because the topic is gone, so the number can attribute nothing. Leaving
-    // it recorded as "pending" would invite someone to run a comparison that
-    // cannot answer the question.
-    expect(src).toMatch(/RETIRED UNTESTED/);
-    expect(src).toMatch(/48h test is void/);
-    // ...and the change must be justified on the DOCUMENTED reason alone.
-    expect(src).toMatch(/kept on reason 1\s*\n?\s*\*?\s*alone, which is documented/);
-  });
+  // DELETED 2026-07-29: two tests that asserted the ENGLISH PROSE of a code
+  // comment — /UNVERIFIED/, /CERTAIN/, /RETIRED UNTESTED/, /48h test is void/,
+  // and a regex for the exact wording of a sentence fragment.
+  //
+  // They protected no behaviour. Every one of them would still have passed with
+  // `includeFields` removed from the CREATE mutation entirely, as long as the
+  // comment survived — and they broke on any rewording, including a prettier
+  // reflow (the third regex tried to tolerate that and only half succeeded).
+  //
+  // The distinction they were reaching for is real and worth keeping: the
+  // payload-size saving is documented, the delivery-count debounce never was.
+  // But that belongs in the comment itself, where it now lives, not in an
+  // assertion that pins its phrasing. What actually needs protecting is the
+  // BEHAVIOUR — that includeFields is declared, passed on create, and pushed to
+  // existing subscriptions — and the tests above already do that.
 });
 
 describe("products/* remain per-shop, so `shopify app deploy` is NOT the mechanism", () => {

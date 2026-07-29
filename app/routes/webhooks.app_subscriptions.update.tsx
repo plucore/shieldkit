@@ -37,9 +37,18 @@
  *
  * On ACTIVE: persist tier, billing_cycle, subscription_started_at,
  *            shopify_subscription_id, scans_remaining=NULL.
- * On CANCELLED / EXPIRED / DECLINED / FROZEN:
+ * On CANCELLED / EXPIRED / DECLINED:
  *            reset to free tier — clear paid-plan billing fields and
- *            grant 1 fresh scan with reset_at=now().
+ *            grant 1 fresh scan with reset_at=now(). Guarded by the
+ *            subscription-identity check so a terminal event for a SUPERSEDED
+ *            subscription cannot strip a live entitlement.
+ * On FROZEN: NOTHING. A freeze is recoverable and the entitlement is left
+ *            intact — see TERMINAL_SUBSCRIPTION_STATUSES in plans.ts.
+ *
+ * This header said "CANCELLED / EXPIRED / DECLINED / FROZEN -> reset to free"
+ * for a day after the behaviour changed, which is the same stale-description
+ * mechanism that caused a false report on 2026-07-29. When you change
+ * behaviour, change the prose describing it in the SAME commit.
  */
 
 import type { ActionFunctionArgs } from "react-router";

@@ -20,8 +20,21 @@ name: Catalog reconcile
 # catalog_reconcile_state; `cycle_complete` and `last_full_catalog_pass` in the
 # response are what tell you the whole catalog has been seen.
 #
-# Cadence is offset 30 minutes from the drainer's `0 */6` so discovery lands
-# shortly before the drain rather than racing it.
+# ORDERING, STATED HONESTLY. This ran at `30 */6`, with a comment claiming it
+# landed "shortly before the drain". It did the opposite: the drainer is `0 */6`,
+# so :30 is thirty minutes AFTER each drain and five and a half hours before the
+# next one — the maximum-latency phase, not the minimum.
+#
+# Now `0 5,11,17,23`, a nominal one-hour lead on each drain. Treat that as
+# best-effort, not a guarantee: GitHub Actions schedules drift hard on shared
+# runners (measured 2026-07-29: a 00:30 job fired at 03:47, an 06:30 job at
+# 09:19), and no sub-hour lead survives that. The real bound on edit-to-write
+# latency is one discovery cycle plus one drain cycle, and for a catalog that
+# spans several invocations it is (pages / pages-per-run) x 6h plus the drain.
+# For sex-eshop today that is ~12h + up to 6h. Do not quote "~6h".
+#
+# The Vercel cron at 02:00 UTC (vercel.json) is the deterministic trigger and the
+# failsafe if GitHub Actions is disabled or delayed.
 #
 # Manual setup: CRON_SECRET must exist in the repo's Actions secrets (shared with
 # process-scan-triggers.yml).
@@ -34,7 +47,7 @@ name: Catalog reconcile
 
 on:
   schedule:
-    - cron: "30 */6 * * *"
+    - cron: "0 5,11,17,23 * * *"
   workflow_dispatch:
     inputs:
       mode:
@@ -93,5 +106,20 @@ jobs:
           cat /tmp/reconcile.json || true
           echo
           if [ "$HTTP_STATUS" -ge 400 ]; then
+            echo "::error::reconcile-catalog returned HTTP $HTTP_STATUS — enrichment discovery is DEGRADED or down." >&2
+            exit 1
+          fi
+
+          # Never verify a system against the fact that it answered. A 200 with
+          # the wrong mode means discovery ran read-only and wrote nothing, which
+          # is indistinguishable from success in every other signal — the exact
+          # thing that let a pinned-to-observe workflow look healthy while
+          # discovery was dead. Assert what the body actually SAYS.
+          if [ "$MODE" = "enqueue" ] && ! grep -q '"mode":"enqueue"' /tmp/reconcile.json; then
+            echo "::error::Expected mode=enqueue in the response body but did not find it. Discovery may have run in observe mode and written nothing." >&2
+            exit 1
+          fi
+          if grep -q '"degraded":true' /tmp/reconcile.json; then
+            echo "::error::Response reports degraded=true — some shop errored, was not reached, or the write_products scope is missing." >&2
             exit 1
           fi

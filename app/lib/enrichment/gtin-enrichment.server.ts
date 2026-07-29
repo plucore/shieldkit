@@ -16,6 +16,7 @@
 
 import {
   decideEnrichment,
+  ENRICHMENT_METAFIELDS_ARGS,
   needsShopNameFallback,
   type EnrichmentSnapshot,
 } from "./enrichment-decision.server";
@@ -56,7 +57,7 @@ const PRODUCT_QUERY = `#graphql
       variants(first: 1) {
         edges { node { sku barcode } }
       }
-      metafields(namespace: "custom", first: 10) {
+      metafields(${ENRICHMENT_METAFIELDS_ARGS}) {
         edges { node { key value } }
       }
     }

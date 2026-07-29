@@ -235,8 +235,8 @@ Plans defined in the **Partner Dashboard** listing UI, not in code. No `billing`
 Current offerings:
 | Name | Price | DB tier | billing_cycle |
 |------|-------|---------|---------------|
-| `Monitoring` | $49/mo | `monitoring` | `monthly` |
-| `Monitoring Annual` | $449/yr | `monitoring` | `annual` |
+| `Monitoring` | **$29/mo** | `monitoring` | `monthly` |
+| `Monitoring Annual` | **$290/yr** (see the §1 warning — `plans.ts` prose still says $390; verify in the Partner Dashboard) | `monitoring` | `annual` |
 
 Grandfathered (not offered to new merchants; kept for reconciliation):
 | Name | Price | DB tier | billing_cycle |
@@ -581,7 +581,7 @@ Indexes: `idx_webhook_failures_unresolved (topic, shop) WHERE resolved_at IS NUL
 **Path C — Event-driven (enrichment only in v4)**:
 - `webhooks.products.update.tsx` enqueues a `pending_scan_triggers` row with `trigger_type='enrichment'` and payload `{ product_gid, numeric_product_id }` (dedup'd against `schema_enrichments` and the queue).
 - `webhooks.themes.update.tsx` is a no-op pass-through; the v3 theme-update → re-scan path was retired with the weekly cron infra.
-- `api.cron.process-scan-triggers.ts` (daily 12:00 UTC + GitHub Actions every 6h) drains `BATCH_SIZE=10` per invocation, runs `enrichProductMetafields` for enrichment rows, marks `processed_at`.
+- `api.cron.process-scan-triggers.ts` (daily 12:00 UTC + GitHub Actions every 6h) drains `BATCH_SIZE=150` per invocation, runs `enrichProductMetafields` for enrichment rows, marks `processed_at`.
 
 ### AI usage cap (v4)
 Shared 12-generation rolling 30-day window across `generatePolicy` and `generateAppealLetter`. `checkAndConsumeAiCredit(merchantId)` is called BEFORE the Anthropic API hit so a cap-reached request never burns a model call. The internal validator-retry path in `generatePolicy` does NOT consume a second credit — two model calls count as one generation from the merchant's perspective. Reset date surfaced in the cap-reached error message.
@@ -682,9 +682,9 @@ On first scan, shop owner email collected via GraphQL (`shop { email }`) and ups
 | Route File | URL Path | Method | Behaviour |
 |-----------|----------|--------|-----------|
 | `api.scan.ts` | `/api/scan` | POST | Authenticated scan endpoint. Rate-limited + atomic quota. Returns full scan JSON. GET → 405. |
-| `api.cron.process-scan-triggers.ts` | `/api/cron/process-scan-triggers` | **GET + POST** | Drains the queue. `BATCH_SIZE=100` rows selected, bounded by `TIME_BUDGET_MS=45000` and drained by a pool of `ENRICH_CONCURRENCY=5`. GitHub Actions every 6h + Vercel Cron daily 12:00 UTC. Bearer `CRON_SECRET`. |
+| `api.cron.process-scan-triggers.ts` | `/api/cron/process-scan-triggers` | **GET + POST** | Drains the queue. `BATCH_SIZE=150` rows selected, bounded by `TIME_BUDGET_MS=45000` and drained by a pool of `ENRICH_CONCURRENCY=5`. GitHub Actions every 6h + Vercel Cron daily 12:00 UTC. Bearer `CRON_SECRET`. |
 | `api.cron.reconcile-subscriptions.ts` | `/api/cron/reconcile-subscriptions` | **GET + POST** | Vercel Cron daily 04:00 UTC. Walks paid merchants, queries Partner API, demotes on terminal status. Never demotes on `unknown`. |
-| `api.cron.reconcile-catalog.ts` | `/api/cron/reconcile-catalog` | **GET + POST** | Block 4. Walks each paid merchant's catalog 250 products/page and decides enrichment need from the paged data — no per-product round trip. `mode=observe` (default) writes nothing; `mode=enqueue` inserts `pending_scan_triggers` rows. Resumes from `catalog_reconcile_state.cursor`. Also emits the parity report vs `enrichment_webhook_log`. Bearer `CRON_SECRET`. GH Actions `reconcile-catalog-observe.yml` every 6h, pinned to `observe` on schedule. |
+| `api.cron.reconcile-catalog.ts` | `/api/cron/reconcile-catalog` | **GET + POST** | Block 4. Walks each paid merchant's catalog 250 products/page and decides enrichment need from the paged data — no per-product round trip. `mode=enqueue` (DEFAULT) inserts `pending_scan_triggers` rows; `mode=observe` writes nothing. Resumes from `catalog_reconcile_state.cursor`. Also emits the parity report vs `enrichment_webhook_log`. Bearer `CRON_SECRET`. **`mode` defaults to `enqueue`** (2026-07-29 — the observe default meant a caller that lost its query string wrote nothing and still returned 200). Returns **HTTP 500 when `degraded`** so the scheduled job goes red. GH Actions `reconcile-catalog.yml` at `0 5,11,17,23` **plus** a Vercel Cron at 02:00 UTC as failsafe. |
 | `api.cron.reconcile-installs.ts` | `/api/cron/reconcile-installs` | **GET + POST** | Vercel Cron daily 03:00 UTC. Probes Shopify Admin API for still-installed merchants. **Strictly NON-DESTRUCTIVE since 2026-06-26** — a 401/403 records a non-persisted `auth_stale` signal only. It NEVER writes `uninstalled_at`, NEVER deletes sessions, and NEVER writes `webhook_failures`. |
 
 > **Cron HTTP method — read before touching a cron route.** Vercel Cron invokes a scheduled path with **GET**, which React Router dispatches to the `loader`. All three routes were previously POST-only behind a 405 loader, so **the Vercel crons had never executed** — `process-scan-triggers` ran only because `.github/workflows/process-scan-triggers.yml` passes `--request POST`, and `reconcile-subscriptions` (the only code path that demotes a cancelled subscription) had never run at all. Fixed 2026-07-28: each route exports a thin `loader` and `action` that both delegate to a shared `run(request)`. **Authorisation is the bearer `CRON_SECRET` check inside `run()`, never the HTTP verb** — do not "restore" a method guard.
@@ -697,7 +697,7 @@ On first scan, shop owner email collected via GraphQL (`shop { email }`) and ups
 
 | Route File | URL Path | Behaviour |
 |-----------|----------|-----------|
-| `_index/route.tsx` | `/` | Landing page. Two paid plan cards (Monitoring $49/mo or $449/yr) + Free. Emits Organization + FAQPage JSON-LD. Redirects to `/app` when `?shop` present. |
+| `_index/route.tsx` | `/` | Landing page. Paid plan card + Free. **Prices are DERIVED from `PLANS` (2026-07-28), never hardcoded** — it renders $29/mo and $290/yr. Emits Organization + FAQPage JSON-LD. Redirects to `/app` when `?shop` present. |
 | `scan.tsx` | `/scan` | Public 8-point compliance scanner. Emits WebApplication JSON-LD. POST runs scan; second POST (`intent=unlock`) captures lead email. |
 | `explainer.tsx` | `/explainer` | GMC misrepresentation explainer (Article JSON-LD). |
 | `blog._index.tsx` | `/blog` | Listing from `app/content/blog/*.mdx`. |
@@ -911,6 +911,42 @@ Not by review, in any of the four cases:
 empty queue is not completed work. A zero error count is not an absence of
 failure. Ask the external system what is true.
 
+### THE DOC RULE: a fix and its description ship in the SAME commit
+
+**When you fix something this file (or a header comment) describes as broken, you
+change the description in that same commit. Not the next one. Not "later".**
+
+This is not tidiness, it is the same defect class as the rest of §11a — a stale
+description is a confident assertion about the world that is no longer true, and
+it is read by someone with no way to tell:
+
+* PR #14 fixed the `$49` price constants on 2026-07-28. The §1 warning block
+  describing them as broken stayed for 25 hours and **caused a false report on
+  2026-07-29** — working code was read as broken because this file said so.
+* a158f91 removed FROZEN from the terminal set in both call sites and left the
+  header comments in both files still documenting FROZEN as terminal — inside
+  the very commit whose message blames stale descriptions for the original bug.
+* The §7 route table described the sole enrichment discovery path as a workflow
+  file that does not exist (`reconcile-catalog-observe.yml`), pinned to a mode
+  that writes nothing. Anyone reading it to answer "is discovery running?" would
+  have concluded no.
+* Four places stated `BATCH_SIZE` with three different values, and an operator
+  alarm derived its thresholds from the wrong one — firing ~50% early and
+  recommending work that was already done.
+
+The failure is always the same shape: the code moved, the prose did not, and the
+prose is what the next person acts on. Treat a comment or a doc line that asserts
+current behaviour as **code that cannot be tested** — which is exactly why it has
+to be changed by the same hand, at the same time, as the behaviour it describes.
+
+Corollary for constants: prefer ONE source and derive. Where a copy is genuinely
+unavoidable (a shell script that cannot import TypeScript, a CLI that must run
+standalone), make the copy READ the source at runtime or add a test that fails
+when the copies disagree. `scripts/weekly-health.sh` greps `BATCH_SIZE` out of
+the drainer and says so loudly if it cannot; the CLI detector mirror is pinned by
+tests in `tests/public-scanner-fp.test.ts`. A comment asserting "keep these in
+sync" has now failed to do so three times.
+
 ## 12. Known Issues / Limitations
 
 * **JSON-LD enablement is intent-only** — `merchants.json_ld_enabled` records intent (the click) without probing the storefront. If a merchant enables and then removes the block from their theme without re-scanning, the flag stays true. The compliance scan's `structured_data_json_ld` check is the place merchants discover that mismatch.
@@ -997,7 +1033,7 @@ failure. Ask the external system what is true.
 The 12-point compliance scan takes ~10–15s per merchant. In v4 the weekly-scan fan-out + drain pipeline was removed; only the enrichment-trigger path remains:
 
 1. **`webhooks.products.update.tsx`** enqueues `trigger_type='enrichment'` with payload `{ product_gid, numeric_product_id }`. 24h-dedup against `schema_enrichments` and the queue.
-2. **`api.cron.process-scan-triggers.ts`** drains up to `BATCH_SIZE=10` enrichment rows per invocation (~2s each), staying well within the 60s Hobby function ceiling.
+2. **`api.cron.process-scan-triggers.ts`** drains up to `BATCH_SIZE=150` enrichment rows per invocation (~2s each), staying well within the 60s Hobby function ceiling.
 3. **`.github/workflows/process-scan-triggers.yml`** — GitHub Actions cron every 6h (`0 */6 * * *`) curls the endpoint with bearer `CRON_SECRET`. Cadence cut from `*/30` to `0 */6` on 2026-05-28 to reduce Vercel Hobby Fluid Active CPU now that only enrichment work remains.
 4. **Vercel Cron failsafe** — daily 12:00 UTC same endpoint, same `Authorization: Bearer $CRON_SECRET` header.
 

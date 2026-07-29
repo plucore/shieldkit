@@ -5,8 +5,8 @@
  * that sampled product pages respond with HTTP 200.
  */
 
-import { load as cheerioLoad } from "cheerio";
 import type { CheckResult, PageFetchResult } from "./types";
+import { detectPasswordGate } from "./shared/html-detectors.server";
 
 export async function checkStorefrontAccessibility(
   storeUrl: string,
@@ -17,39 +17,11 @@ export async function checkStorefrontAccessibility(
   const CHECK_NAME = "storefront_accessibility";
 
   // ── Password-protection detection ─────────────────────────────────────────
-  let isPasswordProtected = false;
-  const passwordSignals: string[] = [];
-
-  if (homepageStatus === 401) {
-    isPasswordProtected = true;
-    passwordSignals.push("HTTP 401 Unauthorized");
-  }
-
-  if (homepageHtml) {
-    const $ = cheerioLoad(homepageHtml);
-    const bodyClass = ($("body").attr("class") ?? "").toLowerCase();
-    const pageTitle = $("title").text().toLowerCase();
-
-    if (bodyClass.includes("template-password")) {
-      isPasswordProtected = true;
-      passwordSignals.push('body class "template-password" detected');
-    }
-    if (
-      pageTitle.includes("enter using password") ||
-      pageTitle.includes("password required")
-    ) {
-      isPasswordProtected = true;
-      passwordSignals.push(`page title indicates password gate: "${$("title").text()}"`);
-    }
-    if ($("form[action='/password']").length > 0) {
-      isPasswordProtected = true;
-      passwordSignals.push('password form (action="/password") present');
-    }
-    if ($("#shopify-challenge-page").length > 0) {
-      isPasswordProtected = true;
-      passwordSignals.push("#shopify-challenge-page element detected");
-    }
-  }
+  // Shared with the public /scan scanner. The two had already diverged —
+  // #shopify-challenge-page was a signal here and missing there — so the same
+  // gated storefront was detected in-app and missed on the lead-gen scan.
+  const { passwordProtected: isPasswordProtected, signals: passwordSignals } =
+    detectPasswordGate(homepageHtml, homepageStatus);
 
   if (isPasswordProtected) {
     return {

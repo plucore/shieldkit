@@ -12,11 +12,18 @@
  * self-heal loader (app._index.tsx) never runs — so the DB keeps showing
  * them as a paid tier and they get paid features for free.
  *
- * This job closes that gap. For every active paid merchant we query the
- * Partner API for the current subscription status. If Shopify says the
- * subscription is in a terminal state (cancelled / expired / frozen /
- * declined) we demote the merchant to free, mirroring exactly what the
- * APP_SUBSCRIPTIONS_UPDATE webhook used to do on the same statuses.
+ * This job closes that gap. For every merchant carrying a charge id we query
+ * the Partner API for the current subscription status. If Shopify says the
+ * subscription is in a terminal state (cancelled / expired / declined) we
+ * demote the merchant to free, using the SAME shared predicate the
+ * APP_SUBSCRIPTIONS_UPDATE webhook uses — isTerminalSubscriptionStatus() in
+ * plans.ts.
+ *
+ * FROZEN IS NOT TERMINAL. This header listed it as one for a day after the
+ * behaviour changed, which is the same stale-description mechanism that caused
+ * a false report on 2026-07-29. A freeze is recoverable and demoting on it
+ * permanently stripped three paying merchants. When you change behaviour,
+ * change the prose describing it in the SAME commit.
  *
  * CRITICAL FAIL-SAFE: if the Partner API call fails or returns
  * `status: "unknown"` (network error, GraphQL error, no matching events,
@@ -179,7 +186,18 @@ async function run(request: Request) {
   }
 
   if (!merchants || merchants.length === 0) {
-    return json({ checked: 0, demoted: 0, skipped_unknown: 0 });
+    // The orphan alarm is computed ABOVE this and was being thrown away here.
+    // That is precisely backwards: a merchant with a paid tier and no charge id
+    // is invisible to the walk, so the case where the walk finds NOTHING to do
+    // is exactly the case where the alarm is the only signal there is. Carrying
+    // it through means "checked: 0" can never be mistaken for "nothing wrong".
+    return json({
+      checked: 0,
+      demoted: 0,
+      skipped_unknown: 0,
+      unreconcilable_paid: unreconcilablePaid,
+      unreconcilable_exempt: unreconcilableExempt,
+    });
   }
 
   let demoted = 0;

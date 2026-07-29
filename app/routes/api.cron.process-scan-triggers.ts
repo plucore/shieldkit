@@ -2,7 +2,7 @@
  * app/routes/api.cron.process-scan-triggers.ts
  *
  * Drains pending_scan_triggers in a small bounded batch per invocation. The
- * Vercel Hobby tier function ceiling is 60s; BATCH_SIZE=10 enrichments (~2s
+ * Vercel Hobby tier function ceiling is 60s; BATCH_SIZE enrichments (~2s
  * each) keep us comfortably under it.
  *
  * Queue-head safety (2026-06-26): the drain SELECT joins merchants with an
@@ -101,6 +101,21 @@ const TIME_BUDGET_MS = 45_000;
 const ENRICH_CONCURRENCY = 5;
 
 /**
+ * Hard ceiling for the `?concurrency=` operator override.
+ *
+ * Was 24, which predated the measurement. Production, 2026-07-28:
+ *   concurrency  5 -> 183 succeeded / 46s
+ *   concurrency 10 -> 384 succeeded / 47s, zero deferrals
+ *   concurrency 16 -> 278 succeeded + 28 DEFERRED
+ * So 10 is the sustainable ceiling and 16 is already degrading. (The earlier
+ * "24 is linear" reading came from the broken success counters, where failures
+ * looked like speed — see §11a site 3.) A bound that permits 24 invites an
+ * operator to burn a paying merchant's rate limit during a burn-down and read
+ * the resulting throttles as throughput.
+ */
+const MAX_ENRICH_CONCURRENCY = 10;
+
+/**
  * How many times a product may be re-enqueued after an "unavailable" result
  * before we stop and report it. Bounds the retry so a permanently-broken product
  * cannot cycle forever, while a transient throttle still gets three chances
@@ -173,7 +188,12 @@ async function run(request: Request) {
     return Number.isFinite(n) && n >= min ? Math.min(Math.floor(n), max) : dflt;
   };
   const batchSize = clamp(params.get("batch"), BATCH_SIZE, 1, 1000);
-  const concurrency = clamp(params.get("concurrency"), ENRICH_CONCURRENCY, 1, 24);
+  const concurrency = clamp(
+    params.get("concurrency"),
+    ENRICH_CONCURRENCY,
+    1,
+    MAX_ENRICH_CONCURRENCY,
+  );
   const timeBudgetMs = clamp(params.get("budget_ms"), TIME_BUDGET_MS, 5_000, 50_000);
 
   const cronSecret = process.env.CRON_SECRET;
@@ -403,6 +423,39 @@ async function run(request: Request) {
         `[cron/process-scan-triggers] enrichment failed for ${merchant.shopify_domain} product ${productGid}:`,
         err instanceof Error ? err.message : err,
       );
+
+      // A THROW is "could not", exactly like `result.unavailable` — it is not
+      // "done". This path used to fall straight through to the unconditional
+      // markProcessed below, so a transient network reset or an unhandled
+      // response shape DISCARDED that product's enrichment entirely, bypassing
+      // the defer-and-requeue contract twenty lines above it. The row was
+      // consumed and the work was never retried.
+      //
+      // Same bounded requeue as the unavailable branch: forward progress is
+      // preserved (the row is still advanced below, so one bad product cannot
+      // wedge the queue head) but the work is deferred rather than lost.
+      const attempt = Number(row.payload?.attempt ?? 0) + 1;
+      if (attempt <= MAX_ENRICH_ATTEMPTS) {
+        const { error: reErr } = await supabase.from("pending_scan_triggers").insert({
+          merchant_id: row.merchant_id,
+          trigger_type: "enrichment",
+          payload: { product_gid: productGid, numeric_product_id: numericId, attempt },
+        });
+        if (reErr) {
+          sentry.captureException(new Error(`requeue-after-throw failed: ${reErr.message}`), {
+            tags: { area: "process-scan-triggers", branch: "requeue_throw" },
+            extra: { shop: merchant.shopify_domain, product_gid: productGid },
+          });
+        } else {
+          requeued += 1;
+        }
+      } else {
+        requeueExhausted += 1;
+        sentry.captureMessage(
+          `enrichment gave up after ${MAX_ENRICH_ATTEMPTS} thrown attempts: ${merchant.shopify_domain} ${productGid}`,
+          "warning",
+        );
+      }
     }
 
     // Forward-progress guarantee: advance the row regardless of the enrichment

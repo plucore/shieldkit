@@ -38,6 +38,14 @@ type Node = {
 let pages: Array<{ nodes: Node[]; hasNextPage: boolean; endCursor: string | null }> = [];
 let pageFailsAt: number | null = null;
 let shopNameThrows = false;
+/**
+ * The shape that made finding 3 survive review: a Shopify THROTTLE is
+ * HTTP 200 with `errors[]` and NO `data` key. It does not throw, so a mock that
+ * can only throw or return a well-formed body cannot express it — which is
+ * exactly why the old shop-name test only covered the throw path and the real
+ * defect went untested.
+ */
+let shopNameThrottled = false;
 let freshEnrichedIds: string[] = [];
 let queuedIds: string[] = [];
 let insertedRows: Array<Record<string, unknown>> = [];
@@ -92,6 +100,13 @@ vi.mock("../app/lib/shopify-api.server", () => ({
     return async (query: string, variables?: Record<string, unknown>) => {
       if (query.includes("ReconcileShopName")) {
         if (shopNameThrows) throw new Error("shop name unavailable");
+        if (shopNameThrottled) {
+          // HTTP 200, errors[], no `data`. The reply that used to slip through.
+          return {
+            errors: [{ message: "Throttled", extensions: { code: "THROTTLED" } }],
+            extensions: { cost: { actualQueryCost: 0 } },
+          };
+        }
         return { data: { shop: { name: "Fallback Shop" } } };
       }
       const after = (variables?.after as string | null) ?? null;
@@ -113,6 +128,17 @@ vi.mock("../app/lib/shopify-api.server", () => ({
       };
     };
   },
+  // The reconcile now routes BOTH its queries through executeWithRetry, because
+  // createAdminClient returns a bare fetch wrapper with no THROTTLED backoff.
+  // The stand-in just delegates: retry behaviour is graphql-client's contract
+  // and is tested there; what matters here is that the caller inspects
+  // `errors[]` on whatever comes back.
+  executeWithRetry: async (
+    runner: (q: string, v?: Record<string, unknown>) => Promise<unknown>,
+    _queryName: string,
+    query: string,
+    variables?: Record<string, unknown>,
+  ) => runner(query, variables),
 }));
 
 const { reconcileCatalog, PAGE_SIZE } = await import(
@@ -153,6 +179,7 @@ beforeEach(() => {
   pages = [];
   pageFailsAt = null;
   shopNameThrows = false;
+  shopNameThrottled = false;
   freshEnrichedIds = [];
   queuedIds = [];
   insertedRows = [];
@@ -298,13 +325,58 @@ describe("a failed page is never 'the catalog ends here'", () => {
     spy.mockRestore();
   });
 
-  it("a lost shop name degrades brand to no_signal, never to a wrong value", async () => {
-    shopNameThrows = true;
-    pages = [{ nodes: [product("1", { vendor: null, sku: null, barcode: null })], hasNextPage: false, endCursor: null }];
+  // ── A lost shop name is "could not look", never "has no brand" ────────────
+  //
+  // This block previously asserted the OPPOSITE: that a failed shop-name lookup
+  // should classify the product `no_signal` with needsWork empty. That pinned
+  // the §11a collapse as the desired behaviour, and it only ever exercised the
+  // THROW path — the one case that did push an error. The reply Shopify actually
+  // sends under load (HTTP 200 + errors[] + no data) never threw, so shopName
+  // silently became null, the products were dropped, `errors` stayed empty, the
+  // cycle stamped last_completed_at and the parity verdict read `pass`.
+  //
+  // Correct behaviour, both shapes: record the failure AND treat a product whose
+  // brand can only come from the shop-name fallback as INDETERMINATE — hand it
+  // to the drainer, which resolves the shop name itself per product.
+  for (const [label, arm] of [
+    ["the query throws", () => { shopNameThrows = true; }],
+    ["the query is THROTTLED (HTTP 200, errors[], no data)", () => { shopNameThrottled = true; }],
+  ] as const) {
+    it(`a lost shop name is recorded and never becomes "no signal" — ${label}`, async () => {
+      arm();
+      pages = [
+        {
+          nodes: [product("1", { vendor: null, sku: null, barcode: null })],
+          hasNextPage: false,
+          endCursor: null,
+        },
+      ];
+      const r = await reconcileCatalog(opts());
+
+      // The failure must be VISIBLE, so the caller cannot close the cycle on it.
+      expect(r.errors.join(" ")).toMatch(/shop_name_unavailable/);
+
+      // And the product must NOT be written off.
+      expect(r.noWork).toHaveLength(0);
+      expect(r.needsWork).toHaveLength(1);
+      expect(r.needsWork[0].reason).toBe("brand_indeterminate");
+    });
+  }
+
+  it("a resolvable shop name still classifies a brand-only product as needs_write", async () => {
+    // The control. If the fallback works, nothing above should change.
+    pages = [
+      {
+        nodes: [product("1", { vendor: null, sku: null, barcode: null })],
+        hasNextPage: false,
+        endCursor: null,
+      },
+    ];
     const r = await reconcileCatalog(opts());
-    expect(r.errors.join(" ")).toMatch(/shop_name/);
-    expect(r.needsWork).toHaveLength(0);
-    expect(r.noWork[0].reason).toBe("no_signal");
+    expect(r.errors).toEqual([]);
+    expect(r.needsWork).toHaveLength(1);
+    expect(r.needsWork[0].reason).toBe("needs_write");
+    expect(r.needsWork[0].wouldWrite).toEqual(["brand"]);
   });
 });
 
@@ -426,8 +498,14 @@ describe("the cron route is gated and shaped correctly", () => {
     expect(src).not.toMatch(/405/);
   });
 
-  it("defaults to observe — the parallel run must never write", () => {
-    expect(src).toMatch(/mode = url\.searchParams\.get\("mode"\) === "enqueue" \? "enqueue" : "observe"/);
+  it("defaults to ENQUEUE — a scheduled caller that loses its query string must not silently no-op", () => {
+    // Inverted 2026-07-29. The observe default was justified by "a bare
+    // unauthenticated-shaped call can never write", but the bearer check above
+    // already guarantees no unauthenticated call reaches this line. It guarded
+    // an impossible case while enabling a real one: this is now the SOLE
+    // enrichment discovery path, so a run that writes nothing and returns 200 is
+    // the expensive failure. Read-only is the mode you have to ask for.
+    expect(src).toMatch(/=== "observe" \? "observe" : "enqueue"/);
   });
 
   it("restricts to paid, still-installed merchants", () => {
@@ -516,7 +594,18 @@ describe("drainer operator knobs (Block 4 burn-down)", () => {
     expect(src).toMatch(/const BATCH_SIZE = 150/);
     expect(src).toMatch(/const ENRICH_CONCURRENCY = 5/);
     expect(src).toMatch(/clamp\(params\.get\("batch"\), BATCH_SIZE, 1, 1000\)/);
-    expect(src).toMatch(/clamp\(params\.get\("concurrency"\), ENRICH_CONCURRENCY, 1, 24\)/);
+  });
+
+  it("the concurrency ceiling matches the MEASUREMENT, not the old guess", () => {
+    // Was a bare literal 24, three times the sustainable ceiling. Production
+    // 2026-07-28: concurrency 10 -> 384 succeeded with zero deferrals;
+    // 16 -> 278 succeeded plus 28 DEFERRED. The "24 is linear" reading came from
+    // the broken success counters, where failures looked like speed. A bound of
+    // 24 invites an operator to burn a paying merchant's rate limit during a
+    // burn-down and read the throttles as throughput.
+    expect(src).toMatch(/const MAX_ENRICH_CONCURRENCY = 10/);
+    expect(src).toMatch(/MAX_ENRICH_CONCURRENCY,?\s*\)/);
+    expect(src).not.toMatch(/ENRICH_CONCURRENCY, 1, 24\)/);
   });
 
   it("batch is capped at 1000 — PostgREST silently caps the response there", () => {
@@ -606,15 +695,36 @@ describe("cursor persistence — coverage, not just latency", () => {
     );
   });
 
-  it("the parity verdict grades COVERAGE, not per-invocation truncation", () => {
-    // Truncation is normal once the walk resumes, so grading on it would mark
-    // every large shop inconclusive forever. Cycle completion is the real question.
-    expect(route).toMatch(/truncated: !cycleComplete/);
+  it("the parity verdict is only sound when ONE invocation covered the whole catalog", () => {
+    // needsWork/noWork are per-invocation and populated only from `after`
+    // onward, but webhookSaw spans the whole window. On the final run of a
+    // RESUMED cycle, cycleComplete is true while the walk read only the tail —
+    // so either every earlier webhook-seen product becomes a false
+    // fail_unexplained_gap, or the run "passes" having examined the tail alone.
+    expect(route).toMatch(/truncated: !\(cycleComplete && resumeFrom === null\)/);
   });
 
-  it("reports when the whole catalog was last seen", () => {
-    expect(route).toMatch(/last_full_catalog_pass: nextState\.last_completed_at/);
-    expect(route).toMatch(/cycle_complete: cycleComplete/);
+  it("an empty webhook comparison set is inconclusive, never a pass", () => {
+    // The webhook log stopped being written when products/update was
+    // unsubscribed, so the 24h window drains to zero and every downstream
+    // number goes to 0 — including unexplainedCount, which "pass" was keyed on.
+    expect(route).toMatch(/inconclusive_no_webhook_evidence/);
+    expect(route).toMatch(/webhookSaw\.size === 0/);
+  });
+
+  it("reports when the whole catalog was last seen — only if that was PERSISTED", () => {
+    // saveState used to swallow a failed upsert and return the INTENDED state,
+    // so the response could advertise a cursor and a last_full_catalog_pass that
+    // never reached the database. The next run would then restart from page 1
+    // while the previous response claimed a completed cycle.
+    expect(route).toMatch(
+      /last_full_catalog_pass: saved\.persisted \? nextState\.last_completed_at : null/,
+    );
+    expect(route).toMatch(/cycle_complete: cycleComplete && saved\.persisted/);
+    // The failure has to be legible on its own, not only by the absence of a
+    // timestamp.
+    expect(route).toMatch(/cursor_persisted: saved\.persisted/);
+    expect(route).toMatch(/cursor_not_persisted/);
   });
 
   it("a failed state read or write can never skip catalog", () => {
@@ -738,8 +848,35 @@ describe("post-switch: the scheduled reconcile must actually WRITE", () => {
     expect(existed).toBe(false);
   });
 
-  it("the ROUTE still defaults to observe, so only an explicit caller writes", () => {
+  it("the ROUTE defaults to enqueue, so a caller cannot silently write nothing", () => {
     const src = read("app", "routes", "api.cron.reconcile-catalog.ts");
-    expect(src).toMatch(/=== "enqueue" \? "enqueue" : "observe"/);
+    expect(src).toMatch(/=== "observe" \? "observe" : "enqueue"/);
+  });
+
+  it("a degraded run returns 5xx so the scheduled job goes red", () => {
+    // reconcileCatalog never throws, so every failure of the sole discovery path
+    // used to be a string inside an HTTP 200 and the workflow only fails on
+    // >= 400. Discovery could stop dead while every run stayed green.
+    const src = read("app", "routes", "api.cron.reconcile-catalog.ts");
+    expect(src).toMatch(/degraded \? 500 : 200/);
+    expect(src).toMatch(/degraded_reasons/);
+    // The three ways discovery can be silently useless.
+    expect(src).toMatch(/not_reached/);
+    expect(src).toMatch(/write_products/);
+    expect(src).toMatch(/shopErrors/);
+  });
+
+  it("the workflow asserts the RESPONSE, not just the status code", () => {
+    const wf = read(".github", "workflows", "reconcile-catalog.yml");
+    expect(wf).toMatch(/"mode":"enqueue"/);
+    expect(wf).toMatch(/"degraded":true/);
+  });
+
+  it("a Vercel cron exists as a second trigger for the sole discovery path", () => {
+    // GitHub Actions was the ONLY scheduler, and it disables scheduled workflows
+    // after 60 days of repo inactivity. The drainer already had both.
+    const vercelJson = JSON.parse(read("vercel.json"));
+    const paths = (vercelJson.crons as { path: string }[]).map((c) => c.path);
+    expect(paths).toContain("/api/cron/reconcile-catalog");
   });
 });

@@ -102,8 +102,14 @@ const MULTI_SHOP_BUDGET_MS = 22_000;
  * Per-shop budget when the caller named a single shop. Nothing else competes for
  * the invocation, so a large catalog can complete in one pass: sex-eshop's 31
  * pages measured ~44s at Vercel's observed 1.42s/page.
+ *
+ * Bounded by ROUTE_BUDGET_MS because it is Math.min'd against the remaining
+ * route budget below. It was 50_000 against a 48_000 route budget, so the value
+ * was unreachable and quietly meant 48_000 minus whatever had already elapsed —
+ * a constant that documented an intent the code could not honour. Expressed as
+ * the derivation instead of a literal, so the two cannot diverge again.
  */
-const SINGLE_SHOP_BUDGET_MS = 50_000;
+const SINGLE_SHOP_BUDGET_MS = ROUTE_BUDGET_MS;
 
 /**
  * A cycle that has not completed within this window is restarted from the
@@ -151,6 +157,7 @@ interface ParityReport {
     | "pass"
     | "inconclusive_truncated_walk"
     | "inconclusive_webhook_log_read_incomplete"
+    | "inconclusive_no_webhook_evidence"
     | "fail_unexplained_gap";
   /** Needs work but nobody edited it — the coverage the webhooks never had. */
   reconcile_only: number;
@@ -171,7 +178,15 @@ async function run(request: Request) {
   }
 
   const url = new URL(request.url);
-  const mode = url.searchParams.get("mode") === "enqueue" ? "enqueue" : "observe";
+  // DEFAULT IS ENQUEUE. This used to default to `observe`, justified by "a bare
+  // unauthenticated-shaped call can never write" — but the bearer check above
+  // already guarantees no unauthenticated call reaches this line, so the default
+  // was guarding something that cannot happen while creating the failure that
+  // can: a scheduled caller that loses its query string writes NOTHING and still
+  // returns 200. Since 2026-07-29 this route is the sole enrichment discovery
+  // path, so silent no-op is the expensive direction and read-only must be the
+  // one you ask for. `?mode=observe` still gives the investigation behaviour.
+  const mode = url.searchParams.get("mode") === "observe" ? "observe" : "enqueue";
   const onlyShop = url.searchParams.get("shop");
   const windowHours = Number(url.searchParams.get("window_hours")) || DEFAULT_WINDOW_HOURS;
   const after = url.searchParams.get("after");
@@ -270,7 +285,7 @@ async function run(request: Request) {
       // that reached the end closes the cycle and stamps last_completed_at, the
       // only timestamp that licenses "the whole catalog has been seen".
       const cycleComplete = !rec.truncated && rec.nextCursor === null && rec.errors.length === 0;
-      const nextState = await saveState({
+      const saved = await saveState({
         shopDomain: m.shopify_domain,
         cursor: cycleComplete ? null : rec.nextCursor,
         cycleComplete,
@@ -279,17 +294,28 @@ async function run(request: Request) {
         productsDelta: rec.productsSeen,
         prior: state,
       });
+      const nextState = saved.state;
 
       const parity = await buildParityReport({
         merchantId: m.id,
         windowHours,
         needsWork: rec.needsWork,
         noWork: rec.noWork,
-        // Coverage, not per-invocation truncation, is what the verdict depends on.
-        // Truncation is NORMAL for a large catalog now that the walk resumes, so
-        // grading on it alone would mark every big shop inconclusive forever;
-        // grading on cycle completion asks the right question.
-        truncated: !cycleComplete,
+        // The comparison is only sound when THIS invocation's product sets cover
+        // the same ground the webhook window does — i.e. the whole catalog, read
+        // in one pass.
+        //
+        // needsWork/noWork are allocated fresh per call and populated only from
+        // `after` onward, but webhookSaw spans the entire window. On the final
+        // run of a RESUMED cycle, cycleComplete is true while the walk only read
+        // the tail, so every webhook-seen product from the earlier pages falls
+        // into not_in_walked_catalog — either a false fail_unexplained_gap, or a
+        // `pass` that only ever examined the tail. Both are wrong, and the
+        // second is the dangerous one.
+        //
+        // So: sound only when the walk started at the beginning AND reached the
+        // end within this invocation.
+        truncated: !(cycleComplete && resumeFrom === null),
       });
 
       results.push({
@@ -304,14 +330,22 @@ async function run(request: Request) {
         enqueued: rec.enqueued,
         truncated: rec.truncated,
         next_cursor: rec.nextCursor,
-        cycle_complete: cycleComplete,
+        // Reported as ACTUALLY PERSISTED, not as intended. A cycle whose state
+        // never reached the DB will restart from page 1 next run, so claiming
+        // completion here would be a confident falsehood about the one signal
+        // that licenses "the whole catalog has been seen".
+        cycle_complete: cycleComplete && saved.persisted,
+        cursor_persisted: saved.persisted,
+        cursor_persist_error: saved.error,
         cycle_pages_walked: nextState.pages_walked_this_cycle,
         cycle_products_seen: nextState.products_seen_this_cycle,
         cycle_started_at: nextState.cycle_started_at,
-        last_full_catalog_pass: nextState.last_completed_at,
+        last_full_catalog_pass: saved.persisted ? nextState.last_completed_at : null,
         elapsed_ms: rec.elapsedMs,
         total_actual_query_cost: rec.totalActualQueryCost,
-        errors: rec.errors,
+        errors: saved.persisted
+          ? rec.errors
+          : [...rec.errors, `cursor_not_persisted: ${saved.error}`],
         parity,
       });
     } catch (err) {
@@ -326,16 +360,64 @@ async function run(request: Request) {
     }
   }
 
-  return json({
-    mode,
-    scope_ok: scopeOk,
-    merchants: merchants.length,
-    // Non-empty means this invocation did not cover every paid merchant. Re-run,
-    // or call per shop with ?shop=. Never treat an absent shop as clean.
-    not_reached: notReached,
-    elapsed_ms: Date.now() - startedAt,
-    results,
-  });
+  // ── FAIL LOUDLY ───────────────────────────────────────────────────────────
+  //
+  // reconcileCatalog never throws by design, so before this every failure mode
+  // of the SOLE enrichment discovery path — a dead admin client, per-page
+  // Shopify errors, enqueue suppressed by an unreadable queue, a shop never
+  // reached, the scope gate silently downgrading enqueue to observe — was a
+  // string inside an HTTP 200 body. The GitHub workflow only fails on >= 400,
+  // so discovery could stop completely while every run stayed green. Nothing
+  // would ever have told the owner.
+  //
+  // A 5xx here makes the scheduled job go red, which is the one channel that
+  // actually reaches someone. Sentry gets the detail.
+  const shopErrors = results.filter(
+    (r) => r.error || (Array.isArray(r.errors) && r.errors.length > 0),
+  );
+  const scopeDowngraded = !scopeOk;
+  const degradedReasons: string[] = [];
+  if (shopErrors.length > 0) {
+    degradedReasons.push(
+      `${shopErrors.length} shop(s) reported errors: ${shopErrors
+        .map((r) => `${r.shop}: ${r.error ?? (r.errors as string[]).join("; ")}`)
+        .join(" | ")}`,
+    );
+  }
+  if (notReached.length > 0) {
+    degradedReasons.push(`not_reached: ${notReached.join(", ")}`);
+  }
+  if (scopeDowngraded) {
+    degradedReasons.push(
+      "SCOPES lacks write_products, so enqueue was downgraded to observe and NOTHING was written",
+    );
+  }
+
+  const degraded = degradedReasons.length > 0;
+  if (degraded) {
+    sentry.captureMessage(
+      `reconcile-catalog DEGRADED (mode=${mode}) — ${degradedReasons.join(" || ")}`,
+      "error",
+    );
+    console.error(`[cron/reconcile-catalog] DEGRADED: ${degradedReasons.join(" || ")}`);
+  }
+
+  return json(
+    {
+      mode,
+      scope_ok: scopeOk,
+      merchants: merchants.length,
+      // Non-empty means this invocation did not cover every paid merchant. Re-run,
+      // or call per shop with ?shop=. Never treat an absent shop as clean.
+      not_reached: notReached,
+      degraded,
+      degraded_reasons: degradedReasons,
+      elapsed_ms: Date.now() - startedAt,
+      results,
+    },
+    // 200 only when discovery actually did its job end to end.
+    degraded ? 500 : 200,
+  );
 }
 
 /**
@@ -420,13 +502,24 @@ async function buildParityReport(opts: {
 
   const unexplainedCount = byReason["not_in_walked_catalog"] ?? 0;
   return {
+    // An EMPTY comparison set is not agreement — it is no evidence.
+    //
+    // products/update was unsubscribed on 2026-07-29, so enrichment_webhook_log
+    // stopped being written at 2026-07-28 23:07 and the 24h window drained to
+    // zero rows the following night. With webhook_saw = 0 every downstream
+    // number is 0 too, unexplainedCount is 0, and the old expression returned
+    // "pass" — a green verdict computed from nothing, on the instrument an
+    // operator uses to decide the switch was safe. That is the §11a collapse
+    // applied to the measuring device rather than the subject.
     verdict: opts.truncated
       ? "inconclusive_truncated_walk"
       : logReadTruncated || logReadError
         ? "inconclusive_webhook_log_read_incomplete"
         : unexplainedCount > 0
           ? "fail_unexplained_gap"
-          : "pass",
+          : webhookSaw.size === 0
+            ? "inconclusive_no_webhook_evidence"
+            : "pass",
     window_hours: opts.windowHours,
     webhook_saw: webhookSaw.size,
     webhook_log_rows_read: logRowsRead,
@@ -482,8 +575,14 @@ async function loadState(shopDomain: string): Promise<ReconcileState | null> {
 }
 
 /**
- * Persist the resume point and the cycle counters. Returns the state as written
- * so the response reports what was actually saved rather than what was intended.
+ * Persist the resume point and the cycle counters.
+ *
+ * Returns the state AND whether the write actually landed. The docstring used to
+ * claim it "returns the state as written"; it did not — the upsert error was
+ * swallowed into a Sentry call and the INTENDED state was returned regardless,
+ * so the response could report a cursor and a `last_full_catalog_pass` that were
+ * never persisted. An operator reading that JSON would conclude the walk was
+ * resuming when in fact it restarts from page 1 every run.
  */
 async function saveState(opts: {
   shopDomain: string;
@@ -493,7 +592,7 @@ async function saveState(opts: {
   pagesDelta: number;
   productsDelta: number;
   prior: ReconcileState | null;
-}): Promise<ReconcileState> {
+}): Promise<{ state: ReconcileState; persisted: boolean; error: string | null }> {
   const nowIso = new Date().toISOString();
   const prior = opts.prior ?? EMPTY_STATE;
 
@@ -524,11 +623,20 @@ async function saveState(opts: {
     );
     if (error) throw new Error(error.message);
   } catch (err) {
-    // A lost cursor costs a restarted cycle, never skipped catalog.
+    // A lost cursor costs a restarted cycle, never skipped catalog — so this
+    // stays non-fatal. But it must be VISIBLE: the caller reports
+    // `cursor_persisted: false` and, critically, suppresses the
+    // `last_full_catalog_pass` claim, because a completion that was not written
+    // is not a completion anyone can rely on next run.
     sentry.captureException(err, {
       tags: { area: "cron.reconcile-catalog", branch: "save_state" },
       extra: { shop: opts.shopDomain },
     });
+    return {
+      state: next,
+      persisted: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
-  return next;
+  return { state: next, persisted: true, error: null };
 }

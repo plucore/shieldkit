@@ -61,7 +61,7 @@ const MANAGED_TOPICS = ["PRODUCTS_CREATE", "PRODUCTS_UPDATE"] as const;
  * the billing confirm, or the daily reconcile-subscriptions cron at 04:00 UTC —
  * and the revert would have been silent.
  */
-const DESIRED_TOPICS = ["PRODUCTS_CREATE"] as const;
+export const DESIRED_TOPICS = ["PRODUCTS_CREATE"] as const;
 
 /**
  * The ONLY payload field this app's handler reads.

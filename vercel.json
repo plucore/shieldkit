@@ -12,6 +12,10 @@
     {
       "path": "/api/cron/process-scan-triggers",
       "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/cron/reconcile-catalog",
+      "schedule": "0 2 * * *"
     }
   ],
   "redirects": [

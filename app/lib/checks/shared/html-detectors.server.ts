@@ -317,3 +317,68 @@ export function evaluateStructuredDataPages(
 
   return { pagesValid, pagesIncomplete, pagesAbsent, incompleteMissing };
 }
+
+/**
+ * Password-gate detection — the THIRD detector to be consolidated here.
+ *
+ * It existed as three hand copies (the authenticated check, the public /scan
+ * scanner, and the CLI mirror) and they had already diverged:
+ * `#shopify-challenge-page` was a signal in two of them and missing from the
+ * public one, so the same password-protected storefront could be detected by the
+ * in-app scan and missed by the lead-gen scan of the same store.
+ *
+ * That is the exact shape of the 2026-07 incident this module was created to
+ * end — see the header. Fix password detection HERE, never per surface.
+ * scripts/outbound-scanner.ts keeps a mirror because it must run standalone;
+ * a test asserts the two stay in step.
+ */
+export interface PasswordGateResult {
+  passwordProtected: boolean;
+  /** Human-readable evidence, for raw_data. */
+  signals: string[];
+}
+
+export function detectPasswordGate(
+  html: string | null,
+  homepageStatus: number | null,
+): PasswordGateResult {
+  const signals: string[] = [];
+  let passwordProtected = false;
+
+  if (homepageStatus === 401) {
+    passwordProtected = true;
+    signals.push("HTTP 401 Unauthorized");
+  }
+
+  if (html) {
+    const $ = cheerioLoad(html);
+    const bodyClass = ($("body").attr("class") ?? "").toLowerCase();
+    const pageTitle = $("title").text();
+    const titleLower = pageTitle.toLowerCase();
+
+    if (bodyClass.includes("template-password")) {
+      passwordProtected = true;
+      signals.push('body class "template-password" detected');
+    }
+    if (
+      titleLower.includes("enter using password") ||
+      titleLower.includes("password required")
+    ) {
+      passwordProtected = true;
+      signals.push(`page title indicates password gate: "${pageTitle}"`);
+    }
+    if ($("form[action='/password']").length > 0) {
+      passwordProtected = true;
+      signals.push('password form (action="/password") present');
+    }
+    // Was present in the authenticated + CLI copies and MISSING from the public
+    // one. Kept — the union of the copies is the correct detector, since each
+    // signal was added because a real store exhibited it.
+    if ($("#shopify-challenge-page").length > 0) {
+      passwordProtected = true;
+      signals.push("#shopify-challenge-page element detected");
+    }
+  }
+
+  return { passwordProtected, signals };
+}

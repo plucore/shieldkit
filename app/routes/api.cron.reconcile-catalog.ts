@@ -151,6 +151,7 @@ interface ParityReport {
     | "pass"
     | "inconclusive_truncated_walk"
     | "inconclusive_webhook_log_read_incomplete"
+    | "inconclusive_no_webhook_evidence"
     | "fail_unexplained_gap";
   /** Needs work but nobody edited it — the coverage the webhooks never had. */
   reconcile_only: number;
@@ -420,13 +421,24 @@ async function buildParityReport(opts: {
 
   const unexplainedCount = byReason["not_in_walked_catalog"] ?? 0;
   return {
+    // An EMPTY comparison set is not agreement — it is no evidence.
+    //
+    // products/update was unsubscribed on 2026-07-29, so enrichment_webhook_log
+    // stopped being written at 2026-07-28 23:07 and the 24h window drained to
+    // zero rows the following night. With webhook_saw = 0 every downstream
+    // number is 0 too, unexplainedCount is 0, and the old expression returned
+    // "pass" — a green verdict computed from nothing, on the instrument an
+    // operator uses to decide the switch was safe. That is the §11a collapse
+    // applied to the measuring device rather than the subject.
     verdict: opts.truncated
       ? "inconclusive_truncated_walk"
       : logReadTruncated || logReadError
         ? "inconclusive_webhook_log_read_incomplete"
         : unexplainedCount > 0
           ? "fail_unexplained_gap"
-          : "pass",
+          : webhookSaw.size === 0
+            ? "inconclusive_no_webhook_evidence"
+            : "pass",
     window_hours: opts.windowHours,
     webhook_saw: webhookSaw.size,
     webhook_log_rows_read: logRowsRead,

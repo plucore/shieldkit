@@ -445,11 +445,46 @@ function checkRefundReturnPolicy(html: string | null): PublicCheckResult {
 }
 
 function checkPrivacyAndTerms(
-  privacyHtml: string | null,
-  termsHtml: string | null
+  privacy: { html: string | null; availability: FetchAvailability },
+  terms: { html: string | null; availability: FetchAvailability }
 ): PublicCheckResult {
-  const privacyPresent = !!(privacyHtml && stripHtml(privacyHtml).trim());
-  const termsPresent = !!(termsHtml && stripHtml(termsHtml).trim());
+  // "We could not look" must never become "it is not there".
+  //
+  // This check took BOTH pages as bare `string | null`, and the caller collapsed
+  // `absent` and `unavailable` into the same `null`. A throttled privacy page
+  // therefore produced privacyPresent === false and the CRITICAL below — a
+  // fabricated finding, on the lead-generation funnel, from a fetch that failed.
+  //
+  // The assembly point degrades this too, but the guard lives HERE as well on
+  // purpose: the verdict about privacy is derived from the PRIVACY fetch
+  // specifically, so no combination of the other page's availability can make it
+  // safe, and a future edit to the degrade map cannot resurrect the CRITICAL.
+  if (privacy.availability === "unavailable" || terms.availability === "unavailable") {
+    const which =
+      privacy.availability === "unavailable" ? "privacy policy page" : "terms of service page";
+    return {
+      check_name: "privacy_and_terms",
+      passed: true,
+      severity: "info",
+      scorable: false,
+      title: "Privacy Policy & Terms of Service — Not Checked",
+      description:
+        `We could not load your ${which} just now, so this was not checked and has ` +
+        `not affected your score. Try the scan again in a few minutes.`,
+      fix_instruction: "No action needed. Re-run the scan.",
+      raw_data: {
+        degraded: true,
+        degraded_reason: "storefront_fetch_unavailable",
+        privacy_availability: privacy.availability,
+        terms_availability: terms.availability,
+      },
+    };
+  }
+
+  // Only `ok` (a real 2xx body) or `absent` (a real 404/410) reach here, so a
+  // false `present` genuinely means the page is missing.
+  const privacyPresent = !!(privacy.html && stripHtml(privacy.html).trim());
+  const termsPresent = !!(terms.html && stripHtml(terms.html).trim());
   if (privacyPresent && termsPresent) {
     return {
       check_name: "privacy_and_terms",
@@ -843,8 +878,11 @@ export async function runPublicScan(
     ),
     safeCheck("privacy_and_terms", () =>
       checkPrivacyAndTerms(
-        privacyFetch.availability === "ok" ? privacyFetch.page!.html : null,
-        termsFetch.availability === "ok" ? termsFetch.page!.html : null
+        // Pass availability THROUGH rather than collapsing it to null. `absent`
+        // (404) and `unavailable` (429/503/timeout) are different facts and the
+        // check has to be able to tell them apart.
+        { html: privacyFetch.page?.html ?? null, availability: privacyFetch.availability },
+        { html: termsFetch.page?.html ?? null, availability: termsFetch.availability }
       )
     ),
     safeCheck("checkout_transparency", () =>
@@ -873,14 +911,24 @@ export async function runPublicScan(
   const degradeMap: Record<string, { availability: FetchAvailability; what: string }> = {
     shipping_policy: { availability: shippingFetch.availability, what: "shipping policy page" },
     refund_return_policy: { availability: refundFetch.availability, what: "refund policy page" },
-    // privacy_and_terms reads TWO pages; degrade only if BOTH were unavailable,
-    // because either one alone is enough for the check to render a real verdict.
+    // privacy_and_terms reads TWO pages; degrade if EITHER was unavailable.
+    //
+    // This was `&&`, justified by "either one alone is enough for the check to
+    // render a real verdict". That reasoning is false, and it was the live
+    // defect: `privacyPresent` is derived from the PRIVACY fetch specifically,
+    // so a readable terms page tells us nothing about whether a privacy policy
+    // exists. With `&&`, the single most common failure — one page throttled,
+    // the other fine — left the check un-degraded and it reported CRITICAL
+    // "Missing Privacy Policy" from a fetch that never landed.
     privacy_and_terms: {
       availability:
-        privacyFetch.availability === "unavailable" && termsFetch.availability === "unavailable"
+        privacyFetch.availability === "unavailable" || termsFetch.availability === "unavailable"
           ? "unavailable"
           : "ok",
-      what: "privacy and terms pages",
+      what:
+        privacyFetch.availability === "unavailable"
+          ? "privacy policy page"
+          : "terms of service page",
     },
   };
 

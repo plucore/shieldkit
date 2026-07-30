@@ -263,6 +263,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         `Entitlement REVOKED for ${shop} — status=${status} sub=${admin_graphql_api_id} (was tier=${row?.tier})`,
         "warning",
       );
+      // Flush before the ACK. This alarm ran for 7wf1na-x2 at 2026-07-30
+      // 09:12:08 and never reached Sentry: capture only enqueues, and the
+      // `return new Response()` below freezes the container before the
+      // transport drains. Bounded and always-resolving, so the webhook ACK
+      // stays inside Shopify's budget even if Sentry is degraded.
+      await sentry.flush();
       console.log(
         `[${topic}] demoted ${shop} to free — status=${status} sub=${admin_graphql_api_id} (was tier=${row?.tier})`,
       );

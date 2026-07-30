@@ -17,9 +17,33 @@
  *     data: { shop: session.shop, tier: sub.tier },
  *   });
  *   sentry.captureException(err, { tags: { area: "billing.confirm" } });
+ *   await sentry.flush();   // REQUIRED before returning from a serverless handler
+ *
+ * ── Serverless flush gotcha (2026-07-30) ──────────────────────────────────────
+ * capture* only ENQUEUES an event; the SDK's transport POSTs it in the
+ * background. On Vercel the function can freeze the instant the response is
+ * returned, so a capture immediately followed by `return new Response()` never
+ * leaves the box. This is the same hazard analytics.server.ts documents for
+ * PostHog — and until now Sentry had no equivalent guard.
+ *
+ * The evidence: every event this project has ever received (SHIELDKIT-1, 4
+ * events on 2026-07-12) is `handled: no` / `mechanism: auto.ai.anthropic` —
+ * auto-instrumentation on an error that unwound through the framework, which
+ * flushes on the way out. NOT ONE event from an explicit sentry.* call in this
+ * codebase has ever been delivered, including the `Entitlement REVOKED`
+ * captureMessage that provably ran for 7wf1na-x2 on 2026-07-30 09:12:08.
+ *
+ * So: after any capture on a path that returns promptly, `await sentry.flush()`.
+ * It is bounded and always resolves, so it can never hold a merchant's request.
  */
 
 import * as Sentry from "@sentry/node";
+import { withTimeout } from "./with-timeout";
+
+// Hard ceiling for a flush attempt. Mirrors analytics.server.ts: telemetry is
+// best-effort, and a degraded Sentry ingest must never block a webhook ACK, a
+// cron, or a merchant-facing response.
+const FLUSH_TIMEOUT_MS = 2000;
 
 let initialized = false;
 
@@ -73,5 +97,16 @@ export const sentry = {
       tags: context?.tags,
       extra: context?.extra,
     });
+  },
+  /**
+   * Deliver everything queued so far, bounded by FLUSH_TIMEOUT_MS.
+   *
+   * Always resolves — never rejects, never waits longer than the bound — so it
+   * is safe to await on any path, including webhook ACKs and GDPR handlers.
+   * A no-op when Sentry is uninitialised (no DSN), exactly like the captures.
+   */
+  flush: async (ms: number = FLUSH_TIMEOUT_MS): Promise<void> => {
+    if (!initialized) return;
+    await withTimeout(Sentry.flush(ms), ms);
   },
 };

@@ -49,8 +49,18 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          # Matches the engines range in package.json (>=20.19 <22 || >=22.12).
-          node-version: "22.12"
+          # NOT 22.12, even though that is package.json's floor
+          # (>=20.19 <22 || >=22.12).
+          #
+          # .npmrc sets engine-strict=true, so `npm ci` HARD-FAILS on any
+          # dependency whose own engines range is unsatisfied — and
+          # @shopify/polaris-types@1.0.7 declares node >=22.18.0. Pinning 22.12
+          # therefore failed install with EBADENGINE before a single test ran.
+          # It passed locally only because dev machines are on Node 24.
+          #
+          # Tracking latest 22.x keeps CI above every current dependency floor
+          # while staying inside package.json's declared range.
+          node-version: "22.x"
           cache: npm
 
       # `npm ci` not `npm install`, for the same reason vercel.json pins it:

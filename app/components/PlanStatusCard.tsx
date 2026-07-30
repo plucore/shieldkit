@@ -170,14 +170,14 @@ function FeatureRow({
         // Display-only "not currently on" indicator — muted, no action.
         return {
           icon: "circle" as const,
-          tone: "subdued" as const,
+          tone: "neutral" as const,
           textColor: "var(--p-color-text-subdued, #6d7175)",
           opacity: 0.75,
         };
       case "locked":
         return {
           icon: "lock" as const,
-          tone: "subdued" as const,
+          tone: "neutral" as const,
           textColor: "var(--p-color-text-subdued, #6d7175)",
           opacity: 0.7,
         };

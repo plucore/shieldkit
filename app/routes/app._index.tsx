@@ -771,12 +771,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     // scan failed before a row landed in the `scans` table, the merchant
     // would otherwise burn their one free scan on an internal error.
     // Skipped for unlimited (paid) merchants where scans_remaining is NULL.
+    //
+    // RELATIVE, via RPC — `scansRemaining` (the PRE-decrement read) must not
+    // enter the arithmetic. The previous absolute write of `scansRemaining + 1`
+    // handed back one more scan than was consumed, so every failed scan
+    // net-granted a free one; western-grace-collective ended on 2 after a
+    // single scan against a 1-scan grant. The RPC is capped at the free-tier
+    // allowance and can never lower an existing value.
     if (scansRemaining !== null) {
       const { error: refundErr } = await supabase
-        .from("merchants")
-        .update({ scans_remaining: (scansRemaining ?? 0) + 1 })
-        .eq("id", merchant.id)
-        .not("scans_remaining", "is", null);
+        .rpc("refund_scan_quota", { p_merchant_id: merchant.id });
       if (refundErr) {
         console.error(
           `[runScan] scan failed AND quota refund failed for ${shopDomain}: scan=${message}, refund=${refundErr.message}`,

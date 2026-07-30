@@ -241,6 +241,39 @@ RETURNS TABLE(new_scans_remaining INTEGER) AS $$
 $$ LANGUAGE sql;
 
 -- ============================================================
+-- FUNCTION: refund_scan_quota (2026-07-30)
+-- The inverse of decrement_scan_quota, for a scan that failed after
+-- its quota was taken. Relative and conditional in ONE statement so a
+-- stale pre-decrement read can never enter the arithmetic — the bug it
+-- replaces wrote an absolute `preReadValue + 1` and net-granted a free
+-- scan on every failure (western-grace-collective reached 2 after one
+-- scan on a 1-scan grant).
+--
+-- p_cap defaults to 1: the free-tier grant, which is both the
+-- scans_remaining DB DEFAULT and the value the demote paths write.
+-- GREATEST pins the ceiling to at least the current value so the
+-- function can raise a row toward the cap but NEVER lower one — a bare
+-- LEAST(x + 1, 1) would slash a manual grant of 5 down to 1.
+--   0 -> 1 (refund)   1 -> 1 (no-op, the old bug)   4 -> 4 (grant kept)
+-- Zero rows when the merchant is missing or unlimited (NULL).
+-- See supabase/migrations/20260730120000_refund_scan_quota.sql.
+-- ============================================================
+CREATE OR REPLACE FUNCTION refund_scan_quota(
+  p_merchant_id UUID,
+  p_cap INTEGER DEFAULT 1
+)
+RETURNS TABLE(new_scans_remaining INTEGER) AS $$
+  UPDATE merchants
+  SET scans_remaining = LEAST(
+        scans_remaining + 1,
+        GREATEST(p_cap, scans_remaining)
+      )
+  WHERE id = p_merchant_id
+    AND scans_remaining IS NOT NULL
+  RETURNING scans_remaining AS new_scans_remaining;
+$$ LANGUAGE sql;
+
+-- ============================================================
 -- FUNCTION: consume_ai_credit (v4 §5)
 -- Atomically increments ai_generations_used (resetting the window
 -- if reset_at is >30 days old). Returns one row with the new counter

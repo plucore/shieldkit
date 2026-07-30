@@ -31,6 +31,10 @@
 
 import { load as cheerioLoad } from "cheerio";
 import dns from "node:dns/promises";
+// LookupAddress is exported from node:dns, NOT node:dns/promises — the promises
+// module re-exports the functions but not the types, so `dns.LookupAddress` does
+// not resolve. Type-only, so `node --experimental-strip-types` drops it.
+import type { LookupAddress } from "node:dns";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -103,7 +107,7 @@ async function validateAndSanitizeUrl(raw: string): Promise<UrlValidationResult>
   const hostname = url.hostname;
 
   // Resolve all A/AAAA records and block private ranges (SSRF prevention).
-  let addresses: dns.LookupAddress[];
+  let addresses: LookupAddress[];
   try {
     addresses = await dns.lookup(hostname, { all: true });
   } catch {

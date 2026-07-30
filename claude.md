@@ -301,6 +301,9 @@ Project ref: `bhnpcirhutczdorkhibm`. The Supabase project is named "ShieldKit-De
 All tables have RLS enabled; the app uses the `service_role` key which bypasses RLS. Live shape verified 2026-05-29.
 
 ### Migrations on live DB (most recent first)
+- `20260730155339` `violations_scorable` (2026-07-30 batch — `violations.scorable`; local file `20260730140000_*`)
+- `20260730155030` `cron_runs` (2026-07-30 batch — cron run ledger; local file `20260730130000_*`)
+- `20260730154541` `refund_scan_quota` (2026-07-30 batch — relative capped refund RPC; local file `20260730120000_*`)
 - `20260729???` `catalog_reconcile_state` (Block 4 — per-shop walk cursor; applied 2026-07-29)
 - `20260728175811` `install_events` (§4b — the FK-free churn ledger; applied and wired 2026-07-28)
 - `20260712125011` `atomic_generation_caps_finalize_regen` (SHIELDKIT-2 — `finalize_policy_regen`)
@@ -388,6 +391,15 @@ CASCADE map after the 2026-05-28 cleanup batch §8 — deleting a merchant casca
 
 ### Function: `decrement_scan_quota(p_merchant_id UUID)`
 Atomic decrement; returns `(new_scans_remaining INTEGER)` or no rows when quota already 0 / NULL. Both scan entry points call it before running the scan.
+
+### Function: `refund_scan_quota(p_merchant_id UUID, p_cap INT DEFAULT 1)` (2026-07-30)
+The inverse of `decrement_scan_quota`, for a scan that failed after its quota was taken. **Relative and conditional in one statement** — `SET scans_remaining = LEAST(x + 1, GREATEST(p_cap, x))`.
+
+Replaced an absolute write both entry points performed from a value read BEFORE the decrement (`{ scans_remaining: (scansRemaining ?? 0) + 1 }`). The decrement had already moved the row to `scansRemaining - 1`, so restoring should write `scansRemaining`; writing `scansRemaining + 1` handed back one MORE scan than was consumed, so **every failed scan net-granted a free one**. Found in production: `western-grace-collective` was granted 1 scan (the DB DEFAULT), ran exactly 1, and sat at `scans_remaining = 2` with `scans_reset_at` still equal to `created_at` — no demote path had touched it, and nothing else in the codebase can write a 2.
+
+`p_cap` is 1 — the free-tier grant, which is both the `scans_remaining` DB DEFAULT and the value the demote paths write, so no number of failures can exceed the allowance. **The `GREATEST` is load-bearing**: a bare `LEAST(x + 1, 1)` would SLASH a manually granted 5 down to 1 on the first failed scan, turning a refund into a confiscation. The function can raise a row toward the cap but never lower one. `0 → 1` refund, `1 → 1` no-op (the old bug), `4 → 4` grant kept, NULL skipped.
+
+**Never restore an absolute `+ 1` write to `scans_remaining`** — `tests/scan-quota-refund.test.ts` fails if either entry point does.
 
 ### Function: `consume_ai_credit(p_merchant_id UUID, p_cap INT)` (v4)
 Atomic CASE-branching UPDATE. Resets the 30-day window if `ai_generations_reset_at` is older than the window; otherwise increments `ai_generations_used`. Returns the new used count + the window-reset timestamp. Wrapper `checkAndConsumeAiCredit` in `app/lib/ai-usage.server.ts` handles the RPC call with a non-atomic fallback path for when the RPC isn't present.
@@ -483,7 +495,11 @@ Lead collection for retargeting; one row per shop.
 | `raw_data` | JSONB | |
 | `created_at` | TIMESTAMPTZ DEFAULT now() | |
 
+| `scorable` | BOOLEAN (nullable) | **2026-07-30.** Did this row count toward `compliance_score`? Stores the EFFECTIVE `isScorable(r)` — `false` for an errored check AND for an explicitly non-scorable one (page_speed when PSI times out, a degraded Admin-API check). **NULL = written before 2026-07-30, unknown** — deliberately not defaulted or backfilled. `count(*) FILTER (WHERE scorable)` per scan now reproduces the score's denominator exactly. |
+
 Index: `idx_violations_scan_id`, `idx_violations_raw_data` (GIN).
+
+> **`scans.total_checks` / `passed_checks` do NOT equal the score's terms, and that is intentional.** They are raw tallies over all 12 results; `compliance_score` is computed over the scorable subset. On a scan where something was unmeasurable they disagree — `passed_checks=10 / total_checks=12` alongside `compliance_score=81.82`, because 81.82 is **9/11**, not 10/12 (83.33). Do not "fix" this by redefining either column: `ScoreTrend` computes issues-fixed as `total_checks - passed_checks`, which is correct precisely because a non-scorable check appears in both terms and cancels. Read `violations.scorable` instead. This exact gap produced a false-positive audit finding on 2026-07-29.
 
 ### Table: `scan_rate_limits`
 Persistent rate limiting for scan API requests.
@@ -572,6 +588,25 @@ Audit + retry-queue for webhook deliveries whose side-effect writes failed. Curr
 | `created_at` | TIMESTAMPTZ NOT NULL DEFAULT now() | |
 
 Indexes: `idx_webhook_failures_unresolved (topic, shop) WHERE resolved_at IS NULL`, `idx_webhook_failures_created_at`.
+
+### Table: `cron_runs` (2026-07-30)
+
+One row per **completed** cron invocation, written at the end (so a row can never be half-populated, and a missing row means the job did not finish).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | BIGSERIAL PK | |
+| `job` | TEXT NOT NULL | Route slug, e.g. `reconcile-installs`. Not an enum — adding a job must not need a migration |
+| `ran_at` | TIMESTAMPTZ NOT NULL DEFAULT now() | |
+| `duration_ms` | INTEGER | |
+| `ok` | BOOLEAN NOT NULL DEFAULT true | |
+| `summary` | JSONB NOT NULL DEFAULT '{}' | The job's own response body, so its counters can change without a migration |
+
+Index: `idx_cron_runs_job_time (job, ran_at DESC)`. RLS enabled. **FK-free**, same reasoning as `install_events` — it outlives the rows a run touched.
+
+**Why it exists.** `api.cron.reconcile-installs` is non-destructive by design and persists *nothing*; combined with Vercel Hobby's ~1h runtime-log retention, "has it ever run?" had no answer (a 2-hour log window on 2026-07-30 returned 4 lines). The only cron provably running was `reconcile-catalog`, and only because it writes `catalog_reconcile_state` as a side effect of its real job. Observability should not be an accident of what a job happens to persist.
+
+**Not `webhook_failures`.** That table is an audit + retry queue for webhook side-effect WRITE failures, where a row is by definition exceptional; a row-per-success would pollute `idx_webhook_failures_unresolved` and deepen an ambiguity §11 already has to warn about. Writer: `recordCronRun()` in `app/lib/cron-runs.server.ts` (never throws). Only `reconcile-installs` writes today; the other three crons are candidates.
 
 ---
 
@@ -807,6 +842,9 @@ Singleton (dev caches on `global` for hot-reload survival). `service_role` key �
 * **Atomic AI credit** — `consume_ai_credit` RPC; checked + consumed before the Anthropic call so cap-reached requests never burn a model hit. Validator-retry path doesn't double-consume.
 * **Atomic appeal cap** (SHIELDKIT-2) — `insert_appeal_letter_if_under_cap` RPC: per-scan advisory lock + reserve-if-under-cap. The route **reserves BEFORE** consuming an AI credit (an over-cap attempt never burns a credit or a model call), finalizes the reserved row on success, and releases it on every failure path. Replaced a route-level count-then-insert TOCTOU. **Never re-add a non-atomic count-then-insert for this cap.**
 * **Atomic policy regen** (SHIELDKIT-2) — `finalize_policy_regen` RPC: one conditional UPDATE claims the per-type regen slot AND writes the body, **after** generation (claim-after), so a crash can't burn the regen and concurrent regens can't both win. No claim-before/release RPCs. Scan quota + AI credit caps unchanged.
+* **A compensating write must be RELATIVE, never an absolute value computed from a pre-mutation read** (2026-07-30). Both scan entry points refunded a failed scan with `{ scans_remaining: (scansRemaining ?? 0) + 1 }` where `scansRemaining` was read *before* the decrement — so the refund restored one more than was consumed and every failed scan net-granted a free one. Reach for a conditional relative `UPDATE` in an RPC (`refund_scan_quota`), and let the DB do the arithmetic on the current row. The same shape is why `refundAiCredit` is documented as an absolute clamp rather than a relative decrement: there, a relative write could compound concurrent refunds into negative credit. **Decide which hazard applies before choosing, and say so in a comment.**
+* **A multi-step cleanup spread across call sites gets half-done** (2026-07-30). Twice now: the AI credit was consumed before the model call and released at *zero* of five failure sites while the per-scan appeal slot was released at all four; the scan-quota refund was wrong at both of its two sites. The fix in both cases was structural, not more patches — `app.appeal-letter.tsx` and the `generatePolicy` action each wrap the post-consume body in **one `try/finally` where success is the only exit that keeps the resource**, and scan-failure recording is **one function** (`recordScanFailure`) that does the event, the capture, and the flush together. When you find yourself adding the same cleanup to a fourth branch, the branch count is the bug.
+* **Sentry `capture*` only ENQUEUES — `await sentry.flush()` before returning** (2026-07-30). On Vercel the container can freeze the instant the response is sent. Every Sentry event this project has ever received is `handled: no` / `mechanism: auto.ai.anthropic`, i.e. auto-instrumentation on an error that unwound through the framework; **not one explicit `sentry.*` call had ever been delivered**, including the `Entitlement REVOKED` alarm that provably ran for `7wf1na-x2` on 2026-07-30 09:12:08. `sentry.flush()` is bounded (2s) and always resolves, so it is safe on a webhook ACK or a GDPR handler. `analytics.server.ts` documents the identical hazard for PostHog; both now share `app/lib/with-timeout.ts`.
 * **Persistent rate limiting** — `scan_rate_limits` survives cold starts; in-memory fallback.
 * **safeCheck() wrapper** — every compliance check wrapped so exceptions become severity `"error"` results instead of failing the whole scan.
 * **Polaris web component type gaps** — props like `submit`, `loading` work at runtime but aren't in TS type defs. Codebase uses `@ts-ignore` or spread patterns. Expected; do not "fix".
@@ -1025,7 +1063,9 @@ sync" has now failed to do so three times.
 * **Framework:** Vitest ^4.1.2.
 * **Run:** `npm test` → `vitest run`.
 * **Files (14):** the nine listed below plus the 2026-07 false-positive suites — `scan-fp-fixes.test.ts` (authenticated checks) and `public-scanner-fp.test.ts` (/scan), which exercise the real modules and are biased to false negatives (reassurance copy / JS-rendered content / valid-but-unusual schemas must PASS): `bug-fixes.test.ts` (large regression suite), `partner-api.test.ts`, `phase-7-ai-visibility.test.ts`, `phase-7-dashboard.test.ts`, `phase-7-enrichment.test.ts`, `phase-7-monitoring.test.ts`, `phase-7-quick-wins.test.ts`, `reconcile-subscriptions.test.ts`, `v3-pricing.test.ts`.
-* **Count on 2026-07-09:** **329 / 329 passing** (255 pre-v4-pricing → +FP-remediation + shared-detector suites). The 2026-07 shared-detector extraction (`shared/html-detectors.server.ts`) was a zero-behavior-change refactor: every pre-existing test passed unchanged.
+* **Count on 2026-07-30:** **725 / 725 passing across 37 files.** (Was 329/14 on 2026-07-09 — the §14 file list above is stale beyond the nine it names; trust `ls tests/`.) The 2026-07-30 batch added `sentry-flush.test.ts`, `scan-quota-refund.test.ts`, `scan-failure-visibility.test.ts`, `violations-scorable.test.ts`.
+* **`npm run typecheck` is NOT clean and has not been for some time: 44 pre-existing errors on `7c4e01c`**, almost all the documented Polaris web-component `Ref<Button>` gap plus three in `scripts/`. Treat the **count**, not zero, as the gate: run it before and after and require no new errors. `npm test` IS the green gate.
+* **Prefer a behavioural test that FORCES the failure over a source-text assertion, and prove it fails against the old code.** `tests/scan-quota-refund.test.ts` drives the real route against a mock implementing the actual RPC SQL; restoring the buggy absolute write fails 3 of its 8 cases. A file-content assertion that has never been seen to fail is not evidence.
 * **Style:** Most tests are file-content assertions (regex / string matching) to avoid needing env vars for module initialisation. Trade-off: brittle when implementation details rotate; rebalance toward behaviour tests if maintenance burden grows.
 
 ---

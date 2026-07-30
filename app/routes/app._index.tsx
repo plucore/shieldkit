@@ -51,6 +51,7 @@ import {
   windowResetIso,
 } from "../lib/ai-usage.server";
 import { wrapAdminClient, getShopInfo } from "../lib/shopify-api.server";
+import { sentry } from "../lib/sentry.server";
 import { captureEvent } from "../lib/analytics.server";
 import { initAnalytics, captureClient } from "../lib/analytics.client";
 import { getJsonLdThemeEditorUrl } from "../lib/json-ld-deep-link";
@@ -400,6 +401,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       );
     }
 
+    // ── SINGLE CLEANUP POINT FOR EVERY NON-SUCCESS EXIT ──────────────────────
+    //
+    // Success is the ONLY path that keeps the AI credit. The finally below
+    // gives it back on any other exit — return, throw, or a branch nobody has
+    // written yet.
+    //
+    // This used to be one refundAiCredit call in the catch, which covered a
+    // throw but NOT the two early returns inside the try: `!shopInfo` (a
+    // Shopify hiccup, no policy produced) and `regen_exhausted` (a model call
+    // whose output is explicitly discarded because another regen won the
+    // race). Both burned a credit for nothing. Same defect the appeal-letter
+    // route had at four sites — hence the same shape of fix in both files.
+    let succeeded = false;
     try {
       const executor = wrapAdminClient(admin.graphql);
       const shopInfo = await getShopInfo(executor);
@@ -493,6 +507,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         ? null
         : `Review this policy, it may be missing: ${validation.missing.join(", ")}.`;
 
+      succeeded = true;
       return new Response(
         JSON.stringify({
           success: true,
@@ -509,21 +524,28 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     } catch (err) {
       // No regen slot to release: finalize_policy_regen claims AFTER generation,
       // so a throw here means nothing was claimed and the regen stays available.
+      // The AI credit is returned by the finally below, which covers this throw
+      // and the early returns above alike.
       //
-      // The AI CREDIT is a different story and was not being given back. It is
-      // consumed before the Anthropic call on purpose (so a cap-reached request
-      // never burns a model hit), but there was no path back — an API failure, a
-      // refusal, or an empty completion still cost the merchant one of their 12
-      // monthly generations for a document they never received. Same
-      // compensating transaction the scan quota already performs on a failed
-      // scan. Best-effort: a failed refund must not replace the real error.
-      await refundAiCredit(merchant.id);
+      // generatePolicy captured this at the source (see the .catch in
+      // policy-generator.server.ts). Flush so it survives the response below —
+      // SHIELDKIT-1 only reached Sentry because it was UNhandled and unwound
+      // through the framework; a handled throw returning a 500 here would not.
+      await sentry.flush();
 
       const message = err instanceof Error ? err.message : String(err);
       return new Response(
         JSON.stringify({ success: false, message }),
         { status: 500, headers: { "Content-Type": "application/json" } }
       );
+    } finally {
+      // The credit is consumed before the Anthropic call on purpose (so a
+      // cap-reached request never burns a model hit). This is the way back: an
+      // API failure, a refusal, an empty completion, a missing shopInfo, or a
+      // lost regen race must not cost the merchant one of their 12 monthly
+      // generations for a document they never received. Best-effort and
+      // clamped at 0 — it can neither throw nor mint credit.
+      if (!succeeded) await refundAiCredit(merchant.id);
     }
   }
 

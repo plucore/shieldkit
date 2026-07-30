@@ -38,9 +38,11 @@ import { useSingleFlight } from "../hooks/useSingleFlight";
 import { wrapAdminClient, getShopInfo } from "../lib/shopify-api.server";
 import { generateAppealLetter } from "../lib/llm/appeal-letter.server";
 import { hasPaidAccess } from "../lib/billing/plans";
+import { sentry } from "../lib/sentry.server";
 import {
   AI_MONTHLY_CAP,
   checkAndConsumeAiCredit,
+  refundAiCredit,
   windowResetIso,
 } from "../lib/ai-usage.server";
 import {
@@ -221,79 +223,111 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
   const reservedLetterId = reservation.letterId;
 
-  // Monthly AI cap (12/window, shared across policies + appeal letters).
-  // Consumed AFTER the cap reservation (so an over-cap attempt never burns a
-  // credit) but BEFORE Anthropic (so a cap-reached request never costs a model
-  // call). Release the reserved slot on any failure below so a failed
-  // generation doesn't consume one of the 3 per-scan slots.
-  const credit = await checkAndConsumeAiCredit(merchant.id);
-  if (!credit.allowed) {
-    await releaseAppealSlot(reservedLetterId);
-    const resetIso = windowResetIso(credit.resetAt);
-    const resetDate = resetIso
-      ? new Date(resetIso).toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-        })
-      : "soon";
-    return data(
-      {
-        ok: false,
-        error: `You've used all ${AI_MONTHLY_CAP} AI generations this month. Your limit resets on ${resetDate}.`,
-        letter: null,
-      },
-      { status: 429 },
-    );
-  }
-
-  // Pull store info for prompt context.
-  const executor = wrapAdminClient(admin.graphql);
-  const shopInfo = await getShopInfo(executor);
-  if (!shopInfo) {
-    await releaseAppealSlot(reservedLetterId);
-    return data(
-      { ok: false, error: "Could not load store info, please try again.", letter: null },
-      { status: 500 },
-    );
-  }
-
-  // Today's date, computed server-side, so the letter is dated correctly.
-  const todayIso = new Date().toISOString().slice(0, 10);
-
-  let letter: string;
+  // ── SINGLE CLEANUP POINT FOR EVERY NON-SUCCESS EXIT ────────────────────────
+  //
+  // Everything from here on runs inside one try/finally. Success is the ONLY
+  // path that keeps the reserved slot and the AI credit; any other exit —
+  // return, throw, or a future branch nobody has written yet — gives both back.
+  //
+  // Why a finally and not five call sites: it WAS five call sites, and the
+  // credit half was missed at every single one. `releaseAppealSlot` was called
+  // on all four failure paths while `refundAiCredit` was called on none, so a
+  // failed generation returned the per-scan slot and silently kept one of the
+  // merchant's 12 monthly generations. sex-eshop lost 4 credits that way on
+  // 2026-07-12 (SHIELDKIT-1: the Anthropic model id was stale, every call
+  // 404'd) and received a single policy for five credits. Patching the five
+  // sites would leave the sixth to the next person; the finally cannot be
+  // forgotten because it is not a site.
+  //
+  // Both cleanups are best-effort and never throw — refundAiCredit swallows
+  // internally and is clamped at 0, so it can neither mint credit nor replace
+  // the real error with a cleanup error.
+  let succeeded = false;
+  let creditConsumed = false;
   try {
-    letter = await generateAppealLetter({
-      shopInfo,
-      suspensionReason,
-      fixesMade,
-      todayIso,
-    });
-  } catch (err) {
-    console.error("[appeal-letter] generation failed:", err);
-    await releaseAppealSlot(reservedLetterId);
-    return data(
-      {
-        ok: false,
-        error: "AI generation failed. Please try again in a moment.",
-        letter: null,
-      },
-      { status: 502 },
-    );
+    // Monthly AI cap (12/window, shared across policies + appeal letters).
+    // Consumed AFTER the cap reservation (so an over-cap attempt never burns a
+    // credit) but BEFORE Anthropic (so a cap-reached request never costs a
+    // model call).
+    const credit = await checkAndConsumeAiCredit(merchant.id);
+    if (!credit.allowed) {
+      // Nothing to refund — the cap denied us, so no credit was taken. The
+      // finally still releases the reserved slot.
+      const resetIso = windowResetIso(credit.resetAt);
+      const resetDate = resetIso
+        ? new Date(resetIso).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })
+        : "soon";
+      return data(
+        {
+          ok: false,
+          error: `You've used all ${AI_MONTHLY_CAP} AI generations this month. Your limit resets on ${resetDate}.`,
+          letter: null,
+        },
+        { status: 429 },
+      );
+    }
+    creditConsumed = true;
+
+    // Pull store info for prompt context.
+    const executor = wrapAdminClient(admin.graphql);
+    const shopInfo = await getShopInfo(executor);
+    if (!shopInfo) {
+      return data(
+        { ok: false, error: "Could not load store info, please try again.", letter: null },
+        { status: 500 },
+      );
+    }
+
+    // Today's date, computed server-side, so the letter is dated correctly.
+    const todayIso = new Date().toISOString().slice(0, 10);
+
+    let letter: string;
+    try {
+      letter = await generateAppealLetter({
+        shopInfo,
+        suspensionReason,
+        fixesMade,
+        todayIso,
+      });
+    } catch (err) {
+      console.error("[appeal-letter] generation failed:", err);
+      // generateAppealLetter already captured this at the source (see the
+      // .catch in appeal-letter.server.ts). All that is missing is delivery:
+      // without a flush the 502 below freezes the container first and the
+      // event never leaves the box.
+      await sentry.flush();
+      return data(
+        {
+          ok: false,
+          error: "AI generation failed. Please try again in a moment.",
+          letter: null,
+        },
+        { status: 502 },
+      );
+    }
+
+    if (!letter || letter.length < 50) {
+      return data(
+        { ok: false, error: "Empty or too-short response, please retry.", letter: null },
+        { status: 502 },
+      );
+    }
+
+    // Fill the reserved row with the generated letter.
+    await finalizeAppealSlot(reservedLetterId, suspensionReason, letter);
+
+    succeeded = true;
+    return data({ ok: true, error: null, letter });
+  } finally {
+    if (!succeeded) {
+      await releaseAppealSlot(reservedLetterId);
+      if (creditConsumed) await refundAiCredit(merchant.id);
+    }
   }
-
-  if (!letter || letter.length < 50) {
-    await releaseAppealSlot(reservedLetterId);
-    return data(
-      { ok: false, error: "Empty or too-short response, please retry.", letter: null },
-      { status: 502 },
-    );
-  }
-
-  // Fill the reserved row with the generated letter.
-  await finalizeAppealSlot(reservedLetterId, suspensionReason, letter);
-
-  return data({ ok: true, error: null, letter });
 };
 
 // ─── Copy button ────────────────────────────────────────────────────────────

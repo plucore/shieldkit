@@ -243,12 +243,47 @@ describe("atomic appeal-letter cap (SHIELDKIT-2 PART 1)", () => {
     expect(route).toMatch(/!reservation\.accepted[\s\S]{0,400}status:\s*429/);
   });
 
-  it("route finalizes on success and releases the slot on all 4 failure paths", () => {
+  it("route finalizes on success and releases the slot from ONE guaranteed cleanup point", () => {
     expect(route).toContain("finalizeAppealSlot(");
-    // Released when: AI cap denies, shopInfo missing, generation throws,
-    // generation too short — one release per failure path (>= 4).
-    const releases = route.match(/releaseAppealSlot\(/g) ?? [];
-    expect(releases.length).toBeGreaterThanOrEqual(4);
+
+    // This assertion used to demand >= 4 releaseAppealSlot calls — one per
+    // failure path. That shape is exactly what let the bug through: the slot
+    // was released at all four sites while the AI credit was refunded at NONE,
+    // so a failed generation returned the per-scan slot and silently kept one
+    // of the merchant's 12 monthly generations (sex-eshop, 4 credits, 2026-07-12).
+    //
+    // The invariant is now stronger and structural: a single try/finally, so
+    // success is the only exit that keeps either resource and a newly-added
+    // branch cannot forget to clean up. Counting call sites would now be
+    // counting the wrong thing.
+    expect(route).toMatch(/let succeeded = false/);
+    expect(route).toMatch(/let creditConsumed = false/);
+    expect(route).toMatch(
+      /\}\s*finally\s*\{[\s\S]{0,400}?if\s*\(!succeeded\)[\s\S]{0,300}?releaseAppealSlot\(/,
+    );
+  });
+
+  it("refunds the AI credit on every non-success exit, and only when one was taken", () => {
+    // The credit half of the cleanup — the half that was missing entirely.
+    expect(route).toContain("refundAiCredit");
+    expect(route).toMatch(
+      /\}\s*finally\s*\{[\s\S]{0,400}?if\s*\(creditConsumed\)\s*await refundAiCredit\(/,
+    );
+    // creditConsumed is set only AFTER a successful consume, so a cap-denied
+    // attempt (which never took a credit) cannot mint one by refunding.
+    const allowedIdx = route.indexOf("!credit.allowed");
+    const consumedIdx = route.indexOf("creditConsumed = true");
+    expect(allowedIdx).toBeGreaterThan(0);
+    expect(consumedIdx).toBeGreaterThan(allowedIdx);
+  });
+
+  it("succeeded flips only immediately before the success response", () => {
+    // If `succeeded = true` drifted earlier than the final return, the finally
+    // would stop cleaning up on later failures — the silent regression this
+    // whole structure exists to prevent.
+    const succeededIdx = route.indexOf("succeeded = true");
+    const finalizeIdx = route.indexOf("finalizeAppealSlot(");
+    expect(succeededIdx).toBeGreaterThan(finalizeIdx);
   });
 
   it("no longer does a non-atomic count-then-insert in the route", () => {
@@ -296,6 +331,20 @@ describe("atomic policy regen cap (SHIELDKIT-2 PART 1)", () => {
     expect(route).not.toContain("claim_policy_regen");
     expect(route).not.toContain("release_policy_regen");
     expect(route).not.toContain("releaseRegenOnFailure");
+  });
+
+  it("returns the AI credit on EVERY non-success exit, not just the throw", () => {
+    // The catch-only refund covered a throw but missed two early returns inside
+    // the same try: `!shopInfo` (Shopify hiccup, no policy produced) and
+    // `regen_exhausted` (a model call whose output is explicitly discarded).
+    // Both burned a credit for nothing. A finally covers all three.
+    expect(route).toMatch(
+      /\}\s*finally\s*\{[\s\S]{0,500}?if\s*\(!succeeded\)\s*await refundAiCredit\(/,
+    );
+    // And the flag must not flip before the success response is built.
+    const succeededIdx = route.indexOf("succeeded = true");
+    const capIdx = route.indexOf("checkAndConsumeAiCredit(merchant.id)");
+    expect(succeededIdx).toBeGreaterThan(capIdx);
   });
 
   it("rejects the regen race loser without exceeding the cap", () => {

@@ -32,6 +32,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { supabase } from "../supabase.server";
 import { createAdminClient } from "../lib/shopify-api.server";
 import { sentry } from "../lib/sentry.server";
+import { recordCronRun } from "../lib/cron-runs.server";
 
 const PROBE_QUERY = /* GraphQL */ `
   query ShieldKitInstallProbe {
@@ -81,6 +82,39 @@ async function run(request: Request) {
     return json({ error: "unauthorized" }, 401);
   }
 
+  // Everything past the auth gate is one recorded run. A rejected bearer token
+  // is NOT a run and is deliberately not logged here — it would turn the table
+  // into a scanner-noise log.
+  const startedAt = Date.now();
+  let summary: Record<string, unknown>;
+  let ok = true;
+  let status = 200;
+  try {
+    summary = await probeAllMerchants();
+  } catch (err) {
+    ok = false;
+    status = 500;
+    const messageText = err instanceof Error ? err.message : String(err);
+    console.error("[cron/reconcile-installs] run failed:", messageText);
+    sentry.captureException(err, {
+      tags: { area: "cron.reconcile-installs" },
+    });
+    await sentry.flush();
+    summary = { error: "database_error", message: messageText };
+  }
+
+  // Recorded on BOTH outcomes, from one place, so "did it run?" is answerable
+  // in SQL instead of from a Vercel log window that no longer reaches yesterday.
+  await recordCronRun({ job: "reconcile-installs", startedAt, ok, summary });
+
+  return json(summary, status);
+}
+
+/**
+ * The actual pass. Throws on a database error so `run()` has exactly one
+ * failure path to record; every other outcome is a normal summary object.
+ */
+async function probeAllMerchants(): Promise<Record<string, unknown>> {
   // Pull every merchant still flagged installed. Cheap query — small table.
   const { data: merchants, error: fetchErr } = await supabase
     .from("merchants")
@@ -88,15 +122,11 @@ async function run(request: Request) {
     .is("uninstalled_at", null);
 
   if (fetchErr) {
-    console.error(
-      "[cron/reconcile-installs] merchant fetch failed:",
-      fetchErr.message,
-    );
-    return json({ error: "database_error", message: fetchErr.message }, 500);
+    throw new Error(`merchant fetch failed: ${fetchErr.message}`);
   }
 
   if (!merchants || merchants.length === 0) {
-    return json({ checked: 0, still_installed: 0, auth_stale: 0, errors: 0 });
+    return { checked: 0, still_installed: 0, auth_stale: 0, errors: 0 };
   }
 
   let stillInstalled = 0;
@@ -134,13 +164,13 @@ async function run(request: Request) {
     await sleep(PACE_MS);
   }
 
-  return json({
+  return {
     checked: merchants.length,
     still_installed: stillInstalled,
     auth_stale: authStale,
     errors,
     auth_stale_domains: authStaleDomains,
-  });
+  };
 }
 
 type ProbeOutcome = "installed" | "auth_stale" | "transient_error";

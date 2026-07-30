@@ -35,6 +35,7 @@ import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
 import { runComplianceScan } from "../lib/compliance-scanner.server";
 import { captureEvent } from "../lib/analytics.server";
+import { recordScanFailure } from "../lib/scan-failure.server";
 import { checkRateLimit, recordScanRequest, RATE_LIMIT_MAX_REQUESTS as RATE_LIMIT_MAX } from "../lib/rate-limiter.server";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -220,6 +221,18 @@ export async function action({ request }: ActionFunctionArgs) {
         newScansRemaining = scansRemaining;
       }
     }
+
+    // Make the failure visible. Before this, a failed scan produced no event,
+    // no Sentry capture and no counter — so the failure rate was unmeasurable
+    // from any source, which is exactly how the quota over-refund above (whose
+    // trigger IS a failed scan) went unnoticed. Never throws.
+    await recordScanFailure({
+      shopDomain,
+      entryPoint: "api",
+      err,
+      tier: merchant.tier as string | null,
+      quotaRefunded: scansRemaining !== null,
+    });
 
     // Surface specific failure modes as distinct error codes so the UI can
     // render meaningful copy rather than a generic "something went wrong".

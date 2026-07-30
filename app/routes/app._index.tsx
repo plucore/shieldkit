@@ -52,6 +52,7 @@ import {
 } from "../lib/ai-usage.server";
 import { wrapAdminClient, getShopInfo } from "../lib/shopify-api.server";
 import { sentry } from "../lib/sentry.server";
+import { recordScanFailure } from "../lib/scan-failure.server";
 import { captureEvent } from "../lib/analytics.server";
 import { initAnalytics, captureClient } from "../lib/analytics.client";
 import { getJsonLdThemeEditorUrl } from "../lib/json-ld-deep-link";
@@ -793,6 +794,18 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     } else {
       console.error(`[runScan] scan failed for ${shopDomain}: ${message}`);
     }
+
+    // Make the failure visible. Before this, a failed scan produced no event,
+    // no Sentry capture and no counter — so the failure rate was unmeasurable
+    // from any source, which is exactly how the quota over-refund above (whose
+    // trigger IS a failed scan) went unnoticed. Never throws.
+    await recordScanFailure({
+      shopDomain,
+      entryPoint: "dashboard",
+      err,
+      tier: merchant.tier as string | null,
+      quotaRefunded: scansRemaining !== null,
+    });
 
     return new Response(
       JSON.stringify({

@@ -563,3 +563,32 @@ CREATE INDEX IF NOT EXISTS idx_webhook_failures_unresolved
 
 CREATE INDEX IF NOT EXISTS idx_webhook_failures_created_at
   ON webhook_failures (created_at DESC);
+
+-- ============================================================
+-- TABLE: cron_runs (2026-07-30)
+-- One row per COMPLETED cron invocation, written at the end.
+--
+-- Distinct from webhook_failures on purpose: that table is an audit +
+-- retry queue for webhook side-effect WRITE failures, where a row is by
+-- definition exceptional. Mixing successful cron runs in would pollute
+-- idx_webhook_failures_unresolved and deepen an ambiguity claude.md §11
+-- already has to warn about.
+--
+-- Needed because api.cron.reconcile-installs is non-destructive and
+-- persists nothing, and Vercel Hobby retains runtime logs for ~1h — so
+-- "has it ever run?" had no answer. FK-free for the same reason as
+-- install_events: it must outlive the rows a run touched.
+-- See supabase/migrations/20260730130000_cron_runs.sql.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS cron_runs (
+  id BIGSERIAL PRIMARY KEY,
+  job TEXT NOT NULL,
+  ran_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  duration_ms INTEGER,
+  ok BOOLEAN NOT NULL DEFAULT true,
+  summary JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS idx_cron_runs_job_time ON cron_runs(job, ran_at DESC);
+
+ALTER TABLE cron_runs ENABLE ROW LEVEL SECURITY;

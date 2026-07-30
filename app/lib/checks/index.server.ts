@@ -34,7 +34,10 @@ import { checkProductDataQuality } from "./product-data-quality.server";
 import { checkCheckoutTransparency } from "./checkout-transparency.server";
 import { checkStorefrontAccessibility } from "./storefront-accessibility.server";
 import { checkStructuredDataJsonLd } from "./structured-data-json-ld.server";
-import { checkPageSpeed } from "./page-speed.server";
+import {
+  pendingPageSpeed,
+  PAGE_SPEED_TRIGGER,
+} from "./page-speed.server";
 import { checkBusinessIdentityConsistency } from "./business-identity-consistency.server";
 import { checkHiddenFeeDetection } from "./hidden-fee-detection.server";
 import { checkImageHostingAudit } from "./image-hosting-audit.server";
@@ -190,7 +193,10 @@ export async function runComplianceScan(
         safeCheck("structured_data_json_ld", () =>
           checkStructuredDataJsonLd(productPageResults)
         ),
-        safeCheck("page_speed", () => checkPageSpeed(storeUrl)),
+        // Synchronous and network-free: PageSpeed Insights moved to
+        // api.cron.measure-page-speed, which patches this row on its own 60s
+        // invocation. Inline, a 30s PSI abort failed on ~2 of every 3 scans.
+        safeCheck("page_speed", async () => pendingPageSpeed(storeUrl)),
         safeCheck("business_identity_consistency", () =>
           checkBusinessIdentityConsistency(shopInfo, pages, storeUrl)
         ),
@@ -475,6 +481,34 @@ export async function runComplianceScan(
     console.error(
       `[Scanner] Failed to insert violations for scan ${scanId}:`,
       violationsError.message
+    );
+  }
+
+  // ── 8. Queue the deferred PageSpeed measurement ──────────────────────────
+  //
+  // The page_speed row above is a non-scorable placeholder; the real PSI call
+  // runs in api.cron.measure-page-speed, which has a whole 60s invocation to
+  // spend instead of a 30s slice of this one. Enqueued AFTER the violations
+  // insert so the row the cron patches is guaranteed to exist.
+  //
+  // Fire-and-forget by design: a queue failure must never fail a scan the
+  // merchant already paid a quota for. The worst case is a page_speed row that
+  // stays "checking in the background", which is exactly what it says.
+  try {
+    const { error: queueErr } = await supabase.from("pending_scan_triggers").insert({
+      merchant_id: merchantId,
+      trigger_type: PAGE_SPEED_TRIGGER,
+      payload: { scan_id: scanId, store_url: storeUrl },
+    });
+    if (queueErr) {
+      console.warn(
+        `[Scanner] could not queue page_speed measurement for scan ${scanId}: ${queueErr.message}`,
+      );
+    }
+  } catch (err) {
+    console.warn(
+      `[Scanner] page_speed enqueue threw for scan ${scanId}:`,
+      err instanceof Error ? err.message : err,
     );
   }
 

@@ -1,0 +1,64 @@
+name: Measure page speed
+
+# Drains pending_scan_triggers rows of trigger_type 'page_speed'.
+#
+# PageSpeed Insights runs a full Lighthouse audit on demand and did not answer
+# within the scan's 30s inline budget for roughly two thirds of scans (16 of 17
+# non-measurements were timeouts; zero were rate limits). It now runs here, on
+# its own 60s function invocation, and patches the placeholder violation row.
+#
+# Every 30 minutes: one PSI call per invocation (~48/day) against a scan volume
+# in the single digits, so the queue never builds. Vercel Hobby disallows
+# sub-daily crons, so the sub-daily cadence lives here; the Vercel Cron entry at
+# 01:00 UTC is the failsafe for GitHub disabling scheduled workflows after 60
+# days of repository inactivity.
+#
+# Manual setup: add CRON_SECRET to the repo's Actions secrets (must match the
+# value set on Vercel for the same env var).
+#
+# ── Injection safety ────────────────────────────────────────────────────────
+# No user-controlled GitHub event payload is referenced anywhere in this file —
+# there is no issue/PR title, body, commit message or head_ref interpolation,
+# which is the standard Actions script-injection vector. The single injected
+# value is `secrets.CRON_SECRET`, passed through `env:` and referenced as a
+# quoted shell variable ("$CRON_SECRET") rather than interpolated into the
+# command text. This mirrors process-scan-triggers.yml.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  # Never overlap: two runs would race on the same queue head.
+  group: measure-page-speed
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: POST /api/cron/measure-page-speed
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET secret is not set. Add it under Settings -> Secrets and variables -> Actions." >&2
+            exit 1
+          fi
+          HTTP_STATUS=$(curl --silent --show-error --output /tmp/response.json --write-out "%{http_code}" \
+            --max-time 90 \
+            --request POST \
+            --header "Authorization: Bearer $CRON_SECRET" \
+            --header "Content-Type: application/json" \
+            "https://shieldkit.vercel.app/api/cron/measure-page-speed")
+          echo "HTTP $HTTP_STATUS"
+          cat /tmp/response.json || true
+          echo
+          if [ "$HTTP_STATUS" -ge 400 ]; then
+            exit 1
+          fi

@@ -35,6 +35,7 @@ import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server";
 import { runComplianceScan } from "../lib/compliance-scanner.server";
 import { captureEvent } from "../lib/analytics.server";
+import { recordScanFailure } from "../lib/scan-failure.server";
 import { checkRateLimit, recordScanRequest, RATE_LIMIT_MAX_REQUESTS as RATE_LIMIT_MAX } from "../lib/rate-limiter.server";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -198,14 +199,17 @@ export async function action({ request }: ActionFunctionArgs) {
     // Compensating refund: the quota was already decremented above. Without
     // this, a free-tier merchant burns their one scan on a transient internal
     // error and has no recovery path. Paid merchants (scans_remaining = NULL)
-    // are skipped — the `.not("scans_remaining", "is", null)` guard prevents
+    // are skipped — the RPC's own `scans_remaining IS NOT NULL` guard prevents
     // turning NULL into a finite value.
+    //
+    // RELATIVE, via RPC. This previously wrote an absolute
+    // `(scansRemaining ?? 0) + 1` computed from the PRE-decrement read, which
+    // restored one MORE scan than was consumed. Line 217 below already set the
+    // response field to `scansRemaining` — the response was right and the write
+    // was wrong, so the write is what changed.
     if (scansRemaining !== null) {
       const { error: refundErr } = await supabase
-        .from("merchants")
-        .update({ scans_remaining: (scansRemaining ?? 0) + 1 })
-        .eq("id", merchant.id)
-        .not("scans_remaining", "is", null);
+        .rpc("refund_scan_quota", { p_merchant_id: merchant.id });
       if (refundErr) {
         console.error(
           `[API/scan] quota refund failed for ${shopDomain}: ${refundErr.message}`,
@@ -217,6 +221,18 @@ export async function action({ request }: ActionFunctionArgs) {
         newScansRemaining = scansRemaining;
       }
     }
+
+    // Make the failure visible. Before this, a failed scan produced no event,
+    // no Sentry capture and no counter — so the failure rate was unmeasurable
+    // from any source, which is exactly how the quota over-refund above (whose
+    // trigger IS a failed scan) went unnoticed. Never throws.
+    await recordScanFailure({
+      shopDomain,
+      entryPoint: "api",
+      err,
+      tier: merchant.tier as string | null,
+      quotaRefunded: scansRemaining !== null,
+    });
 
     // Surface specific failure modes as distinct error codes so the UI can
     // render meaningful copy rather than a generic "something went wrong".

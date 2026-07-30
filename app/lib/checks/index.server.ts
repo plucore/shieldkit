@@ -16,7 +16,7 @@ import { supabase } from "../../supabase.server";
 import { sentry } from "../sentry.server";
 import { fetchPublicPage } from "./helpers.server";
 import { safeCheck } from "./safe-check.server";
-import { computeComplianceScore } from "./compliance-score";
+import { computeComplianceScore, isScorable } from "./compliance-score";
 import type {
   CheckResult,
   PageFetchResult,
@@ -435,6 +435,14 @@ export async function runComplianceScan(
     description: r.description,
     fix_instruction: r.fix_instruction,
     raw_data: r.raw_data,
+    // Did this row count toward compliance_score? `scorable` was a transient
+    // in-memory hint, so a stored unmeasurable check was byte-identical to a
+    // genuine pass (passed=true, severity='info') and SQL could not tell which
+    // rows the score excluded. That gap produced a false positive in an audit of
+    // this database on 2026-07-29. Persisting isScorable() — the SAME predicate
+    // the score uses, not a second rule that can drift — makes
+    // `count(*) FILTER (WHERE scorable)` reproduce the denominator exactly.
+    scorable: isScorable(r),
   }));
 
   if (degradedChecks.length > 0) {
@@ -450,6 +458,10 @@ export async function runComplianceScan(
         `Your score reflects only what we could actually verify.`,
       fix_instruction: "Nothing to fix. Re-run the scan in a few minutes for a complete result.",
       raw_data: { degraded: true, skipped_checks: degradedChecks },
+      // A scan-level marker, not a check: it is not in checkResults and so never
+      // reached computeComplianceScore. false is the accurate record, and it
+      // keeps `count(*) FILTER (WHERE scorable)` equal to the real denominator.
+      scorable: false,
     });
   }
 

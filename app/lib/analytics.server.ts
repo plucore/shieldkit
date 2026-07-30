@@ -43,6 +43,7 @@
  */
 
 import { PostHog } from "posthog-node";
+import { withTimeout } from "./with-timeout";
 
 // Hard ceiling for a single flush attempt AND the overall await. Keeps a
 // degraded PostHog from holding install/purchase/scan requests. Analytics is
@@ -87,28 +88,6 @@ function getClient(): PostHog | null {
     client = null;
   }
   return client;
-}
-
-/**
- * Await a promise but never longer than `ms`. Always resolves (never rejects);
- * a settled-or-timed-out flush is best-effort either way. The timer is
- * unref'd so a pending bound never keeps the serverless function alive on its
- * own, and cleared the moment the flush settles so the fast path returns
- * immediately.
- */
-function withTimeout(p: Promise<unknown>, ms: number): Promise<void> {
-  return new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    if (typeof (timer as { unref?: () => void }).unref === "function") {
-      (timer as { unref: () => void }).unref();
-    }
-    Promise.resolve(p)
-      .catch(() => {})
-      .finally(() => {
-        clearTimeout(timer);
-        resolve();
-      });
-  });
 }
 
 /**

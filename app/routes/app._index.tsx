@@ -469,21 +469,32 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       // concurrent regens can't both win. Zero rows back = another regen already
       // claimed it; reject and discard this output (the winner's body stays).
       // First generations just write the body.
-      const updatedPolicies = { ...generatedPolicies, [policyType]: policy.body };
+      //
+      // EVERY write below is now SINGLE-KEY via jsonb_set against the current
+      // row. This used to spread the whole generated_policies object from the
+      // read at the top of this action and write it back wholesale, so two
+      // concurrent generations of DIFFERENT policy types both started from the
+      // same base and the second silently dropped the first. useSingleFlight
+      // does not cover it — those are different buttons, so nothing serialised
+      // "generate refund" against "generate shipping".
       if (alreadyGenerated) {
         const { data: fin, error: finErr } = await supabase.rpc(
           "finalize_policy_regen",
           { p_merchant_id: merchant.id, p_type: policyType, p_body: policy.body },
         );
         if (finErr) {
-          // RPC missing — degrade to a non-atomic write of both columns.
-          await supabase
-            .from("merchants")
-            .update({
-              generated_policies: updatedPolicies,
-              policy_regen_used: { ...regenUsed, [policyType]: true },
-            })
-            .eq("id", merchant.id);
+          // RPC missing — degrade, but still single-key. p_mark_regen_used sets
+          // generated_policies[type] AND policy_regen_used[type] with two
+          // jsonb_sets in ONE statement, so the fallback is no longer a second
+          // lost-update site. It cannot arbitrate a concurrent regen (that is
+          // finalize_policy_regen's conditional guard, which is what is
+          // missing here) — but it can no longer clobber an unrelated policy.
+          await supabase.rpc("set_generated_policy", {
+            p_merchant_id: merchant.id,
+            p_type: policyType,
+            p_body: policy.body,
+            p_mark_regen_used: true,
+          });
         } else if (!fin || (Array.isArray(fin) && fin.length === 0)) {
           return new Response(
             JSON.stringify({
@@ -496,11 +507,18 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         }
         // else: claimed — both columns already written by the RPC.
       } else {
-        await supabase
-          .from("merchants")
-          .update({ generated_policies: updatedPolicies })
-          .eq("id", merchant.id);
+        await supabase.rpc("set_generated_policy", {
+          p_merchant_id: merchant.id,
+          p_type: policyType,
+          p_body: policy.body,
+        });
       }
+
+      // Echoed back to the client so the UI reflects this generation. Derived
+      // from the pre-write read purely for the RESPONSE — it is no longer what
+      // gets persisted, so a concurrent generation of another type is not
+      // affected by it. The next loader revalidation returns the true row.
+      const updatedPolicies = { ...generatedPolicies, [policyType]: policy.body };
 
       // If still invalid after the retry, return the policy with a soft
       // warning so the merchant knows to review it before saving.

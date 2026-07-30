@@ -274,6 +274,52 @@ RETURNS TABLE(new_scans_remaining INTEGER) AS $$
 $$ LANGUAGE sql;
 
 -- ============================================================
+-- FUNCTION: set_generated_policy (2026-07-30)
+-- Writes ONE policy key via jsonb_set against the current row.
+--
+-- Replaces a read-modify-write that spread the whole generated_policies
+-- object from a read at the top of the action and wrote it back
+-- wholesale, so two concurrent generations of DIFFERENT policy types
+-- both started from the same base and the second silently dropped the
+-- first. useSingleFlight does not cover it — different buttons.
+--
+-- p_mark_regen_used additionally sets policy_regen_used[type] in the
+-- SAME statement, folding in the degraded fallback that used to write
+-- both columns non-atomically from two stale in-memory objects.
+--
+-- Does NOT replace finalize_policy_regen: that one carries the
+-- conditional guard deciding who WINS a concurrent regen. This is the
+-- unconditional single-key writer. Keep both.
+-- See supabase/migrations/20260730160000_set_generated_policy.sql.
+-- ============================================================
+CREATE OR REPLACE FUNCTION set_generated_policy(
+  p_merchant_id UUID,
+  p_type TEXT,
+  p_body TEXT,
+  p_mark_regen_used BOOLEAN DEFAULT false
+)
+RETURNS TABLE(written BOOLEAN) AS $$
+  UPDATE merchants
+  SET generated_policies = jsonb_set(
+        COALESCE(generated_policies, '{}'::jsonb),
+        ARRAY[p_type],
+        to_jsonb(p_body),
+        true
+      ),
+      policy_regen_used = CASE
+        WHEN p_mark_regen_used THEN jsonb_set(
+          COALESCE(policy_regen_used, '{}'::jsonb),
+          ARRAY[p_type],
+          'true'::jsonb,
+          true
+        )
+        ELSE COALESCE(policy_regen_used, '{}'::jsonb)
+      END
+  WHERE id = p_merchant_id
+  RETURNING true AS written;
+$$ LANGUAGE sql;
+
+-- ============================================================
 -- FUNCTION: consume_ai_credit (v4 §5)
 -- Atomically increments ai_generations_used (resetting the window
 -- if reset_at is >30 days old). Returns one row with the new counter

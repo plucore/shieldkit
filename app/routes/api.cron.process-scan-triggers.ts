@@ -56,6 +56,7 @@ import {
 } from "../lib/shopify-api.server";
 import { enrichProductMetafields } from "../lib/enrichment/gtin-enrichment.server";
 import { hasPaidAccess, PAID_TIERS } from "../lib/billing/plans";
+import { PAGE_SPEED_TRIGGER } from "../lib/checks/page-speed.server";
 import { sentry } from "../lib/sentry.server";
 
 // Upper bound on rows SELECTed per invocation. The real limiter is
@@ -257,7 +258,14 @@ async function run(request: Request) {
   // Split paid-scoped rows into enrichment work vs legacy holdovers. Both are
   // already guaranteed to belong to a paid, installed merchant by the SELECT.
   const enrichmentRows = triggerRows.filter((r) => r.trigger_type === "enrichment");
-  const legacyRows = triggerRows.filter((r) => r.trigger_type !== "enrichment");
+  // page_speed rows belong to api.cron.measure-page-speed and MUST NOT be swept
+  // here. The legacy branch marks rows processed without doing any work, so
+  // without this exclusion a paid merchant's queued PageSpeed measurement would
+  // be silently discarded and the violation row would stay "checking in the
+  // background" forever.
+  const legacyRows = triggerRows.filter(
+    (r) => r.trigger_type !== "enrichment" && r.trigger_type !== PAGE_SPEED_TRIGGER,
+  );
 
   // Honest counters. `enrichmentsProcessed` used to count ATTEMPTS — it was
   // incremented on the ok:false path too — so the 2026-07-28 burn-down reported

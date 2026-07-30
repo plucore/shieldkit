@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { checkPageSpeed } from "../app/lib/checks/page-speed.server";
+import { measurePageSpeed, pendingPageSpeed } from "../app/lib/checks/page-speed.server";
 import { computeComplianceScore } from "../app/lib/checks/compliance-score";
 import type { CheckResult, Severity } from "../app/lib/checks/types";
 
@@ -46,7 +46,7 @@ function mkResult(over: Partial<CheckResult>): CheckResult {
   };
 }
 
-describe("checkPageSpeed degrades gracefully when PageSpeed is unmeasurable", () => {
+describe("measurePageSpeed degrades gracefully when PageSpeed is unmeasurable", () => {
   it("timeout / abort / network error → non-scorable INFO 'not measured'", async () => {
     globalThis.fetch = vi
       .fn()
@@ -56,7 +56,7 @@ describe("checkPageSpeed degrades gracefully when PageSpeed is unmeasurable", ()
         }),
       ) as unknown as typeof fetch;
 
-    const r = await checkPageSpeed("https://store.example");
+    const r = await measurePageSpeed("https://store.example");
 
     expect(r.check_name).toBe("page_speed");
     expect(r.severity).toBe("info"); // NOT "error", NOT "warning"
@@ -72,7 +72,7 @@ describe("checkPageSpeed degrades gracefully when PageSpeed is unmeasurable", ()
       .fn()
       .mockResolvedValue({ ok: false, status: 429 } as Response) as unknown as typeof fetch;
 
-    const r = await checkPageSpeed("https://store.example");
+    const r = await measurePageSpeed("https://store.example");
 
     expect(r.severity).toBe("info");
     expect(r.passed).toBe(true);
@@ -85,24 +85,28 @@ describe("checkPageSpeed degrades gracefully when PageSpeed is unmeasurable", ()
       .fn()
       .mockResolvedValue(psiResponse(null)) as unknown as typeof fetch;
 
-    const r = await checkPageSpeed("https://store.example");
+    const r = await measurePageSpeed("https://store.example");
 
     expect(r.severity).toBe("info");
     expect(r.passed).toBe(true);
     expect(r.scorable).toBe(false);
   });
 
-  it("successful poor-score response → INFO finding (not WARNING), still scored", async () => {
+  it("successful poor-score response → INFO finding, and NON-scorable (2026-07-30)", async () => {
     globalThis.fetch = vi
       .fn()
       .mockResolvedValue(psiResponse(0.2)) as unknown as typeof fetch; // 20/100
 
-    const r = await checkPageSpeed("https://store.example");
+    const r = await measurePageSpeed("https://store.example");
 
     // Page speed isn't a GMC suspension criterion → INFO, not WARNING.
     expect(r.severity).toBe("info");
     expect(r.passed).toBe(false);
-    expect(r.scorable).not.toBe(false); // measured → participates in scoring
+    // Was `scorable` when measured. Page speed is not a GMC suspension
+    // criterion, so it no longer moves a score that claims to predict
+    // suspension — and permanent non-scorability is what makes the deferred
+    // background patch score-neutral.
+    expect(r.scorable).toBe(false);
     expect(r.description).toContain("20/100");
   });
 
@@ -111,10 +115,10 @@ describe("checkPageSpeed degrades gracefully when PageSpeed is unmeasurable", ()
       .fn()
       .mockResolvedValue(psiResponse(0.95)) as unknown as typeof fetch; // 95/100
 
-    const r = await checkPageSpeed("https://store.example");
+    const r = await measurePageSpeed("https://store.example");
 
     expect(r.passed).toBe(true);
-    expect(r.scorable).not.toBe(false);
+    expect(r.scorable).toBe(false); // permanently advisory
     expect(r.raw_data.measured).toBe(true);
   });
 });

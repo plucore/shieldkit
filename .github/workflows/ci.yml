@@ -1,0 +1,67 @@
+name: CI
+
+# The typecheck + test gate.
+#
+# Until 2026-07-30 nothing ran either on a pull request — the only PR checks
+# were Vercel's build and preview comment, and `react-router build` does not
+# typecheck (Vite strips types without checking them). So "npm test is green"
+# and "typecheck has no new errors" were claims verified by hand, locally, by
+# whoever happened to remember. This workflow makes them enforced.
+#
+# ZERO ERRORS, NOT A BASELINE DIFF. typecheck carried 44 standing errors for
+# months, which made it unusable as a gate: proving "no regression" meant
+# stashing a base commit and diffing error sets by hand. Those are now fixed
+# (app/polaris-jsx.d.ts, plus three real ones in scripts/), so the threshold is
+# zero and the first regression fails loudly instead of hiding in a count.
+#
+# ── Injection safety ────────────────────────────────────────────────────────
+# No step interpolates a user-controlled event payload (issue/PR title or body,
+# commit message, head_ref, …) into a `run:` block — the standard GitHub Actions
+# script-injection vector. The only expression used anywhere is `github.ref`,
+# and it appears solely in `concurrency.group`, never in a shell command; on a
+# pull_request event it resolves to `refs/pull/<number>/merge`.
+#
+# `pull_request` (NOT `pull_request_target`) is deliberate: a fork PR therefore
+# runs with a read-only token and no access to repository secrets. This job
+# needs no secrets at all.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  # Re-running on a new push to the same PR cancels the stale run — the old
+  # result is about code nobody is merging.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches the engines range in package.json (>=20.19 <22 || >=22.12).
+          node-version: "22.12"
+          cache: npm
+
+      # `npm ci` not `npm install`, for the same reason vercel.json pins it:
+      # it installs exactly the lockfile and fails if package.json and the
+      # lockfile disagree — the check that catches a dependency edit committed
+      # without its regenerated lockfile.
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test

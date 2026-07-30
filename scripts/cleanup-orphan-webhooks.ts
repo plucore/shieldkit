@@ -238,7 +238,10 @@ async function main() {
   let cursor: string | null = null;
 
   while (hasNextPage) {
-    const result = await graphql<WebhookListResponse>(
+    // Explicitly annotated: without it TS cannot break the inference cycle
+    // (result -> connection -> cursor -> the variables passed to build result)
+    // and falls back to `any` under noImplicitAny (TS7022).
+    const result: WebhookListResponse = await graphql<WebhookListResponse>(
       SHOP_DOMAIN,
       accessToken,
       WEBHOOK_LIST_QUERY,

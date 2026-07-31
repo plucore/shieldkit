@@ -295,11 +295,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       });
     } catch (err) {
       console.error("[appeal-letter] generation failed:", err);
-      // generateAppealLetter already captured this at the source (see the
-      // .catch in appeal-letter.server.ts). All that is missing is delivery:
-      // without a flush the 502 below freezes the container first and the
-      // event never leaves the box.
-      await sentry.flush();
       return data(
         {
           ok: false,

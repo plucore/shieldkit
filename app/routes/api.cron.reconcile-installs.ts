@@ -96,10 +96,9 @@ async function run(request: Request) {
     status = 500;
     const messageText = err instanceof Error ? err.message : String(err);
     console.error("[cron/reconcile-installs] run failed:", messageText);
-    sentry.captureException(err, {
+    await sentry.captureException(err, {
       tags: { area: "cron.reconcile-installs" },
     });
-    await sentry.flush();
     summary = { error: "database_error", message: messageText };
   }
 

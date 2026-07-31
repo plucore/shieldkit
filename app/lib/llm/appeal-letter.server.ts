@@ -87,13 +87,15 @@ export async function generateAppealLetter(
       system: systemPrompt,
       messages: [{ role: "user", content: userMessage }],
     })
-    .catch((err: unknown) => {
+    .catch(async (err: unknown) => {
       // Report Anthropic API failures to Sentry from the source — notably the
       // SHIELDKIT-1 model-not-found 404 (message contains "not_found_error" +
       // "model:"). The appeal route only turns a throw into a user-facing error,
       // so without this the model-not-found alert has nothing to match. Re-throw
       // so the caller's existing handling (slot release, error response) is intact.
-      sentry.captureException(err, { tags: { area: "appeal-letter" } });
+      // AWAITED before re-throwing — see the matching note in
+      // policy-generator.server.ts. captureException flushes internally.
+      await sentry.captureException(err, { tags: { area: "appeal-letter" } });
       throw err;
     });
 

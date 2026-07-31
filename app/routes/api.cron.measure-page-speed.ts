@@ -101,8 +101,7 @@ async function run(request: Request) {
     status = 500;
     const message = err instanceof Error ? err.message : String(err);
     console.error("[cron/measure-page-speed] run failed:", message);
-    sentry.captureException(err, { tags: { area: "cron.measure-page-speed" } });
-    await sentry.flush();
+    await sentry.captureException(err, { tags: { area: "cron.measure-page-speed" } });
     summary = { error: "run_failed", message };
   }
 

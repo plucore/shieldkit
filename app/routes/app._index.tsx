@@ -541,16 +541,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         { status: 200, headers: { "Content-Type": "application/json" } }
       );
     } catch (err) {
-      // No regen slot to release: finalize_policy_regen claims AFTER generation,
-      // so a throw here means nothing was claimed and the regen stays available.
-      // The AI credit is returned by the finally below, which covers this throw
-      // and the early returns above alike.
-      //
-      // generatePolicy captured this at the source (see the .catch in
-      // policy-generator.server.ts). Flush so it survives the response below —
-      // SHIELDKIT-1 only reached Sentry because it was UNhandled and unwound
-      // through the framework; a handled throw returning a 500 here would not.
-      await sentry.flush();
 
       const message = err instanceof Error ? err.message : String(err);
       return new Response(

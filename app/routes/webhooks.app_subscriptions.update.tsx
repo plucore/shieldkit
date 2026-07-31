@@ -259,16 +259,17 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       // only reason it was ever found was the founder reading the Partner
       // Dashboard by hand. A revoked entitlement is a revenue-affecting event
       // and should never be invisible again, even when it is correct.
-      sentry.captureMessage(
+      // AWAITED so it is delivered before the ACK. This alarm ran for
+      // 7wf1na-x2 at 2026-07-30 09:12:08 and never reached Sentry, because
+      // capture used to only enqueue and the `return new Response()` below
+      // freezes the container before the transport drains. captureMessage now
+      // flushes internally; awaiting it is what guarantees delivery. Bounded
+      // and always-resolving, so the ACK stays inside Shopify's budget even if
+      // Sentry is degraded.
+      await sentry.captureMessage(
         `Entitlement REVOKED for ${shop} — status=${status} sub=${admin_graphql_api_id} (was tier=${row?.tier})`,
         "warning",
       );
-      // Flush before the ACK. This alarm ran for 7wf1na-x2 at 2026-07-30
-      // 09:12:08 and never reached Sentry: capture only enqueues, and the
-      // `return new Response()` below freezes the container before the
-      // transport drains. Bounded and always-resolving, so the webhook ACK
-      // stays inside Shopify's budget even if Sentry is degraded.
-      await sentry.flush();
       console.log(
         `[${topic}] demoted ${shop} to free — status=${status} sub=${admin_graphql_api_id} (was tier=${row?.tier})`,
       );

@@ -1144,6 +1144,29 @@ Correct sequence, every time:
 
 No exceptions, including for a one-line change, a docs-only change, or a change that "obviously cannot break the build" — #21's failure was in the CI config itself, which is exactly the kind of change that looks unable to break anything.
 
+### Checking that alerting is alive
+
+**`GET /api/cron/alerting-healthcheck`**, bearer `CRON_SECRET`. Sends one `info`-level Sentry message and returns `{ event_id, dsn_configured, delivery_ms }`. Find that `event_id` in the shieldkit Sentry project and alerting is proven end to end — DSN, egress, and flush.
+
+```bash
+curl -s -H "Authorization: Bearer $CRON_SECRET" \
+  https://shieldkit.vercel.app/api/cron/alerting-healthcheck
+```
+
+Not scheduled — it is an on-demand probe. Run it **after any deploy that touches `sentry.server.ts`**, and when you need to know whether silence means "nothing is wrong" or "the alarm is broken".
+
+That distinction is not hypothetical. Explicit captures were enqueued and never delivered for an unknown period (see the flush note below), and nothing surfaced it, because **the alarm that would report broken alarms is the broken alarm**. Silence from Sentry is only good news once you have confirmed the pipe is open.
+
+`event_id: null` with `dsn_configured: true` means the capture ran but the SDK returned no id — a transport problem, not configuration.
+
+### Sentry: capture DELIVERS, so never add a separate flush
+
+`sentry.captureException` / `sentry.captureMessage` in `app/lib/sentry.server.ts` **flush internally** and return the Sentry event id. Do **not** write `await sentry.flush()` after a capture — a test asserts no production file does.
+
+`await` the capture whenever a `Response` is returned shortly afterwards (webhook ACKs, cron handlers, route actions). Not awaiting still starts the HTTP POST immediately, which is far better than the pre-2026-07-31 behaviour of waiting for a background timer that never fired — but only `await` actually guarantees delivery before the container freezes.
+
+Cost: `Sentry.flush(ms)` is a **timeout, not a duration** — with nothing queued it resolves on the spot, so a request that captured nothing pays nothing. Only a request that actually captured something waits, bounded at 2s. `addBreadcrumb` never flushes (breadcrumbs are not events), which is why `reconcile-installs` emitting 38 of them costs nothing.
+
 ---
 
 ## 16. Next Priorities

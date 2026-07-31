@@ -250,13 +250,16 @@ export async function generatePolicy(
       ],
       system: systemPrompt,
     })
-    .catch((err: unknown) => {
+    .catch(async (err: unknown) => {
       // Report Anthropic API failures to Sentry from the source. The route-level
       // catch only turns a throw into a 500 for the merchant, so without this a
       // model-not-found 404 (message contains "not_found_error" + "model:", the
       // SHIELDKIT-1 class) never reaches Sentry and the model-not-found alert has
       // nothing to match. Re-throw so the caller's existing handling is unchanged.
-      sentry.captureException(err, {
+      // AWAITED before re-throwing: captureException flushes internally, and
+      // the route turns this throw into a 500 immediately, which freezes the
+      // container. Without the await the event is in flight but unfinished.
+      await sentry.captureException(err, {
         tags: { area: "policy-generator", policy_type: type },
       });
       throw err;

@@ -31,14 +31,19 @@ vi.mock("../app/lib/analytics.server", () => ({
   },
 }));
 
+// Mirrors the real wrapper's contract as of 2026-07-31: capture* deliver
+// (flush internally) and resolve with the event id. There is no separate flush
+// step for a caller to forget — or to assert on.
 vi.mock("../app/lib/sentry.server", () => ({
   sentry: {
     addBreadcrumb: () => {},
-    captureException: (err: unknown, ctx?: any) => captures.push({ err, ctx }),
-    captureMessage: () => {},
-    flush: async () => {
-      flushes += 1;
+    captureException: async (err: unknown, ctx?: any) => {
+      captures.push({ err, ctx });
+      flushes += 1; // the capture IS the delivery
+      return "evt-id";
     },
+    captureMessage: async () => "evt-id",
+    flush: async () => {},
   },
 }));
 
@@ -106,9 +111,17 @@ describe("recordScanFailure emits BOTH sinks and flushes", () => {
       error_class: "admin_api_401",
     });
 
-    // Without the flush the capture dies with the container — the whole reason
-    // no explicit sentry.* call in this codebase had ever been delivered.
+    // Delivery is no longer a second step recordScanFailure has to remember —
+    // captureException flushes internally, and recordScanFailure AWAITS it.
+    // That await is the part that still matters: both callers return a Response
+    // immediately afterwards.
     expect(flushes).toBe(1);
+    const src = readFileSync(
+      join(ROOT, "app/lib/scan-failure.server.ts"),
+      "utf-8",
+    );
+    expect(src).toMatch(/await sentry\.captureException\(/);
+    expect(src).not.toContain("sentry.flush(");
   });
 
   it("never throws, even when a sink blows up", async () => {

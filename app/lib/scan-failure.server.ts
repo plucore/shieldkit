@@ -87,7 +87,10 @@ export async function recordScanFailure(args: {
   }
 
   try {
-    sentry.captureException(args.err, {
+    // AWAITED. captureException flushes internally, but both callers return a
+    // Response the moment this resolves — so the await is what stops the
+    // container freezing mid-delivery. It is bounded at 2s and always resolves.
+    await sentry.captureException(args.err, {
       tags: {
         area: "compliance-scan",
         entry_point: args.entryPoint,
@@ -95,7 +98,6 @@ export async function recordScanFailure(args: {
       },
       extra: { shop: args.shopDomain, quota_refunded: args.quotaRefunded },
     });
-    await sentry.flush();
   } catch (e) {
     console.warn("[scan-failure] sentry capture failed:", e);
   }

@@ -1128,6 +1128,22 @@ The 12-point compliance scan takes ~10–15s per merchant. In v4 the weekly-scan
 ### Database Migrations
 Numbered migrations in `supabase/migrations/` are source of truth. Apply migration to live DB BEFORE deploying code that depends on the new shape. Live history listed in §4.
 
+### Merging a PR — NEVER use `gh pr merge --auto`
+
+**`--auto` merges on whatever checks happen to be green at that moment**, which on this repo means Vercel's build alone. `CI / verify` (typecheck + tests) takes ~3 minutes; Vercel reports in seconds. So `--auto` fires before CI has said anything and the merge lands regardless of the result.
+
+That is not hypothetical: **PR #21 merged with CI RED.** The workflow's very first run failed at `npm ci` — Node was pinned to 22.12 while `.npmrc` sets `engine-strict=true` and `@shopify/polaris-types` demands `>=22.18.0` — and `--auto` merged it anyway on the Vercel checks. The fix needed a follow-up PR (#22).
+
+**Branch protection cannot save you here.** The repo is private on GitHub Free, where protected branches and rulesets are both unavailable, so a required status check cannot be configured. **This rule IS the enforcement mechanism.** There is nothing behind it.
+
+Correct sequence, every time:
+1. `git push` the branch and open the PR.
+2. **Wait for `CI / verify` to report** — `gh pr checks <n>`, or poll until it leaves `pending`.
+3. **Confirm it passed.** Red means fix it and push again; never merge through it.
+4. Only then `gh pr merge <n> --squash` (no `--auto`).
+
+No exceptions, including for a one-line change, a docs-only change, or a change that "obviously cannot break the build" — #21's failure was in the CI config itself, which is exactly the kind of change that looks unable to break anything.
+
 ---
 
 ## 16. Next Priorities

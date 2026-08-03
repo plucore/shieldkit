@@ -142,25 +142,25 @@ export async function action({ request }: ActionFunctionArgs) {
       .rpc("decrement_scan_quota", { p_merchant_id: merchant.id });
 
     if (rpcError) {
+      // STOP — never fall through to the scan on a failed decrement.
+      // Identical defect and identical reasoning to the dashboard's runScan
+      // action; see the long comment there. Short version: this branch used to
+      // return 402 only for an already-exhausted merchant and then fall
+      // through for everyone else, running the scan without consuming the
+      // quota — turning the one-scan free tier into an unlimited one, silently
+      // and with a 200 response.
       console.error(
-        `[API/scan] decrement_scan_quota RPC error for ${shopDomain}:`,
+        `[API/scan] decrement_scan_quota RPC error for ${shopDomain} — refusing to scan (a fall-through here grants unlimited free scans):`,
         rpcError.message
       );
-      // Fall back to non-atomic check so we don't block scans if the RPC
-      // hasn't been deployed yet.
-      if (scansRemaining <= 0) {
-        return json(
-          {
-            error: "scan_limit_reached",
-            message:
-              "You have used all your available scans on the free tier. " +
-              "Upgrade to Pro to run unlimited compliance scans.",
-            scans_remaining: 0,
-            upgrade_url: "/app/upgrade",
-          },
-          402
-        );
-      }
+      return json(
+        {
+          error: "quota_check_failed",
+          message:
+            "We couldn't start your scan just now. Please try again in a moment.",
+        },
+        500
+      );
     } else if (!rpcResult || (Array.isArray(rpcResult) && rpcResult.length === 0)) {
       // No rows returned — quota was already 0
       return json(

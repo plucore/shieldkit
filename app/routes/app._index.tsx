@@ -747,17 +747,36 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       .rpc("decrement_scan_quota", { p_merchant_id: merchant.id });
 
     if (rpcError) {
-      // RPC not deployed yet — fall back to non-atomic check
-      if (scansRemaining <= 0) {
-        return new Response(
-          JSON.stringify({
-            success: false,
-            error_code: "scan_limit_reached",
-            message: "You've used your free scan. Upgrade to Monitoring for unlimited on-demand scans plus AI-written policies, appeal letters, and AI search visibility.",
-          }),
-          { status: 402, headers: { "Content-Type": "application/json" } }
-        );
-      }
+      // STOP — never fall through to the scan on a failed decrement.
+      //
+      // This branch used to check `scansRemaining <= 0`, return 402 only for
+      // an already-exhausted merchant, and then FALL THROUGH for everyone
+      // else — running the scan while leaving the quota untouched. That
+      // silently converts the one-scan free tier into an unlimited one, and it
+      // does so in the direction nobody investigates: the merchant gets their
+      // scan, the request returns 200, no counter moves.
+      //
+      // It is §11a of claude.md in the billing layer — "we could not consume
+      // the quota" became "no quota needed to be consumed". The refusal to
+      // assert is the fix: if we cannot record the charge, we do not deliver
+      // the goods. The merchant retries; nothing is lost but a few seconds.
+      //
+      // Fail-direction note: elsewhere (FROZEN subscriptions) this codebase
+      // fails toward ACCESS, because wrongly revoking a paid entitlement costs
+      // a customer. Here the failure would wrongly GRANT free product, so the
+      // safe direction is inverted. Decide which hazard applies before copying
+      // either pattern.
+      console.error(
+        `[runScan] decrement_scan_quota RPC error for ${shopDomain} — refusing to scan (a fall-through here grants unlimited free scans): ${rpcError.message}`
+      );
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error_code: "quota_check_failed",
+          message: "We couldn't start your scan just now. Please try again in a moment.",
+        }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      );
     } else if (!rpcResult || (Array.isArray(rpcResult) && rpcResult.length === 0)) {
       return new Response(
         JSON.stringify({
